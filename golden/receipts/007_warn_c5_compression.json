@@ -1,11 +1,11 @@
 {
   "schema_version": "0.1",
-  "tool_version": "0.3.1",
+  "tool_version": "0.4.0",
   "checks_version": "1",
   "receipt_id": "6b4fc9ceff5723f4",
-  "receipt_fingerprint": "35540765245aaa0a",
+  "receipt_fingerprint": "07d08840981d4ca1",
   "trace_id": "golden-007-warn-c5-compression",
-  "timestamp": "2026-02-11T20:57:20.222474+00:00",
+  "timestamp": "2026-02-11T21:36:49.214268+00:00",
   "inputs": {
     "query": "deployment options",
     "context": "Deployment options include:\n- AWS with auto-scaling groups\n- GCP with Kubernetes Engine\n- Azure with App Service\n- On-premise with Docker Compose\n- Hybrid cloud with VPN tunneling\nEach option has different cost, latency, and compliance implications."
@@ -65,5 +65,7 @@
   ],
   "checks_passed": 4,
   "checks_failed": 1,
-  "coherence_status": "WARN"
+  "coherence_status": "WARN",
+  "constitution_ref": null,
+  "halt_event": null
 }

@@ -1,11 +1,11 @@
 {
   "schema_version": "0.1",
-  "tool_version": "0.3.1",
+  "tool_version": "0.4.0",
   "checks_version": "1",
   "receipt_id": "eb7ff95d477b6f97",
-  "receipt_fingerprint": "a5d6924d1a884ee4",
+  "receipt_fingerprint": "d1c66fb261099b0d",
   "trace_id": "golden-004-pass-policy-conditional",
-  "timestamp": "2026-02-11T20:57:20.220869+00:00",
+  "timestamp": "2026-02-11T21:36:49.213174+00:00",
   "inputs": {
     "query": "premium plan discount eligibility",
     "context": "Premium plan discount: Available for annual commitments only. Requires minimum 5 seats. Not applicable to existing subscriptions. Cannot be combined with other offers."
@@ -65,5 +65,7 @@
   ],
   "checks_passed": 5,
   "checks_failed": 0,
-  "coherence_status": "PASS"
+  "coherence_status": "PASS",
+  "constitution_ref": null,
+  "halt_event": null
 }

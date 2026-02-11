@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sanna"
-version = "0.3.1"
+version = "0.4.0"
 description = "Coherence checks for AI agents — portable, offline-verifiable reasoning receipts"
 readme = "README.md"
 license = "Apache-2.0"

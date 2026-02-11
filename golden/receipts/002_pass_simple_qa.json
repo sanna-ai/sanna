@@ -1,11 +1,11 @@
 {
   "schema_version": "0.1",
-  "tool_version": "0.3.1",
+  "tool_version": "0.4.0",
   "checks_version": "1",
   "receipt_id": "095ac44b3bea07b4",
-  "receipt_fingerprint": "98854b27d0626eb8",
+  "receipt_fingerprint": "e9b56ea173c208a5",
   "trace_id": "golden-002-pass-simple-qa",
-  "timestamp": "2026-02-11T20:57:20.219670+00:00",
+  "timestamp": "2026-02-11T21:36:49.212257+00:00",
   "inputs": {
     "query": "capital of France",
     "context": "France is a country in Western Europe. Its capital city is Paris, which has served as the capital since the reign of the Capetian dynasty."
@@ -65,5 +65,7 @@
   ],
   "checks_passed": 5,
   "checks_failed": 0,
-  "coherence_status": "PASS"
+  "coherence_status": "PASS",
+  "constitution_ref": null,
+  "halt_event": null
 }

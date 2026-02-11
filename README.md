@@ -75,7 +75,7 @@ All checks are heuristic (pattern matching). They flag for human review — they
 
 | Mode | Behavior |
 |------|----------|
-| `halt` | Raises `SannaHaltError` and stops execution when a critical check fails |
+| `halt` | Raises `SannaHaltError` and stops execution when a critical check fails. Records a `halt_event` in the receipt. |
 | `warn` | Returns the result but emits Python warnings for failed checks |
 | `log` | Returns the result silently; failures are recorded in the receipt only |
 
@@ -84,6 +84,45 @@ All checks are heuristic (pattern matching). They flag for human review — they
 @sanna_observe(on_violation="warn")   # Warn but continue
 @sanna_observe(on_violation="log")    # Silent — receipt only
 ```
+
+## Constitution Provenance
+
+Track which policy document defined the check boundaries:
+
+```python
+from sanna import sanna_observe, ConstitutionProvenance, hash_text
+
+constitution = ConstitutionProvenance(
+    document_id="refund-policy-v2",
+    document_hash=hash_text("No refunds on digital products."),
+    version="2.0",
+    source="policy-repo",
+)
+
+@sanna_observe(on_violation="halt", constitution=constitution)
+def my_agent(query, context):
+    return "..."
+```
+
+The `constitution_ref` is included in the receipt and covered by the fingerprint. If anyone modifies the constitution reference after generation, verification detects the inconsistency.
+
+## Halt Events
+
+When `on_violation="halt"` triggers, the receipt automatically records a `halt_event`:
+
+```json
+{
+  "halt_event": {
+    "halted": true,
+    "reason": "Coherence check failed: C1",
+    "failed_checks": ["C1"],
+    "timestamp": "2026-02-11T...",
+    "enforcement_mode": "halt"
+  }
+}
+```
+
+The verifier warns when a receipt has FAIL status with a critical failure but no `halt_event` recorded — indicating the failure was not enforced.
 
 ## CLI Tools
 
@@ -100,7 +139,7 @@ sanna-generate <trace_id> --format json -o receipt.json # Machine-readable JSON
 sanna-verify receipt.json                  # Human-readable
 sanna-verify receipt.json --format json    # Machine-readable
 
-# Exit codes: 0=valid, 2=schema, 3=tamper, 4=consistency
+# Exit codes: 0=valid, 2=schema, 3=fingerprint mismatch, 4=consistency
 ```
 
 ## Receipt Format
@@ -136,7 +175,7 @@ Sanna runs coherence checks — verifying the agent's output was consistent with
 
 ## Status
 
-**v0.3.1** — CLI tools + `@sanna_observe` middleware decorator. Fingerprint now covers check results. Looking for design partners running agents in production.
+**v0.4.0** — Constitution provenance + halt events for governance tracking. CLI tools + `@sanna_observe` middleware decorator. Looking for design partners running agents in production.
 
 ## License
 

@@ -102,7 +102,13 @@ def verify_fingerprint(receipt: dict) -> tuple:
     checks_data = [{"check_id": c.get("check_id", ""), "passed": c.get("passed"), "severity": c.get("severity", ""), "evidence": c.get("evidence")} for c in checks]
     checks_hash = hash_obj(checks_data)
 
-    fingerprint_input = f"{trace_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}"
+    # Include constitution_ref and halt_event in fingerprint
+    constitution_ref = receipt.get("constitution_ref")
+    halt_event = receipt.get("halt_event")
+    constitution_hash = hash_obj(constitution_ref) if constitution_ref else ""
+    halt_hash = hash_obj(halt_event) if halt_event else ""
+
+    fingerprint_input = f"{trace_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{halt_hash}"
     computed = hash_text(fingerprint_input)
     expected = receipt.get("receipt_fingerprint", "")
 
@@ -189,6 +195,19 @@ def verify_content_hashes(receipt: dict) -> list:
     return errors
 
 
+def verify_constitution_hash(receipt: dict) -> list:
+    """Verify constitution_ref.document_hash is a valid 16-hex-char hash if present."""
+    errors = []
+    constitution_ref = receipt.get("constitution_ref")
+    if constitution_ref:
+        doc_hash = constitution_ref.get("document_hash", "")
+        import re
+        hex_pattern = re.compile(r"^[a-f0-9]{16}$")
+        if not hex_pattern.match(doc_hash):
+            errors.append(f"constitution_ref.document_hash has invalid format: '{doc_hash}' (expected 16 hex chars)")
+    return errors
+
+
 def verify_receipt(receipt: dict, schema: dict) -> VerificationResult:
     """
     Full receipt verification.
@@ -224,6 +243,10 @@ def verify_receipt(receipt: dict, schema: dict) -> VerificationResult:
             errors=errors, warnings=warnings
         )
 
+    # 2c. Constitution hash format check
+    constitution_errors = verify_constitution_hash(receipt)
+    errors.extend(constitution_errors)
+
     # 3. Fingerprint verification
     fp_match, fp_computed, fp_expected = verify_fingerprint(receipt)
 
@@ -233,6 +256,12 @@ def verify_receipt(receipt: dict, schema: dict) -> VerificationResult:
     # 5. Check counts
     count_errors = verify_check_counts(receipt)
     errors.extend(count_errors)
+
+    # 6. Governance warning: FAIL with critical failure but no halt_event
+    checks = receipt.get("checks", [])
+    has_critical_fail = any(not c.get("passed") and c.get("severity") == "critical" for c in checks)
+    if receipt.get("coherence_status") == "FAIL" and has_critical_fail and not receipt.get("halt_event"):
+        warnings.append("Receipt has FAIL status with critical check failure but no halt_event recorded")
 
     # Determine result
     if not fp_match:

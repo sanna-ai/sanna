@@ -5,7 +5,7 @@ Generates portable, offline-verifiable "reasoning receipts" that document
 AI agent decisions with C1-C5 coherence checks and consistency-verified hashing.
 """
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 
 from .hashing import hash_text, hash_obj, canonicalize_text
 from .receipt import (
@@ -15,6 +15,8 @@ from .receipt import (
     C3MReceipt,  # legacy alias
     CheckResult,
     FinalAnswerProvenance,
+    ConstitutionProvenance,
+    HaltEvent,
     TOOL_VERSION,
     SCHEMA_VERSION,
     CHECKS_VERSION,
@@ -33,6 +35,8 @@ __all__ = [
     "C3MReceipt",
     "CheckResult",
     "FinalAnswerProvenance",
+    "ConstitutionProvenance",
+    "HaltEvent",
     "verify_receipt",
     "load_schema",
     "VerificationResult",

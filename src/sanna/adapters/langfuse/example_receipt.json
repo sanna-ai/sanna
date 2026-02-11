@@ -1,9 +1,9 @@
 {
   "schema_version": "0.1",
-  "tool_version": "0.3.1",
+  "tool_version": "0.4.0",
   "checks_version": "1",
   "receipt_id": "ab7a266c57c311f3",
-  "receipt_fingerprint": "722bd1f0906622b6",
+  "receipt_fingerprint": "6402a684787cbc98",
   "trace_id": "golden-001-fail-c1-refund",
   "timestamp": "2026-02-11T20:57:20.218865+00:00",
   "inputs": {
@@ -65,5 +65,7 @@
   ],
   "checks_passed": 4,
   "checks_failed": 1,
-  "coherence_status": "FAIL"
+  "coherence_status": "FAIL",
+  "constitution_ref": null,
+  "halt_event": null
 }

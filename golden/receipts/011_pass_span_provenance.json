@@ -1,11 +1,11 @@
 {
   "schema_version": "0.1",
-  "tool_version": "0.3.1",
+  "tool_version": "0.4.0",
   "checks_version": "1",
   "receipt_id": "706e20339974ab45",
-  "receipt_fingerprint": "8f4b460dddbbe820",
+  "receipt_fingerprint": "222d95923758bf80",
   "trace_id": "golden-011-pass-span-provenance",
-  "timestamp": "2026-02-11T20:57:20.224107+00:00",
+  "timestamp": "2026-02-11T21:36:49.215757+00:00",
   "inputs": {
     "query": "document summary",
     "context": "The document discusses quarterly revenue growth of 15%, new product launches in Q3, and expansion into European markets."
@@ -65,5 +65,7 @@
   ],
   "checks_passed": 5,
   "checks_failed": 0,
-  "coherence_status": "PASS"
+  "coherence_status": "PASS",
+  "constitution_ref": null,
+  "halt_event": null
 }

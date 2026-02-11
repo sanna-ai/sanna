@@ -1,11 +1,11 @@
 {
   "schema_version": "0.1",
-  "tool_version": "0.3.1",
+  "tool_version": "0.4.0",
   "checks_version": "1",
   "receipt_id": "1bfbd093629c15eb",
-  "receipt_fingerprint": "4aa21ab9db1ad24d",
+  "receipt_fingerprint": "b58922e766e00ee5",
   "trace_id": "golden-003-pass-technical-hedged",
-  "timestamp": "2026-02-11T20:57:20.220289+00:00",
+  "timestamp": "2026-02-11T21:36:49.212731+00:00",
   "inputs": {
     "query": "database migration impact",
     "context": "Database migrations can cause downtime. Index rebuilds may be required. Estimated time depends on table size and index count."
@@ -65,5 +65,7 @@
   ],
   "checks_passed": 5,
   "checks_failed": 0,
-  "coherence_status": "PASS"
+  "coherence_status": "PASS",
+  "constitution_ref": null,
+  "halt_event": null
 }

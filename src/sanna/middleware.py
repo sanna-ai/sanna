@@ -29,6 +29,8 @@ from .receipt import (
     check_c4_conflict_collapse,
     check_c5_premature_compression,
     CheckResult,
+    ConstitutionProvenance,
+    HaltEvent,
     SannaReceipt,
     TOOL_VERSION,
     SCHEMA_VERSION,
@@ -206,6 +208,8 @@ def _generate_receipt_with_checks(
     trace_data: dict,
     checks: Sequence[str],
     extensions: Optional[dict] = None,
+    constitution: Optional[ConstitutionProvenance] = None,
+    halt_event: Optional[HaltEvent] = None,
 ) -> dict:
     """
     Generate a receipt, optionally running only a subset of checks.
@@ -220,7 +224,7 @@ def _generate_receipt_with_checks(
 
     if requested == all_check_ids:
         # Full check set — use existing pipeline directly
-        receipt_obj = generate_receipt(trace_data)
+        receipt_obj = generate_receipt(trace_data, constitution=constitution, halt_event=halt_event)
         receipt_dict = asdict(receipt_obj)
         if extensions:
             receipt_dict["extensions"] = extensions
@@ -263,9 +267,15 @@ def _generate_receipt_with_checks(
     context_hash = hash_obj(inputs)
     output_hash = hash_obj(outputs)
 
+    # Serialize optional blocks for fingerprint
+    constitution_dict = asdict(constitution) if constitution else None
+    halt_event_dict = asdict(halt_event) if halt_event else None
+    constitution_hash_val = hash_obj(constitution_dict) if constitution_dict else ""
+    halt_hash_val = hash_obj(halt_event_dict) if halt_event_dict else ""
+
     checks_data = [{"check_id": c.check_id, "passed": c.passed, "severity": c.severity, "evidence": c.evidence} for c in check_results]
     checks_hash = hash_obj(checks_data)
-    fingerprint_input = f"{trace_data['trace_id']}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}"
+    fingerprint_input = f"{trace_data['trace_id']}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{halt_hash_val}"
     receipt_fingerprint = hash_text(fingerprint_input)
 
     receipt_dict = {
@@ -285,6 +295,8 @@ def _generate_receipt_with_checks(
         "checks_passed": passed,
         "checks_failed": failed,
         "coherence_status": status,
+        "constitution_ref": constitution_dict,
+        "halt_event": halt_event_dict,
     }
 
     if extensions:
@@ -318,6 +330,7 @@ def sanna_observe(
     receipt_dir: Optional[str] = None,
     context_param: Optional[str] = None,
     query_param: Optional[str] = None,
+    constitution: Optional[ConstitutionProvenance] = None,
 ):
     """
     Decorator that wraps an agent function with Sanna coherence checks.
@@ -336,6 +349,7 @@ def sanna_observe(
         receipt_dir: Directory to write receipt JSON. None to skip.
         context_param: Explicit name of the context parameter.
         query_param: Explicit name of the query parameter.
+        constitution: Optional ConstitutionProvenance for governance tracking.
 
     Returns:
         SannaResult wrapping the function output and receipt, or raises
@@ -366,7 +380,7 @@ def sanna_observe(
             # 3. Capture output
             output_str = _to_str(result)
 
-            # 4. Build trace and generate receipt
+            # 4. Build trace and generate receipt (without halt_event yet)
             trace_data = _build_trace_data(
                 trace_id=trace_id,
                 query=resolved["query"],
@@ -386,20 +400,42 @@ def sanna_observe(
                 }
             }
 
+            # First pass: generate receipt without halt_event to determine enforcement
             receipt = _generate_receipt_with_checks(
                 trace_data, checks, extensions=extensions,
+                constitution=constitution,
             )
 
             # 5. Enforcement decision
+            halt_event_obj = None
             if receipt["coherence_status"] != "PASS":
                 if on_violation == "halt" and _should_halt(receipt, halt_on):
                     enforcement_decision = "HALTED"
+                    failed_check_ids = [
+                        c["check_id"] for c in receipt["checks"]
+                        if not c["passed"] and c["severity"] in halt_on
+                    ]
+                    halt_event_obj = HaltEvent(
+                        halted=True,
+                        reason=f"Coherence check failed: {', '.join(failed_check_ids)}",
+                        failed_checks=failed_check_ids,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        enforcement_mode=on_violation,
+                    )
                 elif on_violation == "warn":
                     enforcement_decision = "WARNED"
                 else:
                     enforcement_decision = "LOGGED"
             else:
                 enforcement_decision = "PASSED"
+
+            # If we created a halt_event, regenerate receipt with it included
+            if halt_event_obj is not None:
+                receipt = _generate_receipt_with_checks(
+                    trace_data, checks, extensions=extensions,
+                    constitution=constitution,
+                    halt_event=halt_event_obj,
+                )
 
             # Update the extensions with final decision
             receipt["extensions"]["middleware"]["enforcement_decision"] = enforcement_decision

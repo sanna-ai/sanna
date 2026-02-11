@@ -1,11 +1,11 @@
 {
   "schema_version": "0.1",
-  "tool_version": "0.3.1",
+  "tool_version": "0.4.0",
   "checks_version": "1",
   "receipt_id": "0bad1b213e764495",
-  "receipt_fingerprint": "87cb1a73002ad900",
+  "receipt_fingerprint": "8baaa22b51257083",
   "trace_id": "golden-008-fail-c1-factual",
-  "timestamp": "2026-02-11T20:57:20.222848+00:00",
+  "timestamp": "2026-02-11T21:36:49.214619+00:00",
   "inputs": {
     "query": "digital game refund policy",
     "context": "All digital products are non-refundable once the download has started. Physical products can be returned within 14 days. Gift cards are non-refundable."
@@ -65,5 +65,7 @@
   ],
   "checks_passed": 1,
   "checks_failed": 4,
-  "coherence_status": "FAIL"
+  "coherence_status": "FAIL",
+  "constitution_ref": null,
+  "halt_event": null
 }

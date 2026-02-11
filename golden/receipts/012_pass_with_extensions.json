@@ -1,11 +1,11 @@
 {
   "schema_version": "0.1",
-  "tool_version": "0.3.1",
+  "tool_version": "0.4.0",
   "checks_version": "1",
   "receipt_id": "902df874c755cf63",
-  "receipt_fingerprint": "1420182d6ff39fa6",
+  "receipt_fingerprint": "9e3d1a3cc6124539",
   "trace_id": "golden-012-pass-extensions",
-  "timestamp": "2026-02-11T20:57:20.224409+00:00",
+  "timestamp": "2026-02-11T21:36:49.216115+00:00",
   "inputs": {
     "query": "store hours",
     "context": "Store hours: Monday-Friday 9 AM to 9 PM. Saturday-Sunday 10 AM to 6 PM. Holiday hours may vary."
@@ -66,6 +66,8 @@
   "checks_passed": 4,
   "checks_failed": 1,
   "coherence_status": "WARN",
+  "constitution_ref": null,
+  "halt_event": null,
   "extensions": {
     "vendor": "test-vendor",
     "pipeline_id": "pipe-123",

@@ -94,12 +94,17 @@ def langfuse_trace_to_trace_data(trace_data: Any) -> dict:
     }
 
 
-def export_receipt(trace_data: Any, extensions: dict[str, Any] | None = None) -> dict[str, Any]:
+def export_receipt(
+    trace_data: Any,
+    extensions: dict[str, Any] | None = None,
+    constitution: Any | None = None,
+) -> dict[str, Any]:
     """Generate a Sanna receipt from a Langfuse trace.
 
     Args:
         trace_data: Langfuse trace data object.
         extensions: Optional vendor-specific metadata.
+        constitution: Optional ConstitutionProvenance for governance tracking.
 
     Returns:
         Receipt as a JSON-serializable dict.
@@ -107,7 +112,7 @@ def export_receipt(trace_data: Any, extensions: dict[str, Any] | None = None) ->
     from sanna.receipt import generate_receipt
 
     trace_dict = langfuse_trace_to_trace_data(trace_data)
-    receipt = generate_receipt(trace_dict)
+    receipt = generate_receipt(trace_dict, constitution=constitution)
     receipt_dict = asdict(receipt)
 
     if extensions:

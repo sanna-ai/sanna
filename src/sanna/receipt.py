@@ -15,7 +15,7 @@ from .hashing import hash_text, hash_obj
 # VERSION CONSTANTS
 # =============================================================================
 
-TOOL_VERSION = "0.3.1"
+TOOL_VERSION = "0.4.0"
 SCHEMA_VERSION = "0.1"
 CHECKS_VERSION = "1"  # Increment when check logic changes
 
@@ -45,6 +45,25 @@ class FinalAnswerProvenance:
 
 
 @dataclass
+class ConstitutionProvenance:
+    """Provenance of the constitution/policy document that defined check boundaries."""
+    document_id: str
+    document_hash: str  # SHA256 hash of the constitution content
+    version: Optional[str] = None
+    source: Optional[str] = None  # e.g., "policy-repo", "compliance-api"
+
+
+@dataclass
+class HaltEvent:
+    """Records when execution was halted due to check failures."""
+    halted: bool
+    reason: str
+    failed_checks: list  # List of check_id strings that triggered the halt
+    timestamp: str
+    enforcement_mode: str  # "halt", "warn", "log"
+
+
+@dataclass
 class SannaReceipt:
     """The reasoning receipt artifact."""
     schema_version: str
@@ -63,6 +82,8 @@ class SannaReceipt:
     checks_passed: int
     checks_failed: int
     coherence_status: str  # "PASS", "WARN", "FAIL"
+    constitution_ref: Optional[dict] = None
+    halt_event: Optional[dict] = None
 
 
 # Legacy alias
@@ -427,8 +448,18 @@ def check_c5_premature_compression(context: str, output: str) -> CheckResult:
 # RECEIPT GENERATION
 # =============================================================================
 
-def generate_receipt(trace_data: dict) -> SannaReceipt:
-    """Generate a Sanna receipt from trace data."""
+def generate_receipt(
+    trace_data: dict,
+    constitution: Optional[ConstitutionProvenance] = None,
+    halt_event: Optional[HaltEvent] = None,
+) -> SannaReceipt:
+    """Generate a Sanna receipt from trace data.
+
+    Args:
+        trace_data: Trace data dict with trace_id, observations, etc.
+        constitution: Optional constitution provenance for governance tracking.
+        halt_event: Optional halt event recording enforcement action.
+    """
     # Select final answer with provenance tracking
     final_answer, answer_provenance = select_final_answer(trace_data)
 
@@ -467,11 +498,17 @@ def generate_receipt(trace_data: dict) -> SannaReceipt:
     context_hash = hash_obj(inputs)
     output_hash = hash_obj(outputs)
 
+    # Serialize optional blocks for fingerprint
+    constitution_dict = asdict(constitution) if constitution else None
+    halt_event_dict = asdict(halt_event) if halt_event else None
+    constitution_hash = hash_obj(constitution_dict) if constitution_dict else ""
+    halt_hash = hash_obj(halt_event_dict) if halt_event_dict else ""
+
     # Stable fingerprint for diffs/golden tests (doesn't change across runs of same trace)
-    # Include checks in fingerprint so tampering with check results invalidates it
+    # Include checks, constitution, and halt_event in fingerprint so tampering invalidates it
     checks_data = [{"check_id": c.check_id, "passed": c.passed, "severity": c.severity, "evidence": c.evidence} for c in checks]
     checks_hash = hash_obj(checks_data)
-    fingerprint_input = f"{trace_data['trace_id']}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}"
+    fingerprint_input = f"{trace_data['trace_id']}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash}|{halt_hash}"
     receipt_fingerprint = hash_text(fingerprint_input)
 
     return SannaReceipt(
@@ -490,7 +527,9 @@ def generate_receipt(trace_data: dict) -> SannaReceipt:
         checks=[asdict(c) for c in checks],
         checks_passed=passed,
         checks_failed=failed,
-        coherence_status=status
+        coherence_status=status,
+        constitution_ref=constitution_dict,
+        halt_event=halt_event_dict,
     )
 
 
