@@ -15,7 +15,7 @@ from .hashing import hash_text, hash_obj
 # VERSION CONSTANTS
 # =============================================================================
 
-TOOL_VERSION = "0.4.0"
+TOOL_VERSION = "0.5.0"
 SCHEMA_VERSION = "0.1"
 CHECKS_VERSION = "1"  # Increment when check logic changes
 
@@ -452,6 +452,7 @@ def generate_receipt(
     trace_data: dict,
     constitution: Optional[ConstitutionProvenance] = None,
     halt_event: Optional[HaltEvent] = None,
+    constitution_ref_override: Optional[dict] = None,
 ) -> SannaReceipt:
     """Generate a Sanna receipt from trace data.
 
@@ -459,6 +460,11 @@ def generate_receipt(
         trace_data: Trace data dict with trace_id, observations, etc.
         constitution: Optional constitution provenance for governance tracking.
         halt_event: Optional halt event recording enforcement action.
+        constitution_ref_override: Rich dict to use directly as constitution_ref
+            in both the fingerprint and the receipt body. When provided, takes
+            precedence over the ``constitution`` parameter (the legacy
+            ConstitutionProvenance dataclass). This ensures the fingerprint is
+            computed over the exact same dict that ends up in the receipt.
     """
     # Select final answer with provenance tracking
     final_answer, answer_provenance = select_final_answer(trace_data)
@@ -498,8 +504,13 @@ def generate_receipt(
     context_hash = hash_obj(inputs)
     output_hash = hash_obj(outputs)
 
+    # Resolve constitution_ref: override takes precedence over legacy dataclass
+    if constitution_ref_override is not None:
+        constitution_dict = constitution_ref_override
+    else:
+        constitution_dict = asdict(constitution) if constitution else None
+
     # Serialize optional blocks for fingerprint
-    constitution_dict = asdict(constitution) if constitution else None
     halt_event_dict = asdict(halt_event) if halt_event else None
     constitution_hash = hash_obj(constitution_dict) if constitution_dict else ""
     halt_hash = hash_obj(halt_event_dict) if halt_event_dict else ""

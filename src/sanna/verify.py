@@ -196,15 +196,18 @@ def verify_content_hashes(receipt: dict) -> list:
 
 
 def verify_constitution_hash(receipt: dict) -> list:
-    """Verify constitution_ref.document_hash is a valid 16-hex-char hash if present."""
+    """Verify constitution_ref.document_hash is a valid hex hash if present.
+
+    Accepts both 16-char (legacy ConstitutionProvenance) and 64-char
+    (full SHA-256 from constitution lifecycle) hashes.
+    """
     errors = []
     constitution_ref = receipt.get("constitution_ref")
     if constitution_ref:
         doc_hash = constitution_ref.get("document_hash", "")
-        import re
-        hex_pattern = re.compile(r"^[a-f0-9]{16}$")
+        hex_pattern = re.compile(r"^[a-f0-9]{16,64}$")
         if not hex_pattern.match(doc_hash):
-            errors.append(f"constitution_ref.document_hash has invalid format: '{doc_hash}' (expected 16 hex chars)")
+            errors.append(f"constitution_ref.document_hash has invalid format: '{doc_hash}' (expected 16-64 hex chars)")
     return errors
 
 

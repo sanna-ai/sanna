@@ -151,13 +151,13 @@
       "properties": {
         "document_id": {
           "type": "string",
-          "description": "Identifier for the constitution document",
+          "description": "Identifier for the constitution document (e.g., 'agent-name/0.1.0')",
           "minLength": 1
         },
         "document_hash": {
           "type": "string",
-          "description": "SHA256 hash (truncated) of the constitution content",
-          "pattern": "^[a-f0-9]{16}$"
+          "description": "SHA-256 hash of the constitution content (16-char legacy or 64-char full)",
+          "pattern": "^[a-f0-9]{16,64}$"
         },
         "version": {
           "type": ["string", "null"],
@@ -166,6 +166,31 @@
         "source": {
           "type": ["string", "null"],
           "description": "Where the constitution was loaded from (e.g., 'policy-repo', 'compliance-api')"
+        },
+        "approved_by": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {"type": "string"},
+              "minItems": 1
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Email(s) of constitution approver(s)"
+        },
+        "approval_date": {
+          "type": ["string", "null"],
+          "description": "ISO 8601 date when the constitution was approved"
+        },
+        "approval_method": {
+          "type": ["string", "null"],
+          "description": "How approval was obtained (e.g., 'github-pr-review', 'manual-sign-off')"
         }
       },
       "additionalProperties": false

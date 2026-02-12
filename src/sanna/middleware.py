@@ -210,6 +210,7 @@ def _generate_receipt_with_checks(
     extensions: Optional[dict] = None,
     constitution: Optional[ConstitutionProvenance] = None,
     halt_event: Optional[HaltEvent] = None,
+    constitution_ref_override: Optional[dict] = None,
 ) -> dict:
     """
     Generate a receipt, optionally running only a subset of checks.
@@ -218,13 +219,23 @@ def _generate_receipt_with_checks(
     generate_receipt(). Otherwise runs only the requested checks and
     assembles the receipt manually (reusing the same hashing/fingerprint
     logic).
+
+    Args:
+        constitution_ref_override: Rich dict to use directly as constitution_ref
+            in both the fingerprint and the receipt body. Takes precedence over
+            the ``constitution`` parameter.
     """
     all_check_ids = sorted(_CHECK_FUNCTIONS.keys())
     requested = sorted(checks)
 
     if requested == all_check_ids:
         # Full check set — use existing pipeline directly
-        receipt_obj = generate_receipt(trace_data, constitution=constitution, halt_event=halt_event)
+        receipt_obj = generate_receipt(
+            trace_data,
+            constitution=constitution,
+            halt_event=halt_event,
+            constitution_ref_override=constitution_ref_override,
+        )
         receipt_dict = asdict(receipt_obj)
         if extensions:
             receipt_dict["extensions"] = extensions
@@ -267,8 +278,12 @@ def _generate_receipt_with_checks(
     context_hash = hash_obj(inputs)
     output_hash = hash_obj(outputs)
 
-    # Serialize optional blocks for fingerprint
-    constitution_dict = asdict(constitution) if constitution else None
+    # Resolve constitution_ref: override takes precedence over legacy dataclass
+    if constitution_ref_override is not None:
+        constitution_dict = constitution_ref_override
+    else:
+        constitution_dict = asdict(constitution) if constitution else None
+
     halt_event_dict = asdict(halt_event) if halt_event else None
     constitution_hash_val = hash_obj(constitution_dict) if constitution_dict else ""
     halt_hash_val = hash_obj(halt_event_dict) if halt_event_dict else ""
@@ -331,6 +346,7 @@ def sanna_observe(
     context_param: Optional[str] = None,
     query_param: Optional[str] = None,
     constitution: Optional[ConstitutionProvenance] = None,
+    constitution_path: Optional[str] = None,
 ):
     """
     Decorator that wraps an agent function with Sanna coherence checks.
@@ -350,6 +366,10 @@ def sanna_observe(
         context_param: Explicit name of the context parameter.
         query_param: Explicit name of the query parameter.
         constitution: Optional ConstitutionProvenance for governance tracking.
+        constitution_path: Path to a Sanna constitution YAML/JSON file.
+            Loaded and signed at decoration time; the rich constitution_ref
+            dict flows through the entire pipeline (fingerprint + receipt body).
+            Takes precedence over the ``constitution`` parameter.
 
     Returns:
         SannaResult wrapping the function output and receipt, or raises
@@ -362,6 +382,20 @@ def sanna_observe(
 
     if on_violation not in ("halt", "warn", "log"):
         raise ValueError(f"on_violation must be 'halt', 'warn', or 'log', got {on_violation!r}")
+
+    # Decoration-time constitution loading: load, sign, build receipt ref once
+    constitution_ref_override = None
+    if constitution_path is not None:
+        from .constitution import load_constitution, sign_constitution, constitution_to_receipt_ref
+        loaded = load_constitution(constitution_path)
+        if not loaded.document_hash:
+            loaded = sign_constitution(loaded)
+        constitution_ref_override = constitution_to_receipt_ref(loaded)
+        logger.info(
+            "Constitution loaded from %s (hash=%s)",
+            constitution_path,
+            loaded.document_hash[:16],
+        )
 
     def decorator(func):
         @functools.wraps(func)
@@ -404,6 +438,7 @@ def sanna_observe(
             receipt = _generate_receipt_with_checks(
                 trace_data, checks, extensions=extensions,
                 constitution=constitution,
+                constitution_ref_override=constitution_ref_override,
             )
 
             # 5. Enforcement decision
@@ -435,6 +470,7 @@ def sanna_observe(
                     trace_data, checks, extensions=extensions,
                     constitution=constitution,
                     halt_event=halt_event_obj,
+                    constitution_ref_override=constitution_ref_override,
                 )
 
             # Update the extensions with final decision

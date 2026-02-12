@@ -232,6 +232,124 @@ def main_verify():
     return result.exit_code
 
 
+# =============================================================================
+# CONSTITUTION CLI
+# =============================================================================
+
+def main_init_constitution():
+    """Entry point for sanna-init-constitution command."""
+    parser = argparse.ArgumentParser(
+        description="Scaffold a new Sanna constitution YAML file"
+    )
+    parser.add_argument("--output", "-o", default="constitution.yaml",
+                       help="Output file path (default: constitution.yaml)")
+    parser.add_argument("--version", action="version", version=f"sanna-init-constitution {TOOL_VERSION}")
+
+    args = parser.parse_args()
+
+    output_path = Path(args.output)
+    if output_path.exists():
+        print(f"Error: File already exists: {output_path}", file=sys.stderr)
+        print("Remove it first or choose a different name with --output.", file=sys.stderr)
+        return 1
+
+    from .constitution import scaffold_constitution
+    scaffold_constitution(output_path)
+
+    print(f"Created {output_path}")
+    print()
+    print("Next steps:")
+    print(f"  1. Edit {output_path} with your agent's boundaries and governance details")
+    print("  2. Get approval from your compliance/risk team")
+    print(f"  3. Sign it:  sanna-sign-constitution {output_path}")
+    print(f'  4. Wire it:  @sanna_observe(constitution_path="{output_path}")')
+    return 0
+
+
+def main_sign_constitution():
+    """Entry point for sanna-sign-constitution command."""
+    parser = argparse.ArgumentParser(
+        description="Validate and sign a Sanna constitution file"
+    )
+    parser.add_argument("constitution", help="Path to constitution YAML/JSON file")
+    parser.add_argument("--output", "-o", help="Output file (default: overwrites input)")
+    parser.add_argument("--json", action="store_true", help="Output as JSON instead of YAML")
+    parser.add_argument("--verify-only", action="store_true",
+                       help="Validate and show summary without signing")
+    parser.add_argument("--version", action="version", version=f"sanna-sign-constitution {TOOL_VERSION}")
+
+    args = parser.parse_args()
+
+    from .constitution import (
+        load_constitution, sign_constitution, save_constitution,
+        constitution_to_receipt_ref, constitution_to_dict,
+    )
+
+    # Load and validate
+    try:
+        constitution = load_constitution(args.constitution)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(f"Validation error: {e}", file=sys.stderr)
+        return 2
+
+    if args.verify_only:
+        print("=" * 50)
+        print("SANNA CONSTITUTION SUMMARY")
+        print("=" * 50)
+        print(f"  Agent:      {constitution.identity.agent_name}")
+        print(f"  Domain:     {constitution.identity.domain}")
+        print(f"  Author:     {constitution.provenance.authored_by}")
+        print(f"  Approvers:  {', '.join(constitution.provenance.approved_by)}")
+        print(f"  Approved:   {constitution.provenance.approval_date}")
+        print(f"  Method:     {constitution.provenance.approval_method}")
+        print(f"  Boundaries: {len(constitution.boundaries)}")
+        print(f"  Halt rules: {len(constitution.halt_conditions)}")
+        if constitution.document_hash:
+            print(f"  Hash:       {constitution.document_hash}")
+            print(f"  Signed at:  {constitution.signed_at}")
+        else:
+            print("  Status:     UNSIGNED")
+        print("=" * 50)
+        print()
+        print("Validation: PASSED")
+        return 0
+
+    # Sign
+    signed = sign_constitution(constitution)
+
+    # Determine output path and format
+    if args.output:
+        output_path = Path(args.output)
+    elif args.json:
+        output_path = Path(args.constitution).with_suffix(".json")
+    else:
+        output_path = Path(args.constitution)
+
+    if args.json:
+        output_path = output_path.with_suffix(".json")
+
+    save_constitution(signed, output_path)
+
+    print(f"Signed constitution written to {output_path}")
+    print()
+    print(f"  Agent:     {signed.identity.agent_name}")
+    print(f"  Hash:      {signed.document_hash}")
+    print(f"  Signed at: {signed.signed_at}")
+    print(f"  Approvers: {', '.join(signed.provenance.approved_by)}")
+    print()
+    print("Receipt reference preview:")
+    ref = constitution_to_receipt_ref(signed)
+    print(json.dumps(ref, indent=2))
+    print()
+    print("Next step:")
+    print(f'  @sanna_observe(constitution_path="{output_path}")')
+
+    return 0
+
+
 # Legacy aliases
 main_receipt = main_generate
 

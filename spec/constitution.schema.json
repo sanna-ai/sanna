@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sanna.dev/schemas/constitution/v0.1.0.json",
+  "title": "Sanna Constitution",
+  "description": "Schema for Sanna constitution files — agent governance documents defining boundaries, trust tiers, and halt conditions",
+  "type": "object",
+  "required": [
+    "sanna_constitution",
+    "identity",
+    "provenance",
+    "boundaries"
+  ],
+  "properties": {
+    "sanna_constitution": {
+      "type": "string",
+      "description": "Constitution schema version",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "examples": ["0.1.0"]
+    },
+    "identity": {
+      "$ref": "#/$defs/AgentIdentity"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance"
+    },
+    "boundaries": {
+      "type": "array",
+      "description": "Agent operating boundaries",
+      "items": {
+        "$ref": "#/$defs/Boundary"
+      },
+      "minItems": 1
+    },
+    "trust_tiers": {
+      "$ref": "#/$defs/TrustTiers"
+    },
+    "halt_conditions": {
+      "type": "array",
+      "description": "Conditions that trigger agent halt/escalation",
+      "items": {
+        "$ref": "#/$defs/HaltCondition"
+      }
+    },
+    "document_hash": {
+      "type": ["string", "null"],
+      "description": "SHA-256 hash of canonical constitution content (set by sign_constitution)",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "signed_at": {
+      "type": ["string", "null"],
+      "description": "ISO 8601 timestamp when constitution was signed"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "AgentIdentity": {
+      "type": "object",
+      "description": "Agent identification",
+      "required": ["agent_name", "domain"],
+      "properties": {
+        "agent_name": {
+          "type": "string",
+          "description": "Unique name for the agent",
+          "minLength": 1
+        },
+        "domain": {
+          "type": "string",
+          "description": "Business domain the agent operates in",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional description of the agent"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Provenance": {
+      "type": "object",
+      "description": "Governance provenance — who authored and approved the constitution",
+      "required": ["authored_by", "approved_by", "approval_date", "approval_method"],
+      "properties": {
+        "authored_by": {
+          "type": "string",
+          "description": "Email or identifier of the author",
+          "minLength": 1
+        },
+        "approved_by": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {"type": "string"},
+              "minItems": 1
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ],
+          "description": "Email(s) of approver(s)"
+        },
+        "approval_date": {
+          "type": "string",
+          "description": "ISO 8601 date when approved"
+        },
+        "approval_method": {
+          "type": "string",
+          "description": "How approval was obtained (e.g., github-pr-review, manual-sign-off)"
+        },
+        "change_history": {
+          "type": "array",
+          "description": "Version history entries",
+          "items": {
+            "type": "object",
+            "properties": {
+              "version": {"type": "string"},
+              "date": {"type": "string"},
+              "changed_by": {"type": "string"},
+              "summary": {"type": "string"}
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Boundary": {
+      "type": "object",
+      "description": "A single agent operating boundary",
+      "required": ["id", "description", "category", "severity"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Boundary identifier (B### pattern)",
+          "pattern": "^B\\d{3}$"
+        },
+        "description": {
+          "type": "string",
+          "description": "Plain language description of the boundary",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "description": "Boundary category",
+          "enum": ["scope", "authorization", "confidentiality", "safety", "compliance", "custom"]
+        },
+        "severity": {
+          "type": "string",
+          "description": "Severity if boundary is violated",
+          "enum": ["critical", "high", "medium", "low", "info"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "TrustTiers": {
+      "type": "object",
+      "description": "Trust tiers defining agent autonomy levels",
+      "properties": {
+        "autonomous": {
+          "type": "array",
+          "description": "Actions agent can take without approval",
+          "items": {"type": "string"}
+        },
+        "requires_approval": {
+          "type": "array",
+          "description": "Actions needing human approval",
+          "items": {"type": "string"}
+        },
+        "prohibited": {
+          "type": "array",
+          "description": "Actions agent must never take",
+          "items": {"type": "string"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "HaltCondition": {
+      "type": "object",
+      "description": "A condition that triggers agent halt or escalation",
+      "required": ["id", "trigger", "escalate_to", "severity", "enforcement"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Halt condition identifier (H### pattern)",
+          "pattern": "^H\\d{3}$"
+        },
+        "trigger": {
+          "type": "string",
+          "description": "Plain language description of what triggers the halt",
+          "minLength": 1
+        },
+        "escalate_to": {
+          "type": "string",
+          "description": "Email or role for escalation",
+          "minLength": 1
+        },
+        "severity": {
+          "type": "string",
+          "description": "Severity of the halt condition",
+          "enum": ["critical", "high", "medium", "low", "info"]
+        },
+        "enforcement": {
+          "type": "string",
+          "description": "How the condition is enforced",
+          "enum": ["halt", "warn", "log"]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
