@@ -175,7 +175,7 @@ Sanna runs coherence checks — verifying the agent's output was consistent with
 
 ## Status
 
-**v0.4.0** — Constitution provenance + halt events for governance tracking. CLI tools + `@sanna_observe` middleware decorator. Looking for design partners running agents in production.
+**v0.5.0** — Constitution lifecycle (policy authoring, signing, binding), constitution provenance + halt events, CLI tools + `@sanna_observe` middleware decorator. Looking for design partners running agents in production.
 
 ## License
 

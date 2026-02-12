@@ -62,7 +62,7 @@ The current v0 heuristics are effective at catching:
 - C4's permissive word list includes "allowed" which appears as a substring in "not allowed", same problem.
 - C3's conditional marker "if" appears in common words like "significantly", "specifically", "notification", causing false condition detection.
 
-## Recommendations for v0.4.0
+## Recommendations for Future Versions
 
 ### High Priority
 1. **Word-boundary matching**: Replace `keyword in text` with regex `\bkeyword\b` for all keyword lists across C1-C5. This eliminates the "can"/"cannot", "allowed"/"not allowed", and "if"/"significantly" substring issues.
