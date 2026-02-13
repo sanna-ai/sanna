@@ -12,12 +12,14 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from ..receipt import (
+    CheckResult,
     check_c1_context_contradiction,
     check_c2_unmarked_inference,
     check_c3_false_certainty,
     check_c4_conflict_collapse,
     check_c5_premature_compression,
 )
+from ..evaluators import get_evaluator
 
 
 # =============================================================================
@@ -69,6 +71,7 @@ class CheckConfig:
     enforcement_level: str     # "halt" | "warn" | "log"
     triggered_by: str          # "INV_NO_FABRICATION"
     check_impl: str = ""       # Namespaced implementation ID (e.g., "sanna.context_contradiction")
+    source: str = "builtin"    # "builtin" or "custom_evaluator"
 
 
 @dataclass
@@ -141,6 +144,19 @@ def configure_checks(constitution) -> tuple[list[CheckConfig], list[CustomInvari
                 triggered_by=invariant.id,
                 check_impl=check_impl_id,
             ))
+            continue
+
+        # 3. Try custom evaluator registry
+        evaluator = get_evaluator(invariant.id)
+        if evaluator is not None:
+            check_configs.append(CheckConfig(
+                check_id=invariant.id,
+                check_fn=_wrap_evaluator(evaluator, constitution, invariant),
+                enforcement_level=invariant.enforcement,
+                triggered_by=invariant.id,
+                check_impl="custom_evaluator",
+                source="custom_evaluator",
+            ))
         else:
             custom_records.append(CustomInvariantRecord(
                 invariant_id=invariant.id,
@@ -149,3 +165,32 @@ def configure_checks(constitution) -> tuple[list[CheckConfig], list[CustomInvari
             ))
 
     return check_configs, custom_records
+
+
+def _wrap_evaluator(eval_fn: Callable, constitution, invariant) -> Callable:
+    """Wrap a custom evaluator to match the CheckConfig.check_fn interface.
+
+    The wrapper:
+    - Converts the constitution object and invariant to dicts
+    - Adapts the call signature from ``(context, output, enforcement=)``
+      to ``(context, output, constitution_dict, check_config_dict)``
+    - Validates the return type is CheckResult
+    """
+    from ..constitution import constitution_to_dict
+    const_dict = constitution_to_dict(constitution)
+    inv_config = {
+        "id": invariant.id,
+        "rule": invariant.rule,
+        "enforcement": invariant.enforcement,
+        "check": invariant.check,
+    }
+
+    def wrapper(context, output, enforcement="log", **kwargs):
+        result = eval_fn(context, output, const_dict, inv_config)
+        if not isinstance(result, CheckResult):
+            raise TypeError(
+                f"Evaluator for '{invariant.id}' must return CheckResult, "
+                f"got {type(result).__name__}"
+            )
+        return result
+    return wrapper

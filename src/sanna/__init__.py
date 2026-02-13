@@ -79,6 +79,12 @@ from .bundle import (
     BundleCheck,
 )
 from .store import ReceiptStore
+from .evaluators import (
+    register_invariant_evaluator,
+    get_evaluator,
+    list_evaluators,
+    clear_evaluators,
+)
 from .drift import (
     DriftAnalyzer,
     DriftReport,
@@ -157,6 +163,10 @@ __all__ = [
     "BundleVerificationResult",
     "BundleCheck",
     "ReceiptStore",
+    "register_invariant_evaluator",
+    "get_evaluator",
+    "list_evaluators",
+    "clear_evaluators",
     "DriftAnalyzer",
     "DriftReport",
     "AgentDriftSummary",

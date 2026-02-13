@@ -353,16 +353,37 @@ def _generate_constitution_receipt(
     # Run configured checks
     check_results = []
     for cfg in check_configs:
-        # C1 gets structured context for source-aware evaluation
-        if structured_context and cfg.check_id == "sanna.context_contradiction":
-            result = cfg.check_fn(
-                context, final_answer,
-                enforcement=cfg.enforcement_level,
-                structured_context=structured_context,
-            )
-        else:
-            result = cfg.check_fn(context, final_answer, enforcement=cfg.enforcement_level)
-        check_results.append({
+        try:
+            # C1 gets structured context for source-aware evaluation
+            if structured_context and cfg.check_id == "sanna.context_contradiction":
+                result = cfg.check_fn(
+                    context, final_answer,
+                    enforcement=cfg.enforcement_level,
+                    structured_context=structured_context,
+                )
+            else:
+                result = cfg.check_fn(context, final_answer, enforcement=cfg.enforcement_level)
+        except Exception as exc:
+            if cfg.source == "custom_evaluator":
+                check_results.append({
+                    "check_id": cfg.check_id,
+                    "name": "Custom Invariant",
+                    "passed": True,
+                    "severity": "info",
+                    "evidence": None,
+                    "details": f"Evaluator error: {exc}",
+                    "triggered_by": cfg.triggered_by,
+                    "enforcement_level": cfg.enforcement_level,
+                    "constitution_version": constitution_version,
+                    "check_impl": cfg.check_impl or None,
+                    "replayable": False,
+                    "source": "custom_evaluator",
+                    "status": "ERRORED",
+                })
+                continue
+            raise
+
+        entry = {
             "check_id": cfg.check_id,
             "name": result.name,
             "passed": result.passed,
@@ -373,8 +394,11 @@ def _generate_constitution_receipt(
             "enforcement_level": cfg.enforcement_level,
             "constitution_version": constitution_version,
             "check_impl": cfg.check_impl or None,
-            "replayable": True,
-        })
+            "replayable": cfg.source != "custom_evaluator",
+        }
+        if cfg.source == "custom_evaluator":
+            entry["source"] = "custom_evaluator"
+        check_results.append(entry)
 
     # Add custom invariants as NOT_CHECKED
     for custom in custom_records:
@@ -394,9 +418,10 @@ def _generate_constitution_receipt(
             "replayable": False,
         })
 
-    # Count pass/fail (custom invariants don't count as failures)
-    standard_checks = [c for c in check_results if not c.get("status") == "NOT_CHECKED"]
-    not_checked = [c for c in check_results if c.get("status") == "NOT_CHECKED"]
+    # Count pass/fail (NOT_CHECKED and ERRORED don't count as failures)
+    _NON_EVALUATED = ("NOT_CHECKED", "ERRORED")
+    standard_checks = [c for c in check_results if c.get("status") not in _NON_EVALUATED]
+    not_evaluated = [c for c in check_results if c.get("status") in _NON_EVALUATED]
     passed = sum(1 for c in standard_checks if c["passed"])
     failed = len(standard_checks) - passed
 
@@ -408,7 +433,7 @@ def _generate_constitution_receipt(
         status = "FAIL"
     elif warning_fails > 0:
         status = "WARN"
-    elif not_checked:
+    elif not_evaluated:
         status = "PARTIAL"
     else:
         status = "PASS"
@@ -416,7 +441,7 @@ def _generate_constitution_receipt(
     # Build evaluation_coverage
     total_invariants = len(check_results)
     evaluated_count = len(standard_checks)
-    not_checked_count = len(not_checked)
+    not_checked_count = len(not_evaluated)
     coverage_basis_points = (evaluated_count * 10000) // total_invariants if total_invariants > 0 else 10000
     evaluation_coverage = {
         "total_invariants": total_invariants,
