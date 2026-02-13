@@ -348,8 +348,8 @@ def main_sign_constitution():
     parser.add_argument("constitution", help="Path to constitution YAML/JSON file")
     parser.add_argument("--output", "-o", help="Output file (default: overwrites input)")
     parser.add_argument("--json", action="store_true", help="Output as JSON instead of YAML")
-    parser.add_argument("--private-key", required=True,
-                       help="Path to Ed25519 private key for cryptographic signing (required)")
+    parser.add_argument("--private-key",
+                       help="Path to Ed25519 private key for cryptographic signing (required for signing)")
     parser.add_argument("--signed-by", help="Identity of the signer (e.g., email)")
     parser.add_argument("--verify-only", action="store_true",
                        help="Validate and show summary without signing")
@@ -409,6 +409,10 @@ def main_sign_constitution():
         return 0
 
     # Sign with Ed25519
+    if not args.private_key:
+        print("Error: --private-key is required for signing. Use --verify-only to validate without signing.", file=sys.stderr)
+        return 1
+
     signed = sign_constitution(
         constitution,
         private_key_path=args.private_key,
