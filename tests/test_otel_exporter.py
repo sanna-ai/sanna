@@ -48,7 +48,7 @@ def _pass_receipt(**overrides) -> dict:
     """Minimal PASS receipt for testing."""
     receipt = {
         "schema_version": "0.1",
-        "tool_version": "0.7.1",
+        "tool_version": "0.7.2",
         "checks_version": "2",
         "receipt_id": "abc123def456",
         "receipt_fingerprint": "fedcba9876543210",
