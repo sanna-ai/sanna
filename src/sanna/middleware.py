@@ -108,6 +108,9 @@ def _resolve_inputs(
     1. Explicit mapping via context_param/query_param
     2. Convention-based parameter name matching
     3. Single dict argument: look for keys inside it
+
+    Returns dict with ``context`` (str), ``query`` (str), and
+    ``structured_context`` (list or None).
     """
     sig = inspect.signature(func)
     bound = sig.bind(*args, **kwargs)
@@ -116,10 +119,13 @@ def _resolve_inputs(
 
     context = ""
     query = ""
+    structured_context = None
+    raw_context = None  # preserve raw value for structured extraction
 
     # --- Explicit mapping ---
     if context_param and context_param in all_args:
-        context = _to_str(all_args[context_param])
+        raw_context = all_args[context_param]
+        context = _to_str(raw_context)
     if query_param and query_param in all_args:
         query = _to_str(all_args[query_param])
 
@@ -127,7 +133,8 @@ def _resolve_inputs(
     if not context:
         for name in _CONTEXT_PARAM_NAMES:
             if name in all_args:
-                context = _to_str(all_args[name])
+                raw_context = all_args[name]
+                context = _to_str(raw_context)
                 break
 
     if not query:
@@ -143,7 +150,8 @@ def _resolve_inputs(
             if not context:
                 for name in _CONTEXT_PARAM_NAMES:
                     if name in single_val:
-                        context = _to_str(single_val[name])
+                        raw_context = single_val[name]
+                        context = _to_str(raw_context)
                         break
             if not query:
                 for name in _QUERY_PARAM_NAMES:
@@ -151,18 +159,45 @@ def _resolve_inputs(
                         query = _to_str(single_val[name])
                         break
 
-    return {"context": context, "query": query}
+    # Extract structured context if raw value is a list of source-annotated dicts
+    if raw_context is not None:
+        structured_context = _extract_structured_context(raw_context)
+
+    return {"context": context, "query": query, "structured_context": structured_context}
 
 
 def _to_str(val: Any) -> str:
-    """Coerce a value to string for check inputs."""
+    """Coerce a value to string for check inputs.
+
+    When ``val`` is a list of dicts with ``"text"`` keys (structured
+    context), extracts the text portions for a clean string representation.
+    """
     if val is None:
         return ""
     if isinstance(val, str):
         return val
     if isinstance(val, list):
-        return "\n".join(str(item) for item in val)
+        parts = []
+        for item in val:
+            if isinstance(item, dict) and "text" in item:
+                parts.append(item["text"])
+            else:
+                parts.append(str(item))
+        return "\n".join(parts)
     return str(val)
+
+
+def _extract_structured_context(val: Any) -> Optional[list]:
+    """Extract structured context if val is a list of source-annotated dicts.
+
+    Returns the list if every item is a dict with at least a ``"text"`` key.
+    Returns None otherwise (including for plain strings).
+    """
+    if not isinstance(val, list) or not val:
+        return None
+    if all(isinstance(item, dict) and "text" in item for item in val):
+        return val
+    return None
 
 
 # =============================================================================
@@ -205,6 +240,91 @@ def _build_trace_data(
 
 
 # =============================================================================
+# SOURCE TRUST HELPERS
+# =============================================================================
+
+_VALID_TIERS = frozenset({"tier_1", "tier_2", "tier_3", "untrusted", "unclassified"})
+
+
+def _normalize_tier(tier: str) -> str:
+    """Normalize a tier string to a canonical value.
+
+    Handles case insensitivity, underscores/hyphens/spaces, and returns
+    ``"unclassified"`` for unrecognized values.
+    """
+    normalized = tier.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in _VALID_TIERS:
+        return normalized
+    return "unclassified"
+
+
+def _resolve_source_tiers(
+    structured_context: list,
+    trusted_sources,
+) -> list:
+    """Resolve trust tiers for each source in structured context.
+
+    Looks up each source name in the constitution's ``trusted_sources``
+    mapping. Sources not found in any tier default to ``"unclassified"``.
+
+    Returns the structured context list with ``tier`` resolved on each item.
+    """
+    if trusted_sources is None:
+        # No trusted_sources in constitution → use explicit tier or unclassified
+        return [
+            {**item, "tier": _normalize_tier(item["tier"]) if item.get("tier") else "unclassified"}
+            for item in structured_context
+        ]
+
+    # Build reverse lookup: source_name → tier
+    tier_map: dict[str, str] = {}
+    for tier_name in ("tier_1", "tier_2", "tier_3", "untrusted"):
+        for source in getattr(trusted_sources, tier_name, []):
+            tier_map[source] = tier_name
+
+    resolved = []
+    for item in structured_context:
+        source_name = item.get("source", "unknown")
+        # Explicit tier in the context item takes precedence
+        explicit_tier = item.get("tier")
+        if explicit_tier:
+            tier = _normalize_tier(explicit_tier)
+        else:
+            tier = tier_map.get(source_name, "unclassified")
+        resolved.append({**item, "tier": tier})
+    return resolved
+
+
+def _build_source_trust_evaluations(
+    structured_context: list,
+) -> list:
+    """Build source_trust_evaluations records for the receipt.
+
+    Deduplicates by source name. Each record documents what tier
+    a source was classified as during this trace.
+    """
+    evaluations = []
+    seen: set[str] = set()
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    for item in structured_context:
+        source_name = item.get("source", "unknown")
+        if source_name in seen:
+            continue
+        seen.add(source_name)
+
+        tier = item.get("tier", "unclassified")
+        evaluations.append({
+            "source_name": source_name,
+            "trust_tier": tier,
+            "evaluated_at": timestamp,
+            "verification_flag": tier == "tier_2",
+            "context_used": tier != "untrusted",
+        })
+    return evaluations
+
+
+# =============================================================================
 # CONSTITUTION-DRIVEN RECEIPT GENERATION
 # =============================================================================
 
@@ -216,6 +336,10 @@ def _generate_constitution_receipt(
     constitution_version: str,
     extensions: Optional[dict] = None,
     halt_event: Optional[HaltEvent] = None,
+    authority_decisions: Optional[list] = None,
+    escalation_events: Optional[list] = None,
+    source_trust_evaluations: Optional[list] = None,
+    structured_context: Optional[list] = None,
 ) -> dict:
     """Generate a receipt using constitution-driven check configs.
 
@@ -229,7 +353,15 @@ def _generate_constitution_receipt(
     # Run configured checks
     check_results = []
     for cfg in check_configs:
-        result = cfg.check_fn(context, final_answer, enforcement=cfg.enforcement_level)
+        # C1 gets structured context for source-aware evaluation
+        if structured_context and cfg.check_id == "sanna.context_contradiction":
+            result = cfg.check_fn(
+                context, final_answer,
+                enforcement=cfg.enforcement_level,
+                structured_context=structured_context,
+            )
+        else:
+            result = cfg.check_fn(context, final_answer, enforcement=cfg.enforcement_level)
         check_results.append({
             "check_id": cfg.check_id,
             "name": result.name,
@@ -320,6 +452,19 @@ def _generate_constitution_receipt(
     checks_hash = hash_obj(checks_fingerprint_data)
     coverage_hash = hash_obj(evaluation_coverage)
     fingerprint_input = f"{trace_data['trace_id']}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{halt_hash_val}|{coverage_hash}"
+
+    # v0.7.0: include authority sections in fingerprint when present
+    if authority_decisions:
+        fingerprint_input += f"|{hash_obj(authority_decisions)}"
+    if escalation_events:
+        fingerprint_input += f"|{hash_obj(escalation_events)}"
+    if source_trust_evaluations:
+        fingerprint_input += f"|{hash_obj(source_trust_evaluations)}"
+
+    # v0.7.0: include extensions in fingerprint when non-empty
+    if extensions:
+        fingerprint_input += f"|{hash_obj(extensions)}"
+
     receipt_fingerprint = hash_text(fingerprint_input)
 
     receipt_dict = {
@@ -344,8 +489,15 @@ def _generate_constitution_receipt(
         "halt_event": halt_event_dict,
     }
 
-    if extensions:
-        receipt_dict["extensions"] = extensions
+    # v0.7.0: authority enforcement sections (only included when present)
+    if authority_decisions:
+        receipt_dict["authority_decisions"] = authority_decisions
+    if escalation_events:
+        receipt_dict["escalation_events"] = escalation_events
+    if source_trust_evaluations:
+        receipt_dict["source_trust_evaluations"] = source_trust_evaluations
+
+    receipt_dict["extensions"] = extensions if extensions else {}
 
     return receipt_dict
 
@@ -373,6 +525,11 @@ def _generate_no_invariants_receipt(
 
     checks_hash = hash_obj([])
     fingerprint_input = f"{trace_data['trace_id']}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|"
+
+    # v0.7.0: include extensions in fingerprint when non-empty
+    if extensions:
+        fingerprint_input += f"|{hash_obj(extensions)}"
+
     receipt_fingerprint = hash_text(fingerprint_input)
 
     receipt_dict = {
@@ -396,8 +553,7 @@ def _generate_no_invariants_receipt(
         "halt_event": None,
     }
 
-    if extensions:
-        receipt_dict["extensions"] = extensions
+    receipt_dict["extensions"] = extensions if extensions else {}
 
     return receipt_dict
 
@@ -534,6 +690,17 @@ def sanna_observe(
                 }
             }
 
+            # 4b. Resolve structured context and source tiers
+            raw_structured = resolved.get("structured_context")
+            resolved_structured = None
+            source_trust_evals = None
+            if raw_structured and loaded_constitution:
+                resolved_structured = _resolve_source_tiers(
+                    raw_structured,
+                    loaded_constitution.trusted_sources,
+                )
+                source_trust_evals = _build_source_trust_evaluations(resolved_structured)
+
             # 5. Generate receipt — constitution-driven or legacy
             if check_configs is not None:
                 # Constitution-driven: invariants control everything
@@ -547,6 +714,7 @@ def sanna_observe(
                         extensions=extensions,
                     )
                 else:
+                    # First pass: generate with tentative "PASSED" to analyze checks
                     receipt = _generate_constitution_receipt(
                         trace_data,
                         check_configs=check_configs,
@@ -554,52 +722,63 @@ def sanna_observe(
                         constitution_ref=constitution_ref_override,
                         constitution_version=constitution_version,
                         extensions=extensions,
+                        source_trust_evaluations=source_trust_evals,
+                        structured_context=resolved_structured,
                     )
 
-                # Per-check enforcement: determine what to do
-                halt_checks = []
-                warn_checks = []
-                log_checks = []
+                    # Per-check enforcement: determine what to do
+                    halt_checks = []
+                    warn_checks = []
+                    log_checks = []
 
-                for check in receipt.get("checks", []):
-                    if check.get("status") == "NOT_CHECKED":
-                        continue
-                    if not check.get("passed"):
-                        level = check.get("enforcement_level", "log")
-                        if level == "halt":
-                            halt_checks.append(check)
-                        elif level == "warn":
-                            warn_checks.append(check)
-                        else:
-                            log_checks.append(check)
+                    for check in receipt.get("checks", []):
+                        if check.get("status") == "NOT_CHECKED":
+                            continue
+                        if not check.get("passed"):
+                            level = check.get("enforcement_level", "log")
+                            if level == "halt":
+                                halt_checks.append(check)
+                            elif level == "warn":
+                                warn_checks.append(check)
+                            else:
+                                log_checks.append(check)
 
-                # Create halt event if any halt-level checks failed
-                if halt_checks:
-                    enforcement_decision = "HALTED"
-                    failed_ids = [c["check_id"] for c in halt_checks]
-                    halt_event_obj = HaltEvent(
-                        halted=True,
-                        reason=f"Coherence check failed: {', '.join(failed_ids)}",
-                        failed_checks=failed_ids,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
-                        enforcement_mode="halt",
-                    )
-                    # Regenerate receipt with halt event
-                    receipt = _generate_constitution_receipt(
-                        trace_data,
-                        check_configs=check_configs,
-                        custom_records=custom_records,
-                        constitution_ref=constitution_ref_override,
-                        constitution_version=constitution_version,
-                        extensions=extensions,
-                        halt_event=halt_event_obj,
-                    )
-                elif warn_checks:
-                    enforcement_decision = "WARNED"
-                elif log_checks:
-                    enforcement_decision = "LOGGED"
-                else:
-                    enforcement_decision = "PASSED"
+                    if halt_checks:
+                        enforcement_decision = "HALTED"
+                    elif warn_checks:
+                        enforcement_decision = "WARNED"
+                    elif log_checks:
+                        enforcement_decision = "LOGGED"
+                    else:
+                        enforcement_decision = "PASSED"
+
+                    # Regenerate with final enforcement_decision in extensions
+                    # (extensions are fingerprinted, so they must be final before generation)
+                    if enforcement_decision != "PASSED":
+                        extensions["middleware"]["enforcement_decision"] = enforcement_decision
+
+                        halt_event_obj = None
+                        if enforcement_decision == "HALTED":
+                            failed_ids = [c["check_id"] for c in halt_checks]
+                            halt_event_obj = HaltEvent(
+                                halted=True,
+                                reason=f"Coherence check failed: {', '.join(failed_ids)}",
+                                failed_checks=failed_ids,
+                                timestamp=datetime.now(timezone.utc).isoformat(),
+                                enforcement_mode="halt",
+                            )
+
+                        receipt = _generate_constitution_receipt(
+                            trace_data,
+                            check_configs=check_configs,
+                            custom_records=custom_records,
+                            constitution_ref=constitution_ref_override,
+                            constitution_version=constitution_version,
+                            extensions=extensions,
+                            halt_event=halt_event_obj,
+                            source_trust_evaluations=source_trust_evals,
+                            structured_context=resolved_structured,
+                        )
 
             else:
                 # No constitution path — run with no checks, document in receipt
@@ -609,9 +788,6 @@ def sanna_observe(
                     extensions=extensions,
                 )
                 enforcement_decision = "PASSED"
-
-            # Update extensions with final decision
-            receipt["extensions"]["middleware"]["enforcement_decision"] = enforcement_decision
 
             # 5b. Sign receipt if private key provided
             if private_key_path is not None:

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sanna": {
+      "command": "sanna-mcp",
+      "args": []
+    }
+  }
+}

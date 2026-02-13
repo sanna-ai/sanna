@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.7.0] - 2026-02-13
+### Added
+- **MCP server** (`sanna-mcp`) — 4 tools over stdio for Claude Desktop/Cursor
+  - `sanna_verify_receipt`: offline receipt verification
+  - `sanna_generate_receipt`: receipt generation with constitution enforcement
+  - `sanna_list_checks`: C1-C5 check metadata
+  - `sanna_evaluate_action`: authority boundary enforcement
+- **Authority boundary enforcement** — 3-tier action control in constitutions
+  - `cannot_execute`: halt forbidden actions
+  - `must_escalate`: route to log/webhook/callback escalation targets
+  - `can_execute`: explicitly allow actions
+- **Escalation targets** — log (Python logging), webhook (HTTP POST), callback (registry-based callable)
+- **Trusted source tiers** — 4-tier source classification for C1 evaluation
+  - tier_1 (grounded evidence), tier_2 (verification required), tier_3 (reference only), untrusted (excluded)
+- **Evidence bundles** — self-contained zip archives for offline verification
+  - `sanna-create-bundle` / `sanna-verify-bundle` CLI commands
+  - 6-step verification: structure, schema, fingerprint, constitution sig, provenance chain, receipt sig
+- **New receipt sections**: `authority_decisions`, `escalation_events`, `source_trust_evaluations`
+- **Receipt schema** updated with AuthorityDecisionRecord, EscalationEventRecord, SourceTrustRecord definitions
+- **Golden test vectors** (`tests/vectors/`) — deterministic Ed25519 + canonical JSON vectors for third-party verifiers
+- **Claude Desktop integration** — config example and setup documentation
+- **One More Connector demo** — 4-scenario MCP governance connector demo
+- 703 tests
+
+### Fixed
+- Constitution Ed25519 signature now includes `authority_boundaries` and `trusted_sources` in signing material
+
 ## [0.6.4] - 2026-02-13
 ### Fixed
 - Schema validation enforced on enforcement paths (middleware, adapter) — typos in constitutions now produce clear errors

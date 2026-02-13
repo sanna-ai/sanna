@@ -30,7 +30,7 @@
           "description": "Optional description of what this agent does"
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "provenance": {
       "type": "object",
@@ -138,6 +138,97 @@
       "items": {
         "$ref": "#/$defs/Invariant"
       }
+    },
+    "authority_boundaries": {
+      "type": "object",
+      "description": "Authority boundary definitions — what the agent can, cannot, and must escalate",
+      "properties": {
+        "cannot_execute": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Actions the agent must never perform"
+        },
+        "must_escalate": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["condition"],
+            "properties": {
+              "condition": {
+                "type": "string",
+                "description": "Natural-language condition for when escalation is required",
+                "minLength": 1
+              },
+              "target": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["log", "webhook", "callback"],
+                    "description": "Escalation target type"
+                  },
+                  "url": {
+                    "type": "string",
+                    "description": "Webhook URL (for type=webhook)"
+                  },
+                  "handler": {
+                    "type": "string",
+                    "description": "Registered callback name (for type=callback)"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Conditions requiring human/system review before proceeding"
+        },
+        "can_execute": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Actions explicitly permitted for the agent"
+        }
+      },
+      "additionalProperties": false
+    },
+    "escalation_targets": {
+      "type": "object",
+      "description": "Global escalation target configuration",
+      "properties": {
+        "default": {
+          "type": "string",
+          "enum": ["log", "webhook", "callback"],
+          "description": "Default escalation target type when a rule has no explicit target"
+        }
+      },
+      "additionalProperties": false
+    },
+    "trusted_sources": {
+      "type": ["object", "null"],
+      "description": "Source trust tiers for C1 source-aware context evaluation. Maps source names to trust levels.",
+      "properties": {
+        "tier_1": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Full trust — claims count as grounded evidence"
+        },
+        "tier_2": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Evidence with verification flag in receipt"
+        },
+        "tier_3": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Reference only — cannot be sole basis for conclusions"
+        },
+        "untrusted": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Excluded from C1 contradiction checking"
+        }
+      },
+      "additionalProperties": false
     },
     "policy_hash": {
       "type": ["string", "null"],

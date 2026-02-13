@@ -1,0 +1,121 @@
+{
+  "schema_version": "0.1",
+  "tool_version": "0.6.4",
+  "checks_version": "4",
+  "receipt_id": "f10ad867126854f2",
+  "receipt_fingerprint": "ce62817d2afa6373",
+  "trace_id": "demo-04_generate_report_audit",
+  "timestamp": "2026-02-13T09:13:45.227752+00:00",
+  "inputs": {
+    "query": "Generate the Q4 2025 quarterly summary report.",
+    "context": "Q4 revenue: \u20ac4.7M (+12% YoY). EMEA led growth at 18%. NA flat at 2%. APAC down 3%.\nPartner channel contributed \u20ac1.1M in Q4, up from \u20ac850K in Q3. Three new partners onboarded.\nIndustry analysts project 8-10% market growth for 2026. Key risk: supply chain disruptions in APAC."
+  },
+  "outputs": {
+    "response": "Q4 2025 Quarterly Summary:\n\nRevenue reached \u20ac4.7M, up 12% year-over-year. EMEA was the strongest region at 18% growth, while NA was flat at 2% and APAC declined 3%. The partner channel contributed \u20ac1.1M (up from \u20ac850K in Q3) with three new partners onboarded.\n\nIndustry analysts project 8-10% market growth for 2026, though APAC supply chain risks remain a concern."
+  },
+  "context_hash": "cb938dfb2b83ca9d",
+  "output_hash": "5387e3f0ffd17cfb",
+  "final_answer_provenance": {
+    "source": "trace.output",
+    "span_id": null,
+    "span_name": null,
+    "field": "final_answer"
+  },
+  "checks": [
+    {
+      "check_id": "sanna.context_contradiction",
+      "name": "Context Contradiction",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "No obvious contradiction detected (source-aware check)",
+      "triggered_by": "INV_NO_FABRICATION",
+      "enforcement_level": "halt",
+      "constitution_version": "1.0.0",
+      "check_impl": "sanna.context_contradiction",
+      "replayable": true
+    },
+    {
+      "check_id": "sanna.unmarked_inference",
+      "name": "Mark Inferences",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Inference marking appears adequate (heuristic check)",
+      "triggered_by": "INV_MARK_INFERENCE",
+      "enforcement_level": "warn",
+      "constitution_version": "1.0.0",
+      "check_impl": "sanna.unmarked_inference",
+      "replayable": true
+    }
+  ],
+  "checks_passed": 2,
+  "checks_failed": 0,
+  "coherence_status": "PASS",
+  "evaluation_coverage": {
+    "total_invariants": 2,
+    "evaluated": 2,
+    "not_checked": 0,
+    "coverage_basis_points": 10000
+  },
+  "constitution_ref": {
+    "document_id": "governance-connector-agent/1.0.0",
+    "policy_hash": "86b8494be20fdfc6a8668dbfcaded5f8cb6d0604cac145186401e00565f610b7",
+    "version": "1.0.0",
+    "approved_by": [
+      "compliance@example.com"
+    ],
+    "approval_date": "2026-02-01",
+    "approval_method": "compliance-review",
+    "signature": "hGH+qhEH9BL5IOiEMo2B8vtU5f+ADdwLvw6mdRIF/vDYTeXZ1TrBOCu4MMHx/NWGUingJZbw2CX3DaUu74r4BA==",
+    "key_id": "0cf4bddd65f18d41e1fc14de9410d7a210c73cd30161a92536a8d5ca6884c20d",
+    "signed_by": "governance-demo",
+    "signed_at": "2026-02-13T09:13:45.222559+00:00",
+    "scheme": "constitution_sig_v1"
+  },
+  "halt_event": null,
+  "authority_decisions": [
+    {
+      "action": "generate_report",
+      "params": {
+        "report_type": "quarterly_summary",
+        "quarter": "Q4-2025"
+      },
+      "decision": "allow",
+      "reason": "Action matches can_execute rule: 'generate_report'",
+      "boundary_type": "can_execute",
+      "escalation_target": null,
+      "timestamp": "2026-02-13T09:13:45.227660+00:00"
+    }
+  ],
+  "source_trust_evaluations": [
+    {
+      "source_name": "internal_database",
+      "trust_tier": "tier_1",
+      "evaluated_at": "2026-02-13T09:13:45.227664+00:00",
+      "verification_flag": false,
+      "context_used": true
+    },
+    {
+      "source_name": "partner_api",
+      "trust_tier": "tier_2",
+      "evaluated_at": "2026-02-13T09:13:45.227664+00:00",
+      "verification_flag": true,
+      "context_used": true
+    },
+    {
+      "source_name": "web_search",
+      "trust_tier": "tier_3",
+      "evaluated_at": "2026-02-13T09:13:45.227664+00:00",
+      "verification_flag": false,
+      "context_used": true
+    }
+  ],
+  "receipt_signature": {
+    "signature": "UJkVrNMaMMtSkB8x7OD3056SUBEM2+1zrXWqEwpef5e9LoXQm7Akw+9RWFnI9IiYaFx2I9e+b4nBdb+O/ko3BQ==",
+    "key_id": "0cf4bddd65f18d41e1fc14de9410d7a210c73cd30161a92536a8d5ca6884c20d",
+    "signed_by": "",
+    "signed_at": "2026-02-13T09:13:45.227880+00:00",
+    "scheme": "receipt_sig_v1"
+  }
+}

@@ -1,0 +1,107 @@
+{
+  "schema_version": "0.1",
+  "tool_version": "0.6.4",
+  "checks_version": "4",
+  "receipt_id": "2652885f005b33e4",
+  "receipt_fingerprint": "15b0b51d6b1ac24d",
+  "trace_id": "demo-02_send_email_halt",
+  "timestamp": "2026-02-13T09:13:45.226092+00:00",
+  "inputs": {
+    "query": "Email the Q4 report to the customer.",
+    "context": "The Q4 EMEA report has been generated and is ready for distribution."
+  },
+  "outputs": {
+    "response": "I will send the Q4 EMEA report to customer@example.com now."
+  },
+  "context_hash": "eb14d6c9962a18d0",
+  "output_hash": "21059f1856a4ba94",
+  "final_answer_provenance": {
+    "source": "trace.output",
+    "span_id": null,
+    "span_name": null,
+    "field": "final_answer"
+  },
+  "checks": [
+    {
+      "check_id": "sanna.context_contradiction",
+      "name": "Context Contradiction",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "No obvious contradiction detected (source-aware check)",
+      "triggered_by": "INV_NO_FABRICATION",
+      "enforcement_level": "halt",
+      "constitution_version": "1.0.0",
+      "check_impl": "sanna.context_contradiction",
+      "replayable": true
+    },
+    {
+      "check_id": "sanna.unmarked_inference",
+      "name": "Mark Inferences",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Inference marking appears adequate (heuristic check)",
+      "triggered_by": "INV_MARK_INFERENCE",
+      "enforcement_level": "warn",
+      "constitution_version": "1.0.0",
+      "check_impl": "sanna.unmarked_inference",
+      "replayable": true
+    }
+  ],
+  "checks_passed": 2,
+  "checks_failed": 0,
+  "coherence_status": "PASS",
+  "evaluation_coverage": {
+    "total_invariants": 2,
+    "evaluated": 2,
+    "not_checked": 0,
+    "coverage_basis_points": 10000
+  },
+  "constitution_ref": {
+    "document_id": "governance-connector-agent/1.0.0",
+    "policy_hash": "86b8494be20fdfc6a8668dbfcaded5f8cb6d0604cac145186401e00565f610b7",
+    "version": "1.0.0",
+    "approved_by": [
+      "compliance@example.com"
+    ],
+    "approval_date": "2026-02-01",
+    "approval_method": "compliance-review",
+    "signature": "hGH+qhEH9BL5IOiEMo2B8vtU5f+ADdwLvw6mdRIF/vDYTeXZ1TrBOCu4MMHx/NWGUingJZbw2CX3DaUu74r4BA==",
+    "key_id": "0cf4bddd65f18d41e1fc14de9410d7a210c73cd30161a92536a8d5ca6884c20d",
+    "signed_by": "governance-demo",
+    "signed_at": "2026-02-13T09:13:45.222559+00:00",
+    "scheme": "constitution_sig_v1"
+  },
+  "halt_event": null,
+  "authority_decisions": [
+    {
+      "action": "send_email",
+      "params": {
+        "to": "customer@example.com",
+        "subject": "Q4 Report"
+      },
+      "decision": "halt",
+      "reason": "Action matches cannot_execute rule: 'send_email'",
+      "boundary_type": "cannot_execute",
+      "escalation_target": null,
+      "timestamp": "2026-02-13T09:13:45.226019+00:00"
+    }
+  ],
+  "source_trust_evaluations": [
+    {
+      "source_name": "internal_database",
+      "trust_tier": "tier_1",
+      "evaluated_at": "2026-02-13T09:13:45.226024+00:00",
+      "verification_flag": false,
+      "context_used": true
+    }
+  ],
+  "receipt_signature": {
+    "signature": "nowHd7zoKU1Qon31wSCgGF4eClMbUjXPG+KXGuzmDg9IhuBDLeWw+IcnjEan+XfqxugBesqd498KtynI5nyTCw==",
+    "key_id": "0cf4bddd65f18d41e1fc14de9410d7a210c73cd30161a92536a8d5ca6884c20d",
+    "signed_by": "",
+    "signed_at": "2026-02-13T09:13:45.226224+00:00",
+    "scheme": "receipt_sig_v1"
+  }
+}

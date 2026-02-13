@@ -145,6 +145,23 @@ def verify_fingerprint(receipt: dict) -> tuple:
         fingerprint_input = f"{trace_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{halt_hash}|{coverage_hash}"
     else:
         fingerprint_input = f"{trace_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{halt_hash}"
+
+    # v0.7.0: include authority sections in fingerprint when present
+    authority_decisions = receipt.get("authority_decisions")
+    escalation_events = receipt.get("escalation_events")
+    source_trust_evaluations = receipt.get("source_trust_evaluations")
+    if authority_decisions:
+        fingerprint_input += f"|{hash_obj(authority_decisions)}"
+    if escalation_events:
+        fingerprint_input += f"|{hash_obj(escalation_events)}"
+    if source_trust_evaluations:
+        fingerprint_input += f"|{hash_obj(source_trust_evaluations)}"
+
+    # v0.7.0: include extensions in fingerprint when non-empty
+    extensions = receipt.get("extensions")
+    if extensions:
+        fingerprint_input += f"|{hash_obj(extensions)}"
+
     computed = hash_text(fingerprint_input)
     expected = receipt.get("receipt_fingerprint", "")
 
@@ -392,7 +409,14 @@ def verify_receipt(
     errors.extend(constitution_errors)
 
     # 3. Fingerprint verification
-    fp_match, fp_computed, fp_expected = verify_fingerprint(receipt)
+    try:
+        fp_match, fp_computed, fp_expected = verify_fingerprint(receipt)
+    except TypeError as e:
+        return VerificationResult(
+            valid=False, exit_code=3,
+            errors=[f"Fingerprint computation failed (float in receipt data): {e}"],
+            warnings=warnings,
+        )
 
     # 4. Status consistency
     status_match, status_computed, status_expected = verify_status_consistency(receipt)

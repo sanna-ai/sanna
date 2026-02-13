@@ -10,7 +10,7 @@ pip install sanna
 
 ### 1. Define a constitution
 
-A constitution is a YAML file that declares which reasoning invariants your agent must uphold, and what happens when they're violated.
+A constitution is a YAML file that declares which reasoning invariants your agent must uphold, what actions it can take, and what happens when rules are violated.
 
 ```yaml
 # constitution.yaml
@@ -34,15 +34,34 @@ invariants:
   - id: "INV_MARK_INFERENCE"
     rule: "Clearly mark inferences and speculation as such."
     enforcement: "warn"
-  - id: "INV_PRESERVE_TENSION"
-    rule: "Do not collapse conflicting evidence."
-    enforcement: "log"
 
 boundaries:
   - id: "B001"
     description: "Only answer product and service questions"
     category: "scope"
     severity: "high"
+
+authority_boundaries:
+  cannot_execute:
+    - "delete_records"
+    - "send_email"
+  must_escalate:
+    - condition: "refund amount exceeds threshold"
+      target:
+        type: "log"
+  can_execute:
+    - "query_database"
+    - "generate_report"
+
+trusted_sources:
+  tier_1:
+    - "internal_database"
+  tier_2:
+    - "partner_api"
+  tier_3:
+    - "web_search"
+  untrusted:
+    - "user_paste"
 ```
 
 Each invariant maps to a coherence check. The `enforcement` field controls what happens when that check fails — `halt` stops execution, `warn` emits a Python warning, `log` records silently.
@@ -54,7 +73,7 @@ sanna-keygen --signed-by "your-name@company.com"
 sanna-sign-constitution constitution.yaml --private-key sanna_ed25519.key
 ```
 
-Constitutions are Ed25519-signed. The signature covers the full document — identity, provenance, invariants, and signer metadata. Tampering with any field invalidates the signature.
+Constitutions are Ed25519-signed. The signature covers the full document — identity, provenance, invariants, authority boundaries, trusted sources, and signer metadata.
 
 ### 3. Wrap your agent function
 
@@ -92,18 +111,78 @@ sanna-verify receipt.json --constitution constitution.yaml --constitution-public
 
 No network. No API keys. No platform access. Full chain verification: receipt integrity, Ed25519 signature, receipt-to-constitution provenance bond, constitution signature.
 
-Exit codes: 0=valid, 2=schema invalid, 3=fingerprint mismatch, 4=consistency error, 5=other error.
+## MCP Server
 
-## Key Capabilities
+Sanna exposes its capabilities as an [MCP](https://modelcontextprotocol.io/) server for Claude Desktop, Cursor, and other MCP-compatible clients.
 
-- **Constitution-as-control-plane** — YAML governance rules with invariants that drive check behavior and enforcement levels (halt/warn/log)
-- **Ed25519 cryptographic signatures** — on both constitutions and receipts, with full document binding (tampering with provenance or signer metadata invalidates the signature)
-- **Receipt-to-constitution provenance bond** — offline verification of the complete chain from receipt to the specific signed constitution version that governed the execution
-- **RFC 8785-style JSON canonicalization** — deterministic canonical bytes for cross-language verifier portability; floats rejected at signing boundary
-- **Five coherence checks (C1-C5)** — context contradiction, unmarked inference, false certainty, conflict collapse, premature compression; stable IDs, replayable results
-- **PARTIAL status with evaluation coverage** — custom invariants that can't yet be auto-evaluated are documented as NOT_CHECKED with integer basis-point coverage reporting
-- **Full chain verification in one CLI command** — receipt schema, fingerprint, signature, constitution bond, constitution signature
-- **Langfuse adapter** — generate receipts from Langfuse traces with constitution enforcement
+```bash
+pip install sanna[mcp]
+sanna-mcp  # starts stdio transport
+```
+
+Four tools available:
+
+| Tool | Description |
+|------|-------------|
+| `sanna_verify_receipt` | Verify a receipt's schema, fingerprint, hashes, and status |
+| `sanna_generate_receipt` | Generate a receipt from query/context/response with constitution enforcement |
+| `sanna_list_checks` | List all C1-C5 checks with descriptions and mappings |
+| `sanna_evaluate_action` | Evaluate whether an action is permitted under authority boundaries |
+
+See [examples/CLAUDE_DESKTOP_SETUP.md](examples/CLAUDE_DESKTOP_SETUP.md) for Claude Desktop configuration and [src/sanna/mcp/README.md](src/sanna/mcp/README.md) for full MCP server documentation.
+
+## Authority Boundaries
+
+Constitutions can define authority boundaries that control which actions an agent may take:
+
+| Boundary | Behavior | Receipt Field |
+|----------|----------|---------------|
+| `cannot_execute` | Action is halted immediately | `authority_decisions[].decision = "halt"` |
+| `must_escalate` | Action is routed to an escalation target | `authority_decisions[].decision = "escalate"` |
+| `can_execute` | Action is explicitly allowed | `authority_decisions[].decision = "allow"` |
+
+Escalation targets support three types: `log` (Python logging), `webhook` (HTTP POST), and `callback` (registry-based callable).
+
+```python
+from sanna import evaluate_authority, load_constitution
+
+const = load_constitution("constitution.yaml")
+decision = evaluate_authority("send_email", {"to": "user@example.com"}, const)
+# decision.decision = "halt", decision.boundary_type = "cannot_execute"
+```
+
+Authority decisions are recorded in the receipt's `authority_decisions` section and covered by the receipt fingerprint.
+
+## Trusted Source Tiers
+
+Constitutions can classify data sources into trust tiers that affect C1 (context contradiction) evaluation:
+
+| Tier | Trust Level | C1 Behavior |
+|------|-------------|-------------|
+| `tier_1` | Full trust | Claims count as grounded evidence |
+| `tier_2` | Verification required | Evidence with verification flag |
+| `tier_3` | Reference only | Cannot be sole basis for claims |
+| `untrusted` | Excluded | Not used in C1 evaluation |
+
+Source trust evaluations are recorded in the receipt's `source_trust_evaluations` section.
+
+## Evidence Bundles
+
+An evidence bundle is a self-contained zip archive containing everything needed for offline verification — the receipt, the constitution that governed it, and the public key for signature verification.
+
+```bash
+# Create a bundle
+sanna-create-bundle \
+  --receipt receipt.json \
+  --constitution constitution.yaml \
+  --public-key sanna_ed25519.pub \
+  --output evidence.zip
+
+# Verify a bundle (6-step verification)
+sanna-verify-bundle evidence.zip
+```
+
+Bundle verification runs six checks: bundle structure, receipt schema, receipt fingerprint, constitution signature, provenance chain (receipt-to-constitution binding), and receipt signature.
 
 ## Coherence Checks
 
@@ -117,20 +196,6 @@ Exit codes: 0=valid, 2=schema invalid, 3=fingerprint mismatch, 4=consistency err
 
 All checks are heuristic (pattern matching). They flag potential issues for human review. Custom invariants (any ID not in the built-in mapping) appear in the receipt as `NOT_CHECKED` — they document the policy but have no built-in evaluator.
 
-## Three Constitutions Demo
-
-Same agent. Same input. Same bad output. Three different constitutions. Three different outcomes.
-
-| Constitution | Invariants | C1 Enforcement | Outcome |
-|---|---|---|---|
-| **Strict Financial Analyst** | All 5 at `halt` | halt | **HALTED** — execution stopped |
-| **Permissive Support Agent** | 2 at `warn` + 1 custom | warn | **WARNED** — continued with warning |
-| **Research Assistant** | C1 `halt`, rest `log` | halt | **HALTED** — only C1 can stop it |
-
-```bash
-python examples/three_constitutions_demo.py
-```
-
 ## CLI Tools
 
 | Command | Description |
@@ -142,6 +207,22 @@ python examples/three_constitutions_demo.py
 | `sanna-hash-constitution` | Compute policy hash without Ed25519 signing |
 | `sanna-verify-constitution` | Verify a constitution's Ed25519 signature |
 | `sanna-init-constitution` | Scaffold a new constitution YAML |
+| `sanna-mcp` | Start the MCP server (stdio transport) |
+| `sanna-create-bundle` | Create an evidence bundle for offline verification |
+| `sanna-verify-bundle` | Verify an evidence bundle (6-step check) |
+
+## Demos
+
+```bash
+python examples/three_constitutions_demo.py       # Three enforcement modes
+python examples/one_more_connector_demo.py         # MCP governance connector
+```
+
+See [examples/README.md](examples/README.md) for full documentation.
+
+## Test Vectors
+
+Deterministic test vectors for third-party verifier implementations are provided in [`tests/vectors/`](tests/vectors/README.md). These cover RFC 8785-style canonical JSON, Ed25519 constitution signatures, and receipt signatures using a fixed seed for reproducibility.
 
 ## Langfuse Integration
 
@@ -161,6 +242,7 @@ receipt = export_receipt(trace.data, constitution_path="constitution.yaml")
 
 ```bash
 pip install sanna                    # Core library
+pip install sanna[mcp]               # With MCP server
 pip install sanna[langfuse]          # With Langfuse adapter
 ```
 
@@ -173,7 +255,7 @@ pip install -e ".[dev]"
 python -m pytest tests/ -q
 ```
 
-427 tests. 0 failures.
+646 tests. 0 failures.
 
 ## License
 

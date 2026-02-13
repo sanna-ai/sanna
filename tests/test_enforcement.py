@@ -456,7 +456,7 @@ class TestReceiptFormat:
             return SIMPLE_OUTPUT
 
         result = agent(query="test", context=SIMPLE_CONTEXT)
-        assert result.receipt["tool_version"] == "0.6.4"
+        assert result.receipt["tool_version"] == "0.7.0"
         assert result.receipt["checks_version"] == "4"
 
     def test_receipt_has_constitution_ref(self):
@@ -774,7 +774,7 @@ class TestNoConstitution:
 
 class TestVersionConstants:
     def test_tool_version(self):
-        assert TOOL_VERSION == "0.6.4"
+        assert TOOL_VERSION == "0.7.0"
 
     def test_checks_version(self):
         assert CHECKS_VERSION == "4"

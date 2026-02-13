@@ -1,0 +1,57 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.nicallen-exd/sanna",
+  "title": "Sanna",
+  "description": "Reasoning integrity and AI governance layer with cryptographic provenance",
+  "version": "0.7.0",
+  "websiteUrl": "https://github.com/nicallen-exd/sanna",
+  "repository": {
+    "url": "https://github.com/nicallen-exd/sanna",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "sanna",
+      "version": "0.7.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeHint": "uvx",
+      "packageArguments": [],
+      "environmentVariables": []
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "category": "governance",
+      "tags": [
+        "ai-safety",
+        "governance",
+        "reasoning-receipts",
+        "verification",
+        "ed25519",
+        "constitutions",
+        "authority-boundaries"
+      ],
+      "tools": [
+        {
+          "name": "sanna_verify_receipt",
+          "description": "Verify a Sanna reasoning receipt offline. Validates schema, fingerprint, content hashes, and status consistency. Returns structured verification result."
+        },
+        {
+          "name": "sanna_generate_receipt",
+          "description": "Generate a portable reasoning receipt from query, context, and response. When a signed constitution is provided, invariants drive C1-C5 coherence checks at configurable enforcement levels (halt/warn/log)."
+        },
+        {
+          "name": "sanna_list_checks",
+          "description": "List all C1-C5 coherence checks with descriptions, invariant mappings, and default enforcement levels."
+        },
+        {
+          "name": "sanna_evaluate_action",
+          "description": "Evaluate whether an action is permitted under a constitution's authority boundaries. Returns allow, halt, or escalate with the matching rule and optional escalation target."
+        }
+      ]
+    }
+  }
+}

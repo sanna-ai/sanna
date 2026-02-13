@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sanna"
-version = "0.6.4"
+version = "0.7.0"
 description = "Coherence checks for AI agents — portable, offline-verifiable reasoning receipts"
 readme = "README.md"
-license = "Apache-2.0"
+license = {file = "LICENSE"}
 requires-python = ">=3.10"
 authors = [{name = "nicallen-exd"}]
 keywords = ["ai", "governance", "reasoning", "receipts", "verification", "observability"]
@@ -29,6 +29,7 @@ dependencies = [
 
 [project.optional-dependencies]
 langfuse = ["langfuse>=2.0"]
+mcp = ["mcp>=1.0"]
 dev = ["pytest>=7.0", "jsonschema>=4.17", "pyyaml>=6.0"]
 
 [project.scripts]
@@ -39,6 +40,9 @@ sanna-sign-constitution = "sanna.cli:main_sign_constitution"
 sanna-keygen = "sanna.cli:main_keygen"
 sanna-hash-constitution = "sanna.cli:main_hash_constitution"
 sanna-verify-constitution = "sanna.cli:main_verify_constitution"
+sanna-mcp = "sanna.mcp.__main__:main"
+sanna-create-bundle = "sanna.cli:main_create_bundle"
+sanna-verify-bundle = "sanna.cli:main_verify_bundle"
 # Legacy aliases
 c3m-receipt = "sanna.cli:main_generate"
 c3m-verify = "sanna.cli:main_verify"

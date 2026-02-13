@@ -6,7 +6,7 @@ Renamed from c3m_receipt. Original implementations preserved.
 
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
-from typing import Optional, Any, Tuple
+from typing import Optional, Any, List, Tuple
 
 from .hashing import hash_text, hash_obj
 
@@ -15,7 +15,7 @@ from .hashing import hash_text, hash_obj
 # VERSION CONSTANTS
 # =============================================================================
 
-TOOL_VERSION = "0.6.4"
+TOOL_VERSION = "0.7.0"
 SCHEMA_VERSION = "0.1"
 CHECKS_VERSION = "4"  # C4 contraction fix, coverage_basis_points, RFC 8785 float guard
 
@@ -234,12 +234,31 @@ def find_snippet(text: str, keywords: list, max_len: int = 80) -> str:
 # C1-C5 HEURISTIC CHECKS
 # =============================================================================
 
-def check_c1_context_contradiction(context: str, output: str, enforcement: str = "halt") -> CheckResult:
+def check_c1_context_contradiction(
+    context: str,
+    output: str,
+    enforcement: str = "halt",
+    *,
+    structured_context: Optional[List[dict]] = None,
+) -> CheckResult:
     """
     C1: Context Contradiction
     Check if output contradicts explicit statements in context.
 
     Heuristic v0: Pattern matching for common contradiction patterns.
+
+    When ``structured_context`` is provided (list of dicts with ``text``,
+    ``source``, and ``tier`` keys), C1 evaluates per-source:
+
+    - **tier_1**: full trust — contradiction is a critical failure.
+    - **tier_2**: evidence — contradiction is a critical failure with
+      verification note in evidence.
+    - **tier_3**: reference only — contradiction from *only* tier_3
+      sources is a pass with warning details.
+    - **untrusted**: excluded from contradiction checking entirely.
+
+    When ``structured_context`` is None, C1 behaves exactly as v0.6.x
+    (flat string context, all equally trusted).
     """
     if not context or not output:
         return CheckResult(
@@ -248,6 +267,16 @@ def check_c1_context_contradiction(context: str, output: str, enforcement: str =
             details="Insufficient data for contradiction check"
         )
 
+    # Source-aware path
+    if structured_context:
+        return _c1_source_aware(structured_context, output)
+
+    # v0.6.x path — flat string context
+    return _c1_flat(context, output)
+
+
+def _c1_flat(context: str, output: str) -> CheckResult:
+    """C1 heuristic on flat string context (v0.6.x behavior)."""
     context_lower = context.lower()
     output_lower = output.lower()
 
@@ -286,6 +315,69 @@ def check_c1_context_contradiction(context: str, output: str, enforcement: str =
         check_id="C1", name="Context Contradiction",
         passed=True, severity="info",
         details="No obvious contradiction detected (heuristic check)"
+    )
+
+
+def _c1_source_aware(structured_context: List[dict], output: str) -> CheckResult:
+    """C1 heuristic with per-source trust tier evaluation."""
+    # Partition sources by tier
+    tier_1_texts = []
+    tier_2_texts = []
+    tier_3_texts = []
+    # untrusted sources are excluded
+
+    for item in structured_context:
+        text = item.get("text", "")
+        tier = item.get("tier", "tier_1")  # default to tier_1 if not specified
+        if tier == "tier_1":
+            tier_1_texts.append((text, item.get("source", "unknown")))
+        elif tier == "tier_2":
+            tier_2_texts.append((text, item.get("source", "unknown")))
+        elif tier == "tier_3":
+            tier_3_texts.append((text, item.get("source", "unknown")))
+        # untrusted → skip
+
+    # Check tier_1 sources first (highest trust)
+    for text, source in tier_1_texts:
+        result = _c1_flat(text, output)
+        if not result.passed:
+            return CheckResult(
+                check_id="C1", name="Context Contradiction",
+                passed=False, severity="critical",
+                evidence=f"[tier_1 source: {source}] {result.evidence}",
+                details="Output contradicts tier_1 (fully trusted) source."
+            )
+
+    # Check tier_2 sources (evidence with verification)
+    for text, source in tier_2_texts:
+        result = _c1_flat(text, output)
+        if not result.passed:
+            return CheckResult(
+                check_id="C1", name="Context Contradiction",
+                passed=False, severity="critical",
+                evidence=f"[tier_2 source: {source}, verification_needed] {result.evidence}",
+                details="Output contradicts tier_2 source. Verification recommended."
+            )
+
+    # Check tier_3 sources (reference only)
+    for text, source in tier_3_texts:
+        result = _c1_flat(text, output)
+        if not result.passed:
+            # tier_3 contradiction is NOT a failure — it's a pass with warning
+            return CheckResult(
+                check_id="C1", name="Context Contradiction",
+                passed=True, severity="info",
+                evidence=f"[tier_3 source: {source}, reference_only] {result.evidence}",
+                details=(
+                    "Potential contradiction found in tier_3 (reference-only) source. "
+                    "tier_3 sources cannot be sole basis for failure."
+                )
+            )
+
+    return CheckResult(
+        check_id="C1", name="Context Contradiction",
+        passed=True, severity="info",
+        details="No obvious contradiction detected (source-aware check)"
     )
 
 

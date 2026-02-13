@@ -76,6 +76,24 @@ class TrustTiers:
 
 
 @dataclass
+class TrustedSources:
+    """Source trust tiers for C1 source-aware context evaluation.
+
+    Maps source names (e.g., MCP server names, database identifiers) to
+    trust tiers that control how C1 weighs their content:
+
+    - **tier_1**: Full trust — claims count as grounded evidence.
+    - **tier_2**: Evidence with verification flag in receipt.
+    - **tier_3**: Reference only — cannot be sole basis for conclusions.
+    - **untrusted**: Excluded from C1 contradiction checking.
+    """
+    tier_1: list[str] = field(default_factory=list)
+    tier_2: list[str] = field(default_factory=list)
+    tier_3: list[str] = field(default_factory=list)
+    untrusted: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ConstitutionSignature:
     """Ed25519 signature block for a constitution document.
 
@@ -105,6 +123,7 @@ class AgentIdentity:
     agent_name: str
     domain: str
     description: str = ""
+    extensions: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -113,6 +132,60 @@ class Invariant:
     rule: str         # Human-readable description
     enforcement: str  # "halt" | "warn" | "log"
     check: Optional[str] = None  # Optional check impl ID (e.g., "sanna.context_contradiction")
+
+
+@dataclass
+class EscalationTargetConfig:
+    """Escalation target configuration from a constitution YAML.
+
+    Defines where/how an escalation is routed when a must_escalate
+    condition triggers.
+
+    Attributes:
+        type: Target type — ``"log"``, ``"webhook"``, or ``"callback"``.
+        url: Webhook URL (only for ``type="webhook"``).
+        handler: Registered callback name (only for ``type="callback"``).
+    """
+    type: str = "log"
+    url: Optional[str] = None
+    handler: Optional[str] = None
+
+
+@dataclass
+class EscalationRule:
+    """A must_escalate rule from a constitution's authority_boundaries.
+
+    Attributes:
+        condition: Natural-language description of when to escalate
+            (e.g., ``"decisions involving PII"``).
+        target: Optional escalation target override. When absent, the
+            constitution's default escalation type is used.
+    """
+    condition: str
+    target: Optional[EscalationTargetConfig] = None
+
+
+@dataclass
+class AuthorityBoundaries:
+    """Authority boundary definitions from a constitution.
+
+    Defines three tiers of action control:
+
+    - **cannot_execute**: Actions the agent must never perform.
+    - **must_escalate**: Conditions under which human/system review is required.
+    - **can_execute**: Actions explicitly permitted for the agent.
+
+    Attributes:
+        cannot_execute: List of forbidden action descriptions.
+        must_escalate: List of escalation rules with conditions and targets.
+        can_execute: List of explicitly allowed action descriptions.
+        default_escalation: Fallback escalation target type when a
+            must_escalate rule has no explicit target.
+    """
+    cannot_execute: list[str] = field(default_factory=list)
+    must_escalate: list[EscalationRule] = field(default_factory=list)
+    can_execute: list[str] = field(default_factory=list)
+    default_escalation: str = "log"
 
 
 @dataclass
@@ -125,6 +198,8 @@ class Constitution:
     halt_conditions: list[HaltCondition] = field(default_factory=list)
     invariants: list[Invariant] = field(default_factory=list)
     policy_hash: Optional[str] = None
+    authority_boundaries: Optional[AuthorityBoundaries] = None
+    trusted_sources: Optional[TrustedSources] = None
 
 
 # =============================================================================
@@ -242,6 +317,26 @@ def validate_constitution_data(data: dict) -> list[str]:
             if enf not in VALID_ENFORCEMENT:
                 errors.append(f"invariants[{i}].enforcement '{enf}' must be one of {sorted(VALID_ENFORCEMENT)}")
 
+    # Authority boundaries (optional, v0.7.0+)
+    ab = data.get("authority_boundaries")
+    if ab is not None:
+        if not isinstance(ab, dict):
+            errors.append("authority_boundaries must be a dict")
+        else:
+            for key in ("cannot_execute", "can_execute"):
+                val = ab.get(key, [])
+                if not isinstance(val, list):
+                    errors.append(f"authority_boundaries.{key} must be a list")
+            must_esc = ab.get("must_escalate", [])
+            if not isinstance(must_esc, list):
+                errors.append("authority_boundaries.must_escalate must be a list")
+            else:
+                for i, rule in enumerate(must_esc):
+                    if not isinstance(rule, dict):
+                        errors.append(f"authority_boundaries.must_escalate[{i}] must be a dict")
+                    elif not rule.get("condition"):
+                        errors.append(f"authority_boundaries.must_escalate[{i}].condition is required")
+
     return errors
 
 
@@ -259,10 +354,13 @@ def parse_constitution(data: dict) -> Constitution:
     schema_version = data.get("sanna_constitution", data.get("schema_version", CONSTITUTION_SCHEMA_VERSION))
 
     identity_data = data["identity"]
+    _identity_known_keys = {"agent_name", "domain", "description"}
     identity = AgentIdentity(
         agent_name=identity_data["agent_name"],
         domain=identity_data["domain"],
         description=identity_data.get("description", ""),
+        extensions={k: v for k, v in identity_data.items()
+                    if k not in _identity_known_keys},
     )
 
     prov_data = data["provenance"]
@@ -332,6 +430,51 @@ def parse_constitution(data: dict) -> Constitution:
         for inv in data.get("invariants", [])
     ]
 
+    # Authority boundaries (optional, v0.7.0+)
+    authority_boundaries = None
+    ab_data = data.get("authority_boundaries")
+    if ab_data is not None and isinstance(ab_data, dict):
+        et_data = data.get("escalation_targets", {})
+        default_esc = et_data.get("default", "log") if isinstance(et_data, dict) else "log"
+
+        cannot_execute = ab_data.get("cannot_execute", [])
+        can_execute = ab_data.get("can_execute", [])
+
+        must_escalate = []
+        for rule_data in ab_data.get("must_escalate", []):
+            if not isinstance(rule_data, dict):
+                continue
+            target_data = rule_data.get("target")
+            target = None
+            if isinstance(target_data, dict):
+                target = EscalationTargetConfig(
+                    type=target_data.get("type", "log"),
+                    url=target_data.get("url"),
+                    handler=target_data.get("handler"),
+                )
+            must_escalate.append(EscalationRule(
+                condition=rule_data.get("condition", ""),
+                target=target,
+            ))
+
+        authority_boundaries = AuthorityBoundaries(
+            cannot_execute=cannot_execute,
+            must_escalate=must_escalate,
+            can_execute=can_execute,
+            default_escalation=default_esc,
+        )
+
+    # Trusted sources (optional, v0.7.0+)
+    trusted_sources = None
+    ts_data = data.get("trusted_sources")
+    if ts_data is not None and isinstance(ts_data, dict):
+        trusted_sources = TrustedSources(
+            tier_1=ts_data.get("tier_1", []),
+            tier_2=ts_data.get("tier_2", []),
+            tier_3=ts_data.get("tier_3", []),
+            untrusted=ts_data.get("untrusted", []),
+        )
+
     return Constitution(
         schema_version=str(schema_version),
         identity=identity,
@@ -341,12 +484,34 @@ def parse_constitution(data: dict) -> Constitution:
         halt_conditions=halt_conditions,
         invariants=invariants,
         policy_hash=data.get("policy_hash"),
+        authority_boundaries=authority_boundaries,
+        trusted_sources=trusted_sources,
     )
 
 
 # =============================================================================
 # HASHING & SIGNING
 # =============================================================================
+
+def _identity_dict(identity: AgentIdentity) -> dict:
+    """Convert AgentIdentity to dict, flattening extensions into top level.
+
+    Extensions are stored as a nested dict in the dataclass but represented
+    as flat keys in YAML/JSON.  This function flattens them back so that:
+
+    - Empty extensions → same dict as before (backward compat).
+    - Non-empty extensions → flat keys alongside agent_name/domain/description,
+      matching the original YAML representation.
+    """
+    d = {
+        "agent_name": identity.agent_name,
+        "domain": identity.domain,
+        "description": identity.description,
+    }
+    if identity.extensions:
+        d.update(identity.extensions)
+    return d
+
 
 def compute_constitution_hash(constitution: Constitution) -> str:
     """SHA-256 of canonical content. Returns FULL 64-character hex digest.
@@ -377,12 +542,21 @@ def compute_constitution_hash(constitution: Constitution) -> str:
     )
 
     hashable = {
-        "identity": asdict(constitution.identity),
+        "identity": _identity_dict(constitution.identity),
         "boundaries": boundaries,
         "trust_tiers": trust_tiers,
         "halt_conditions": halt_conditions,
         "invariants": invariants,
     }
+
+    # Include authority_boundaries only if present (backward compat:
+    # constitutions without this field produce the same hash as before)
+    if constitution.authority_boundaries is not None:
+        hashable["authority_boundaries"] = asdict(constitution.authority_boundaries)
+
+    # Include trusted_sources only if present (backward compat)
+    if constitution.trusted_sources is not None:
+        hashable["trusted_sources"] = asdict(constitution.trusted_sources)
 
     canonical = json.dumps(hashable, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
@@ -417,9 +591,9 @@ def constitution_to_signable_dict(constitution: Constitution) -> dict:
     else:
         prov_dict["signature"] = None
 
-    return {
+    result = {
         "schema_version": constitution.schema_version,
-        "identity": asdict(constitution.identity),
+        "identity": _identity_dict(constitution.identity),
         "provenance": prov_dict,
         "boundaries": [asdict(b) for b in constitution.boundaries],
         "trust_tiers": asdict(constitution.trust_tiers),
@@ -427,6 +601,17 @@ def constitution_to_signable_dict(constitution: Constitution) -> dict:
         "invariants": [asdict(inv) for inv in constitution.invariants],
         "policy_hash": constitution.policy_hash,
     }
+
+    if constitution.authority_boundaries is not None:
+        result["authority_boundaries"] = asdict(constitution.authority_boundaries)
+        result["escalation_targets"] = {
+            "default": constitution.authority_boundaries.default_escalation,
+        }
+
+    if constitution.trusted_sources is not None:
+        result["trusted_sources"] = asdict(constitution.trusted_sources)
+
+    return result
 
 
 def sign_constitution(
@@ -465,6 +650,8 @@ def sign_constitution(
             halt_conditions=constitution.halt_conditions,
             invariants=constitution.invariants,
             policy_hash=policy_hash,
+            authority_boundaries=constitution.authority_boundaries,
+            trusted_sources=constitution.trusted_sources,
         )
         prov_signature = sign_constitution_full(pre_signed, private_key_path, signed_by=signed_by)
 
@@ -484,6 +671,8 @@ def sign_constitution(
         halt_conditions=constitution.halt_conditions,
         invariants=constitution.invariants,
         policy_hash=policy_hash,
+        authority_boundaries=constitution.authority_boundaries,
+        trusted_sources=constitution.trusted_sources,
     )
 
 
@@ -595,7 +784,7 @@ def constitution_to_dict(constitution: Constitution) -> dict:
     Reverses the mapping: Constitution.schema_version -> 'sanna_constitution' key.
     """
     result = {"sanna_constitution": constitution.schema_version}
-    result["identity"] = asdict(constitution.identity)
+    result["identity"] = _identity_dict(constitution.identity)
 
     # Build provenance dict with nested signature block
     prov_dict = {
@@ -621,6 +810,25 @@ def constitution_to_dict(constitution: Constitution) -> dict:
     result["halt_conditions"] = [asdict(h) for h in constitution.halt_conditions]
     if constitution.invariants:
         result["invariants"] = [asdict(inv) for inv in constitution.invariants]
+
+    if constitution.authority_boundaries is not None:
+        ab = constitution.authority_boundaries
+        must_escalate_list = []
+        for rule in ab.must_escalate:
+            rd: dict = {"condition": rule.condition}
+            if rule.target is not None:
+                rd["target"] = asdict(rule.target)
+            must_escalate_list.append(rd)
+        result["authority_boundaries"] = {
+            "cannot_execute": ab.cannot_execute,
+            "must_escalate": must_escalate_list,
+            "can_execute": ab.can_execute,
+        }
+        result["escalation_targets"] = {"default": ab.default_escalation}
+
+    if constitution.trusted_sources is not None:
+        result["trusted_sources"] = asdict(constitution.trusted_sources)
+
     result["policy_hash"] = constitution.policy_hash
     return result
 

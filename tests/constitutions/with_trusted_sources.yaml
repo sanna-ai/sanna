@@ -1,0 +1,42 @@
+sanna_constitution: 1.0.0
+identity:
+  agent_name: test-with-trusted-sources
+  domain: testing
+  description: Constitution with trusted source tiers for C1 testing
+provenance:
+  authored_by: tester@test.com
+  approved_by:
+  - approver@test.com
+  approval_date: '2026-01-01'
+  approval_method: test-approval
+  change_history: []
+boundaries:
+- id: B001
+  description: Test boundary
+  category: scope
+  severity: medium
+trust_tiers:
+  autonomous: []
+  requires_approval: []
+  prohibited: []
+halt_conditions: []
+invariants:
+- id: INV_NO_FABRICATION
+  rule: Do not claim facts absent from provided sources.
+  enforcement: warn
+  check: null
+- id: INV_MARK_INFERENCE
+  rule: Clearly mark inferences and speculation as such.
+  enforcement: warn
+  check: null
+trusted_sources:
+  tier_1:
+  - knowledge_base
+  - product_docs
+  tier_2:
+  - team_slack
+  tier_3:
+  - customer_links
+  untrusted:
+  - social_media
+policy_hash: c272d9361d4e23a86dbd8cdc81a6a27facc3f2adf7f5e8f9258a6ff46a250ca8

@@ -1,9 +1,9 @@
 {
   "schema_version": "0.1",
-  "tool_version": "0.6.0",
+  "tool_version": "0.7.0",
   "checks_version": "2",
   "receipt_id": "902df874c755cf63",
-  "receipt_fingerprint": "002b9babe6f9b14e",
+  "receipt_fingerprint": "37de8fb7742d2c33",
   "trace_id": "golden-012-pass-extensions",
   "timestamp": "2026-02-13T00:37:54.691936+00:00",
   "inputs": {
@@ -72,7 +72,7 @@
     "vendor": "test-vendor",
     "pipeline_id": "pipe-123",
     "environment": "staging",
-    "custom_score": 0.95,
+    "custom_score": 95,
     "tags": [
       "golden",
       "test"

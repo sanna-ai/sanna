@@ -1,0 +1,95 @@
+{
+  "description": "Canonicalization test vectors for RFC 8785-style canonical JSON (integers only, no floats)",
+  "rules": [
+    "Keys sorted lexicographically at every nesting level",
+    "Compact separators: comma and colon with no spaces",
+    "ensure_ascii=False: non-ASCII characters preserved as UTF-8",
+    "Floats are rejected \u2014 all numeric values must be integers",
+    "JSON primitives: null, true, false (lowercase)"
+  ],
+  "cases": [
+    {
+      "name": "simple_sorted_keys",
+      "description": "Object keys must be sorted lexicographically",
+      "input": {
+        "b": 2,
+        "a": 1
+      },
+      "expected_canonical_hex": "7b2261223a312c2262223a327d",
+      "expected_sha256": "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"
+    },
+    {
+      "name": "nested_objects",
+      "description": "Nested dicts must also have sorted keys; arrays preserve order",
+      "input": {
+        "z": {
+          "b": 2,
+          "a": 1
+        },
+        "a": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expected_canonical_hex": "7b2261223a5b332c312c325d2c227a223a7b2261223a312c2262223a327d7d",
+      "expected_sha256": "aa5acc11e864cec3b7c7462948bf081ba8843dbd798f17a53dbeff9c896dcc04"
+    },
+    {
+      "name": "null_and_booleans",
+      "description": "null, true, false serialized as JSON primitives",
+      "input": {
+        "flag": true,
+        "empty": null,
+        "off": false
+      },
+      "expected_canonical_hex": "7b22656d707479223a6e756c6c2c22666c6167223a747275652c226f6666223a66616c73657d",
+      "expected_sha256": "80eca9fb11512d265204cb079a16105922122652f889fadcbc974d2e27786ff7"
+    },
+    {
+      "name": "unicode_string",
+      "description": "Non-ASCII characters preserved with ensure_ascii=False",
+      "input": {
+        "name": "Sanna \u2014 Truth"
+      },
+      "expected_canonical_hex": "7b226e616d65223a2253616e6e6120e28094205472757468227d",
+      "expected_sha256": "feccc568e2d81678b5b3559f7a39813c5220831ec7984253d18bed78c9ead9ea"
+    },
+    {
+      "name": "empty_structures",
+      "description": "Empty array and object have compact representation",
+      "input": {
+        "arr": [],
+        "obj": {}
+      },
+      "expected_canonical_hex": "7b22617272223a5b5d2c226f626a223a7b7d7d",
+      "expected_sha256": "7c557880ceed861401b04be6735c9708e326427e072562fd259da6f6a2612b96"
+    },
+    {
+      "name": "integer_types",
+      "description": "Integers including negative and zero; no floats allowed",
+      "input": {
+        "neg": -42,
+        "pos": 100,
+        "zero": 0
+      },
+      "expected_canonical_hex": "7b226e6567223a2d34322c22706f73223a3130302c227a65726f223a307d",
+      "expected_sha256": "9091fe9ad6883d446a34950953b71028b6b4e697a5ed5e6ba51ad1a662ae16e9"
+    },
+    {
+      "name": "deeply_nested",
+      "description": "Multiple nesting levels with sorted keys at each level",
+      "input": {
+        "level1": {
+          "level2": {
+            "level3": {
+              "value": 42
+            }
+          }
+        }
+      },
+      "expected_canonical_hex": "7b226c6576656c31223a7b226c6576656c32223a7b226c6576656c33223a7b2276616c7565223a34327d7d7d7d",
+      "expected_sha256": "4fb28906e9bb49345ca0b4d610f8aeef31bb3c0f3df4ff88d5ae6086c9db4043"
+    }
+  ]
+}

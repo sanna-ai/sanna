@@ -548,6 +548,113 @@ def main_verify_constitution():
     return 0
 
 
+# =============================================================================
+# BUNDLE CLI
+# =============================================================================
+
+def main_create_bundle():
+    """Entry point for sanna-create-bundle command."""
+    parser = argparse.ArgumentParser(
+        description="Create a Sanna evidence bundle (.zip) for offline verification"
+    )
+    parser.add_argument("--receipt", required=True, help="Path to signed receipt JSON")
+    parser.add_argument("--constitution", required=True, help="Path to signed constitution YAML")
+    parser.add_argument("--public-key", required=True, help="Path to Ed25519 public key (PEM)")
+    parser.add_argument("--output", "-o", required=True, help="Output path for the bundle zip")
+    parser.add_argument("--description", help="Human-readable description for metadata")
+    parser.add_argument("--version", action="version", version=f"sanna-create-bundle {TOOL_VERSION}")
+
+    args = parser.parse_args()
+
+    try:
+        from .bundle import create_bundle
+        bundle_path = create_bundle(
+            receipt_path=args.receipt,
+            constitution_path=args.constitution,
+            public_key_path=args.public_key,
+            output_path=args.output,
+            description=args.description,
+        )
+        print(f"Bundle created: {bundle_path}")
+        print(f"  Receipt:      {args.receipt}")
+        print(f"  Constitution: {args.constitution}")
+        print(f"  Public key:   {args.public_key}")
+        return 0
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def main_verify_bundle():
+    """Entry point for sanna-verify-bundle command."""
+    parser = argparse.ArgumentParser(
+        description="Verify a Sanna evidence bundle",
+        epilog="Exit codes: 0=valid, 1=invalid"
+    )
+    parser.add_argument("bundle", help="Path to .zip evidence bundle")
+    parser.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                       help="Show detail for each verification step")
+    parser.add_argument("--version", action="version", version=f"sanna-verify-bundle {TOOL_VERSION}")
+
+    args = parser.parse_args()
+
+    try:
+        from .bundle import verify_bundle
+
+        result = verify_bundle(args.bundle)
+
+        if args.json:
+            output = {
+                "valid": result.valid,
+                "checks": [
+                    {"name": c.name, "passed": c.passed, "detail": c.detail}
+                    for c in result.checks
+                ],
+                "receipt_summary": result.receipt_summary,
+                "errors": result.errors,
+            }
+            print(json.dumps(output, indent=2))
+        else:
+            print(f"Bundle: {args.bundle}")
+            for check in result.checks:
+                icon = "\u2713" if check.passed else "\u2717"
+                line = f"  {icon} {check.name}"
+                if args.verbose:
+                    line += f" — {check.detail}"
+                elif not check.passed:
+                    line += f" — {check.detail}"
+                print(line)
+
+            print()
+            verdict = "VALID" if result.valid else "INVALID"
+            print(f"VERDICT: {verdict}")
+
+            summary = result.receipt_summary
+            if summary:
+                if summary.get("agent_name"):
+                    print(f"Agent: {summary['agent_name']}")
+                if summary.get("coherence_status"):
+                    print(f"Decision: {summary['coherence_status']}")
+                if summary.get("constitution_version"):
+                    print(f"Constitution: v{summary['constitution_version']}")
+
+        return 0 if result.valid else 1
+
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
 # Legacy aliases
 main_receipt = main_generate
 

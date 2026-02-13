@@ -5,7 +5,7 @@ Generates portable, offline-verifiable "reasoning receipts" that document
 AI agent decisions with C1-C5 coherence checks and consistency-verified hashing.
 """
 
-__version__ = "0.6.4"
+__version__ = "0.7.0"
 
 from .hashing import hash_text, hash_obj, canonicalize_text
 from .receipt import (
@@ -29,9 +29,13 @@ from .constitution import (
     Boundary,
     HaltCondition,
     TrustTiers,
+    TrustedSources,
     Provenance,
     AgentIdentity,
     Invariant,
+    AuthorityBoundaries,
+    EscalationRule,
+    EscalationTargetConfig,
     SannaConstitutionError,
     load_constitution,
     parse_constitution,
@@ -51,6 +55,14 @@ from .enforcement import (
     configure_checks,
     INVARIANT_CHECK_MAP,
     CHECK_REGISTRY,
+    AuthorityDecision,
+    evaluate_authority,
+    EscalationTarget,
+    EscalationResult,
+    execute_escalation,
+    register_escalation_callback,
+    clear_escalation_callbacks,
+    get_escalation_callback,
 )
 from .crypto import (
     generate_keypair,
@@ -59,6 +71,12 @@ from .crypto import (
     sign_receipt,
     verify_receipt_signature,
     sanitize_for_signing,
+)
+from .bundle import (
+    create_bundle,
+    verify_bundle,
+    BundleVerificationResult,
+    BundleCheck,
 )
 
 __all__ = [
@@ -89,6 +107,7 @@ __all__ = [
     "Boundary",
     "HaltCondition",
     "TrustTiers",
+    "TrustedSources",
     "Provenance",
     "AgentIdentity",
     "load_constitution",
@@ -103,16 +122,31 @@ __all__ = [
     "save_constitution",
     "scaffold_constitution",
     "Invariant",
+    "AuthorityBoundaries",
+    "EscalationRule",
+    "EscalationTargetConfig",
     "SannaConstitutionError",
     "CheckConfig",
     "CustomInvariantRecord",
     "configure_checks",
     "INVARIANT_CHECK_MAP",
     "CHECK_REGISTRY",
+    "AuthorityDecision",
+    "evaluate_authority",
+    "EscalationTarget",
+    "EscalationResult",
+    "execute_escalation",
+    "register_escalation_callback",
+    "clear_escalation_callbacks",
+    "get_escalation_callback",
     "generate_keypair",
     "sign_constitution_full",
     "verify_constitution_full",
     "sign_receipt",
     "verify_receipt_signature",
     "sanitize_for_signing",
+    "create_bundle",
+    "verify_bundle",
+    "BundleVerificationResult",
+    "BundleCheck",
 ]

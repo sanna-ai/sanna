@@ -219,6 +219,8 @@ def sign_constitution_full(
         halt_conditions=constitution.halt_conditions,
         invariants=constitution.invariants,
         policy_hash=constitution.policy_hash,
+        authority_boundaries=constitution.authority_boundaries,
+        trusted_sources=constitution.trusted_sources,
     )
 
     signable_dict = constitution_to_signable_dict(signing_constitution)
