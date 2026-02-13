@@ -518,6 +518,16 @@ def compute_constitution_hash(constitution: Constitution) -> str:
 
     Hash covers identity, boundaries, trust_tiers, halt_conditions
     but NOT provenance. Same policy = same hash regardless of who approved.
+
+    .. note::
+
+       policy_hash uses ``json.dumps(sort_keys=True, ensure_ascii=True)``.
+       This differs from RFC 8785 (JCS) which uses ``ensure_ascii=False``.
+       The choice is intentional for v0.7.x: ``ensure_ascii=True`` produces
+       ASCII-safe hashes that are portable across JSON parsers that may
+       handle Unicode normalization differently.  Cross-language implementors
+       should use ``ensure_ascii=True`` (Python default) or equivalent ASCII
+       escaping for Unicode characters.
     """
     # Sort boundaries by ID for determinism
     boundaries = sorted(

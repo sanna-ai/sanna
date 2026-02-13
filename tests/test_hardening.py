@@ -472,7 +472,7 @@ class TestSourceTierNormalization:
         ctx = [{"text": "doc", "source": "unknown"}]
         evals = _build_source_trust_evaluations(ctx)
         assert evals[0]["trust_tier"] == "unclassified"
-        assert evals[0]["context_used"] is True  # unclassified != untrusted
+        assert evals[0]["context_used"] is False  # unclassified sources not used by C1
 
 
 # =============================================================================

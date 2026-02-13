@@ -15,7 +15,7 @@ from .hashing import hash_text, hash_obj
 # VERSION CONSTANTS
 # =============================================================================
 
-TOOL_VERSION = "0.7.0"
+TOOL_VERSION = "0.7.1"
 SCHEMA_VERSION = "0.1"
 CHECKS_VERSION = "4"  # C4 contraction fix, coverage_basis_points, RFC 8785 float guard
 

@@ -337,6 +337,18 @@ class TestEvaluateAction:
 
         assert result["constitution_path"] == WITH_AUTHORITY_CONST
 
+    def test_oversized_action_params_rejected(self):
+        """action_params over 100KB should be rejected."""
+        big_params = {"data": "x" * 100_001}
+        result = json.loads(sanna_evaluate_action(
+            action_name="test",
+            action_params=big_params,
+            constitution_path=WITH_AUTHORITY_CONST,
+        ))
+        assert "error" in result
+        assert "too large" in result["error"].lower()
+        assert result["decision"] is None
+
 
 # =============================================================================
 # 7. Server object

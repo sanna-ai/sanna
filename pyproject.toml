@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sanna"
-version = "0.7.0"
+version = "0.7.1"
 description = "Coherence checks for AI agents — portable, offline-verifiable reasoning receipts"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -30,6 +30,7 @@ dependencies = [
 [project.optional-dependencies]
 langfuse = ["langfuse>=2.0"]
 mcp = ["mcp>=1.0"]
+otel = ["opentelemetry-api>=1.20.0", "opentelemetry-sdk>=1.20.0"]
 dev = ["pytest>=7.0", "jsonschema>=4.17", "pyyaml>=6.0"]
 
 [project.scripts]

@@ -319,7 +319,7 @@ def _build_source_trust_evaluations(
             "trust_tier": tier,
             "evaluated_at": timestamp,
             "verification_flag": tier == "tier_2",
-            "context_used": tier != "untrusted",
+            "context_used": tier in ("tier_1", "tier_2", "tier_3"),
         })
     return evaluations
 
@@ -680,6 +680,11 @@ def sanna_observe(
 
             enforcement_decision = "PASSED"
 
+            # NOTE: Extensions include middleware runtime metadata (execution_time_ms,
+            # decorator name, etc.) which makes fingerprints execution-specific.
+            # This is intentional: the fingerprint captures the complete execution
+            # artifact, not just reasoning content. For content-only fingerprinting,
+            # see receipt modes planned for v0.8.0.
             extensions = {
                 "middleware": {
                     "decorator": "@sanna_observe",

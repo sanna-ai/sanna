@@ -430,6 +430,16 @@ class TestMiddlewareHelpers:
         evals = _build_source_trust_evaluations(ctx)
         assert len(evals) == 1
 
+    def test_unclassified_tier_context_used_false(self):
+        """Unclassified sources should have context_used=False (C1 ignores them)."""
+        ctx = [
+            {"text": "doc1", "source": "unknown_src", "tier": "unclassified"},
+        ]
+        evals = _build_source_trust_evaluations(ctx)
+        assert len(evals) == 1
+        assert evals[0]["trust_tier"] == "unclassified"
+        assert evals[0]["context_used"] is False
+
 
 # =============================================================================
 # 9. Middleware integration — structured context through decorator

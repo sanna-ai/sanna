@@ -412,7 +412,15 @@ def sanna_evaluate_action(
         escalation_target.
     """
     try:
-        # Input size guard
+        # Input size guards
+        if action_params:
+            params_json = json.dumps(action_params)
+            if len(params_json) > 100_000:  # 100KB
+                return json.dumps({
+                    "error": f"action_params too large: {len(params_json)} bytes (max 100000)",
+                    "decision": None,
+                })
+
         if len(action_name) > MAX_ACTION_SIZE:
             return json.dumps({
                 "error": f"action_name too large: {len(action_name)} bytes (max {MAX_ACTION_SIZE})",

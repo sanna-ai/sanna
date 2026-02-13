@@ -1,95 +1,86 @@
-# CLAUDE.md
+# CLAUDE.md — Sanna Project Context
 
-## Project
-Sanna ("Truth" in Swedish) — reasoning integrity layer for AI agents. Generates portable, offline-verifiable "reasoning receipts" bound to governance constitutions with Ed25519 cryptographic provenance.
+## What Sanna Is
+Trust infrastructure for AI agents. Checks reasoning during execution, halts when constraints are violated, generates portable cryptographic receipts proving governance was enforced. Constitution enforcement is the product. MCP is the distribution channel.
 
 ## Current State
-- **Version:** v0.7.0 (ready for PyPI publish)
-- **Tests:** 646 passing, 0 failures
-- **v0.7.0 scope:** MCP server, authority boundary enforcement, trusted source tiers, escalation targets, evidence bundles
-- **v0.6.x series:** Complete and locked. Do not modify 6.x behavior without explicit instruction.
+- **Version:** v0.7.0 on PyPI (703 tests, 10 xfailed, 0 failures)
+- **CI:** Green across Python 3.10, 3.11, 3.12
+- **Package:** `pip install sanna` / `pip install sanna[mcp]`
 
-## Source Layout
-```
-src/sanna/
-├── checks/              # C1-C5 heuristic check functions
-├── enforcement/
-│   └── constitution_engine.py  # Invariant-to-check mapping, enforcement levels
-├── adapters/
-│   └── langfuse/        # Langfuse trace → receipt adapter
-├── receipt.py           # Receipt generation with Ed25519 signing
-├── verify.py            # Offline verification (receipt + constitution chain)
-├── observe.py           # @sanna_observe decorator (constitution required)
-├── constitution.py      # Constitution loading, validation, schema enforcement
-├── fingerprint.py       # Deterministic receipt fingerprinting
-├── models.py            # Core dataclasses/models
-├── exceptions.py        # SannaHaltError and others
-├── cli.py               # CLI entry points
-spec/
-├── receipt.schema.json  # Receipt JSON schema
-├── constitution.schema.json  # Constitution JSON schema
-examples/
-├── three_constitutions_demo.py
-├── constitutions/       # Sample YAML constitutions
-tests/
-├── golden/              # Golden receipt fixtures
-├── test_*.py            # pytest test files
-```
+## Architecture
 
-## Key Architecture Decisions
-- **Constitution is the control plane.** No constitution = no checks in @sanna_observe. The constitution drives which checks run, at what enforcement level (halt/warn/log), and what triggers halt.
-- **Receipts are portable artifacts.** JSON documents that verify offline without platform access. They are the product — not traces, not logs.
-- **Ed25519 signatures** use RFC 8785-style JCS canonicalization (integers only, floats rejected at signing boundary).
-- **Check IDs** use `sanna.*` namespace via CHECK_REGISTRY. Each check has a `check_impl` field and `replayable` flag.
-- **Fingerprint** is deterministic and covers all receipt fields including check_results, constitution_ref, halt_event, enforcement_decision. Modifying any covered field breaks verification.
-- **PARTIAL status** when some invariants are NOT_CHECKED (custom invariants without registered evaluators). `evaluation_coverage` block tracks basis points.
+### Core modules
+- `src/sanna/checks/` — C1-C5 coherence checks
+- `src/sanna/enforcement/constitution_engine.py` — Invariant-to-check mapping, enforcement levels
+- `src/sanna/enforcement/authority.py` — Authority boundary evaluation (can_execute, cannot_execute, must_escalate)
+- `src/sanna/enforcement/escalation.py` — Escalation targets (log, webhook, callback)
+- `src/sanna/middleware.py` — @sanna_observe decorator, receipt generation, fingerprinting
+- `src/sanna/verify.py` — Offline receipt verification, fingerprint parity with middleware.py
+- `src/sanna/constitution.py` — Constitution parsing, signing, hashing. AgentIdentity with extensions dict
+- `src/sanna/crypto.py` — Ed25519 signing/verification for constitutions and receipts
+- `src/sanna/hashing.py` — Canonical JSON, deterministic hashing
+- `src/sanna/bundle.py` — Evidence bundle creation/verification (zip with receipt + constitution + keys)
+- `src/sanna/mcp/server.py` — FastMCP server, 4 tools, stdio transport
 
-## Invariant-to-Check Mapping
-| Constitution Invariant    | Check | Default if missing |
-|---------------------------|-------|--------------------|
-| INV_NO_FABRICATION        | C1    | Skip               |
-| INV_MARK_INFERENCE        | C2    | Skip               |
-| INV_NO_FALSE_CERTAINTY    | C3    | Skip               |
-| INV_PRESERVE_TENSION      | C4    | Skip               |
-| INV_NO_PREMATURE_COMPRESSION | C5 | Skip               |
+### CLI entry points (registered in pyproject.toml)
+`sanna`, `sanna-verify`, `sanna-keygen`, `sanna-sign-constitution`, `sanna-verify-constitution`, `sanna-init-constitution`, `sanna-create-bundle`, `sanna-verify-bundle`, `sanna-mcp`
 
-## CLI Tools
-- `sanna` — receipt generation
-- `sanna-verify` — offline verification (receipt + optional constitution chain with `--constitution --constitution-public-key`)
-- `sanna-keygen --signed-by "Name"` — Ed25519 keypair generation with metadata
-- `sanna-sign-constitution` — sign constitution YAML (requires `--private-key`)
-- `sanna-verify-constitution` — verify constitution signature
-- `sanna-hash-constitution` — hash only (no signing)
-- `sanna-init-constitution` — scaffold new constitution YAML
+### Schemas
+- `src/sanna/spec/constitution.schema.json` — Source of truth. Root `spec/` copy must stay synced.
+- `src/sanna/spec/receipt.schema.json` — Receipt validation schema.
 
-## Rules
-- Run `pytest` from repo root after every change. Zero regressions required.
-- Never modify existing test assertions without explicit instruction.
-- All new receipt fields must be added to: schema, fingerprint, verifier, and golden receipts.
-- Golden receipts must be regenerated when receipt structure changes.
-- `pyproject.toml` is the single source for version and dependencies.
-- Private key files must be written with `0o600` permissions on POSIX.
-- Unsigned constitutions are rejected at runtime — no auto-signing bypass.
-- CLI must produce clean error messages, never raw tracebacks.
-- Schema validation is `strict=True` by default on enforcement paths.
+### Key design invariants
+- **Fingerprint parity:** middleware.py and verify.py MUST compute identical fingerprints. Same fields, same order.
+- **Signing scope:** Constitution signature covers identity (with extensions flattened), invariants, authority_boundaries, escalation_targets, trusted_sources. Receipt signature covers everything except signature.value itself.
+- **Backward compatibility:** Empty extensions produce identical hash/signature as pre-extension receipts. Plain string context still works for C1.
+- **Optional dependencies:** `mcp` and `httpx` are NOT base dependencies. Any imports must be guarded with try/except ImportError or pytest.importorskip in tests.
 
-## Testing
-- Framework: pytest
-- Golden receipts in `tests/golden/` — fingerprint changes require regeneration
-- Constitution fixtures in `tests/` — various YAML configs for enforcement scenarios
-- Run: `pytest` (no flags needed)
-- Coverage not enforced but new features need tests
+## What Was Built in v0.7.0
+- MCP server: 4 tools (verify_receipt, generate_receipt, list_checks, evaluate_action)
+- Authority boundary enforcement: evaluate_authority() → AuthorityDecision
+- Escalation targets: log (default), webhook (requires httpx), callback
+- Trusted source tiers: tier_1/tier_2/tier_3/untrusted/unclassified, C1-aware
+- Evidence bundles: zip with receipt + constitution + keys + metadata
+- Golden test vectors: 19 vectors in tests/vectors/
+- Hardening: zip bomb/slip protection, MCP crash guards, float crash handling, key_id selection, tier normalization, separator normalization
+- Extension points: AgentIdentity.extensions dict, receipt top-level extensions field
+- Pre-publish fixes: PEP 621 license, root schema sync, httpx import guard
+- CI fixes: pytest.importorskip for mcp and httpx tests, --verify-only without --private-key
 
-## Style
-- Python 3.10+
-- Type hints on all public functions
-- Dataclasses for structured data (existing pattern — don't migrate to Pydantic without instruction)
-- No `print()` in library code — use `logging`
-- Imports: stdlib → third-party → local, grouped with blank lines
-- Constants: UPPER_CASE at module level
+## Active Build: v0.7.1
 
-## Dependencies (current)
-- pyyaml — constitution YAML parsing
-- cryptography — Ed25519 signatures
-- jsonschema — schema validation
-- No runtime dependency on any LLM provider or API
+### OTel bridge (primary deliverable)
+- **New file:** `src/sanna/exporters/otel_exporter.py`
+- **Optional dependency:** `sanna[otel]` → `opentelemetry-api>=1.20.0`, `opentelemetry-sdk>=1.20.0`
+- **Class:** SannaOTelExporter (implements SpanExporter)
+- **Design principle:** Spans carry pointer + integrity hash, NOT full receipt JSON
+  - `sanna.artifact.uri` → where the receipt is stored
+  - `sanna.artifact.content_hash` → SHA-256 of receipt JSON
+- **Semantic conventions namespace:** `sanna.*`
+  - `sanna.receipt.id`, `sanna.coherence_status`, `sanna.enforcement_decision`
+  - `sanna.constitution.policy_hash`, `sanna.constitution.version`
+  - `sanna.evaluation_coverage.pct`
+  - `sanna.check.c1.status` through `sanna.check.c5.status`
+  - `sanna.authority.decision`, `sanna.escalation.triggered`, `sanna.source_trust.flags`
+- **Span:** name=`sanna.governance.evaluation`, kind=INTERNAL, status=OK/ERROR
+- **Integration:** Works with BatchSpanProcessor and any OTel backend
+
+### Deferred hardening items (also v0.7.1)
+1. **unclassified tier context_used inconsistency** — middleware.py emits context_used=True for unclassified sources but C1 ignores them. Align context_used with actual C1 behavior.
+2. **policy_hash canonicalization** — compute_constitution_hash() uses ensure_ascii=True, golden vectors imply ensure_ascii=False. Document the distinction or align.
+3. **Receipt extensions fingerprint semantics** — sanna_observe() always adds execution_time_ms to extensions, making fingerprints execution-specific. Document or restructure.
+4. **action_params size guard** — MCP server has no size limit on action_params dict.
+
+## Testing Rules
+- ALL 703 existing tests must pass after any change
+- Optional dependency tests MUST use `pytest.importorskip()` — CI does not install extras
+- Golden receipts: NEVER use `--update-golden-receipts` unless intentionally changing receipt format
+- Float values in golden receipts: use integers to avoid hash instability
+- New test files for new modules (e.g., `tests/test_otel_exporter.py`)
+
+## Common Pitfalls
+- **Schema drift:** If you change constitution or receipt format, update BOTH schema files and sync root spec/ from src/sanna/spec/
+- **Fingerprint divergence:** Any field added to receipt fingerprint in middleware.py MUST also be added in verify.py (and vice versa)
+- **Import crashes:** Never import optional packages (mcp, httpx, opentelemetry) at module level without guards
+- **Signing scope changes:** If you add fields to constitution or receipt, verify they're included in the signing material
