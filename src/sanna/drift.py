@@ -136,11 +136,20 @@ def _extract_constitution_id(receipt: dict) -> Optional[str]:
 
 
 def _parse_ts(ts_str: str) -> Optional[datetime]:
-    """Best-effort ISO-8601 parse (stdlib only)."""
+    """Best-effort ISO-8601 parse (stdlib only).
+
+    Handles "Z" suffix (all Python versions) and normalizes naive
+    timestamps to UTC so subtraction against timezone-aware values
+    never raises TypeError.
+    """
     if not ts_str:
         return None
     try:
-        return datetime.fromisoformat(ts_str)
+        ts_str = ts_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(ts_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except (ValueError, TypeError):
         return None
 

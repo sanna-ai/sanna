@@ -568,11 +568,12 @@ def _query_receipts(
     if halt_only:
         filters["halt_event"] = True
 
-    receipts = store.query(**filters)
+    # Fetch limit+1 to detect truncation without loading entire result set
+    receipts = store.query(limit=limit + 1, **filters)
 
-    # Apply limit
     truncated = len(receipts) > limit
-    receipts = receipts[:limit]
+    if truncated:
+        receipts = receipts[:limit]
 
     return json.dumps({
         "count": len(receipts),

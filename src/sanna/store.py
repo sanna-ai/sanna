@@ -125,6 +125,7 @@ class ReceiptStore:
             os.makedirs(db_dir, exist_ok=True)
 
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
 
@@ -137,6 +138,13 @@ class ReceiptStore:
                 cursor.execute(
                     "INSERT INTO schema_version (version) VALUES (?)",
                     (_SCHEMA_VERSION,),
+                )
+            elif row["version"] != _SCHEMA_VERSION:
+                found = row["version"]
+                raise ValueError(
+                    f"ReceiptStore schema version mismatch: expected "
+                    f"{_SCHEMA_VERSION}, found {found}. Database may have "
+                    f"been created by a different version of Sanna."
                 )
             self._conn.commit()
 
@@ -229,17 +237,21 @@ class ReceiptStore:
         where = " AND ".join(clauses) if clauses else "1=1"
         return where, params
 
-    def query(self, **filters) -> list[dict]:
+    def query(self, *, limit: int | None = None, offset: int = 0, **filters) -> list[dict]:
         """Query receipts with combinable filters.
 
         Keyword Args:
             agent_id, constitution_id, trace_id, status, halt_event,
-            check_status, since, until.
+            check_status, since, until, limit, offset.
 
         Returns list of full receipt dicts, ordered by timestamp descending.
         """
         where, params = self._build_where(filters)
         sql = f"SELECT receipt_json FROM receipts WHERE {where} ORDER BY timestamp DESC"
+
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
 
         with self._lock:
             rows = self._conn.execute(sql, params).fetchall()

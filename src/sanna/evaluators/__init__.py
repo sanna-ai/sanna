@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from .receipt import CheckResult
+from ..receipt import CheckResult
 
 # ---------------------------------------------------------------------------
 # Registry

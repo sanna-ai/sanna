@@ -724,8 +724,23 @@ def main_drift_report():
     # Export mode: write to file or stdout in requested format
     if args.export:
         if args.output:
-            for report in reports:
-                export_drift_report_to_file(report, args.output, fmt=args.export)
+            if args.export == "json":
+                from dataclasses import asdict as _asdict
+                combined = json.dumps([_asdict(r) for r in reports], indent=2)
+            else:
+                # CSV: concatenate reports, skip header on 2nd+
+                parts = []
+                for i, report in enumerate(reports):
+                    csv_text = export_drift_report(report, fmt="csv")
+                    if i > 0:
+                        # Strip header row from subsequent reports
+                        lines = csv_text.split("\n", 1)
+                        csv_text = lines[1] if len(lines) > 1 else ""
+                    parts.append(csv_text)
+                combined = "".join(parts)
+            p = Path(args.output)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(combined, encoding="utf-8")
             print(f"Exported {len(reports)} report(s) to {args.output}")
         else:
             for report in reports:

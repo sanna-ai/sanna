@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.8.1] - 2026-02-13
+### Added
+- **LLM-as-Judge semantic evaluators** (`sanna.evaluators.llm`) — optional LLM-backed C1-C5 evaluation via Anthropic Messages API using stdlib `urllib.request`. `LLMJudge` class with `enable_llm_checks()` convenience function. Graceful ERRORED status on failure (timeout, HTTP error, malformed response). Check aliases (C1-C5) map to invariant IDs.
+- **SQL-level LIMIT/OFFSET** on `ReceiptStore.query()` — pagination pushed into SQLite instead of post-fetch slicing. MCP server uses `limit+1` pattern for truncation detection.
+- **Schema version guard** — `ReceiptStore` validates schema_version on open; raises `ValueError` on mismatch with clear diagnostic message.
+- **Version single source of truth** — `src/sanna/version.py` imported by `__init__.py` and `receipt.py`. `TOOL_VERSION` in receipts now always matches package version.
+- 990 tests (10 xfailed), 0 failures
+
+### Fixed
+- **CRITICAL: ERRORED verifier mismatch** — `verify_receipt()` now excludes ERRORED checks (alongside NOT_CHECKED) from status/count verification. Receipts with ERRORED custom evaluators pass offline verification.
+- **CRITICAL: Stale TOOL_VERSION** — receipts previously hardcoded `tool_version: "0.7.2"` regardless of package version.
+- **Naive timestamp crash in drift** — `_parse_ts()` handles naive timestamps (treated as UTC), "Z" suffix, and "+00:00" offset without `TypeError`.
+- **Multi-report export overwrite** — `sanna-drift-report --output` with multiple `--window` flags now produces combined output (JSON array / CSV with single header) instead of overwriting.
+- **SQLite WAL mode** — `ReceiptStore` enables `PRAGMA journal_mode=WAL` for concurrent read/write performance.
+
 ## [0.8.0] - 2026-02-14
 ### Added
 - **Receipt persistence** (`ReceiptStore`) — SQLite-backed storage with indexed metadata columns for fleet-level governance queries. Thread-safe, context-manager support, combinable filters (agent_id, status, since/until, halt_event, check_status).

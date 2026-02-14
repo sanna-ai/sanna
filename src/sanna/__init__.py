@@ -5,7 +5,7 @@ Generates portable, offline-verifiable "reasoning receipts" that document
 AI agent decisions with C1-C5 coherence checks and consistency-verified hashing.
 """
 
-__version__ = "0.8.0"
+from .version import __version__
 
 from .hashing import hash_text, hash_obj, canonicalize_text
 from .receipt import (

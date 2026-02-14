@@ -21,6 +21,9 @@ from jsonschema import validate, ValidationError
 
 from .hashing import hash_text, hash_obj
 
+# Statuses that represent non-evaluated checks (excluded from pass/fail counting)
+_NON_EVALUATED = {"NOT_CHECKED", "ERRORED"}
+
 
 # =============================================================================
 # VERIFICATION RESULT
@@ -180,9 +183,9 @@ def verify_status_consistency(receipt: dict) -> tuple:
     Returns (matches, computed, expected)
     """
     checks = receipt.get("checks", [])
-    # Exclude NOT_CHECKED custom invariants from status computation
-    standard_checks = [c for c in checks if c.get("status") != "NOT_CHECKED"]
-    not_checked = [c for c in checks if c.get("status") == "NOT_CHECKED"]
+    # Exclude non-evaluated checks (NOT_CHECKED, ERRORED) from status computation
+    standard_checks = [c for c in checks if c.get("status") not in _NON_EVALUATED]
+    non_evaluated = [c for c in checks if c.get("status") in _NON_EVALUATED]
 
     critical_fails = sum(1 for c in standard_checks if not c.get("passed") and c.get("severity") == "critical")
     warning_fails = sum(1 for c in standard_checks if not c.get("passed") and c.get("severity") == "warning")
@@ -191,7 +194,7 @@ def verify_status_consistency(receipt: dict) -> tuple:
         computed = "FAIL"
     elif warning_fails > 0:
         computed = "WARN"
-    elif not_checked:
+    elif non_evaluated:
         computed = "PARTIAL"
     else:
         computed = "PASS"
@@ -204,8 +207,8 @@ def verify_check_counts(receipt: dict) -> list:
     """Verify checks_passed and checks_failed match actual check results."""
     errors = []
     checks = receipt.get("checks", [])
-    # Exclude NOT_CHECKED custom invariants from count verification
-    standard_checks = [c for c in checks if c.get("status") != "NOT_CHECKED"]
+    # Exclude non-evaluated checks (NOT_CHECKED, ERRORED) from count verification
+    standard_checks = [c for c in checks if c.get("status") not in _NON_EVALUATED]
 
     actual_passed = sum(1 for c in standard_checks if c.get("passed"))
     actual_failed = len(standard_checks) - actual_passed

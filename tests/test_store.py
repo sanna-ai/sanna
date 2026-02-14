@@ -567,3 +567,88 @@ class TestMiddlewareStoreIntegration:
 
         result = agent(query="q", context="c")
         assert result.receipt is not None
+
+
+# =============================================================================
+# LIMIT / OFFSET
+# =============================================================================
+
+class TestQueryLimitOffset:
+
+    @pytest.fixture(autouse=True)
+    def _populate(self, store):
+        for i in range(200):
+            store.save(_make_receipt(
+                receipt_id=f"r-{i:03d}",
+                timestamp=f"2026-02-{(i % 28) + 1:02d}T10:00:00+00:00",
+            ))
+
+    def test_limit_returns_exact_count(self, store):
+        results = store.query(limit=10)
+        assert len(results) == 10
+
+    def test_offset_returns_different_results(self, store):
+        first = store.query(limit=10, offset=0)
+        second = store.query(limit=10, offset=10)
+        assert len(first) == 10
+        assert len(second) == 10
+        first_ids = {r["receipt_id"] for r in first}
+        second_ids = {r["receipt_id"] for r in second}
+        assert first_ids.isdisjoint(second_ids)
+
+    def test_offset_past_end_returns_empty(self, store):
+        results = store.query(limit=10, offset=200)
+        assert len(results) == 0
+
+    def test_no_limit_returns_all(self, store):
+        results = store.query()
+        assert len(results) == 200
+
+    def test_count_unaffected_by_limit(self, store):
+        assert store.count() == 200
+
+
+# =============================================================================
+# SCHEMA VERSION GUARD
+# =============================================================================
+
+class TestSchemaVersionGuard:
+
+    def test_mismatched_schema_version_raises(self, tmp_path):
+        """Opening a DB with wrong schema_version raises ValueError."""
+        import sqlite3
+        db_path = str(tmp_path / "bad.db")
+        # Create a store to init the schema, then close it
+        s = ReceiptStore(db_path)
+        s.close()
+        # Tamper with schema_version
+        conn = sqlite3.connect(db_path)
+        conn.execute("UPDATE schema_version SET version = 999")
+        conn.commit()
+        conn.close()
+        # Reopen should raise
+        with pytest.raises(ValueError, match="schema version"):
+            ReceiptStore(db_path)
+
+    def test_correct_schema_version_works(self, tmp_path):
+        """Normal close/reopen with matching version works fine."""
+        db_path = str(tmp_path / "ok.db")
+        s = ReceiptStore(db_path)
+        s.save(_make_receipt(receipt_id="r1"))
+        s.close()
+        # Reopen
+        s2 = ReceiptStore(db_path)
+        assert s2.count() == 1
+        s2.close()
+
+
+class TestWALMode:
+    """FIX 7: SQLite WAL mode is enabled."""
+
+    def test_wal_mode_enabled(self, tmp_path):
+        """ReceiptStore enables WAL journal mode."""
+        db_path = str(tmp_path / "wal.db")
+        store = ReceiptStore(db_path)
+        row = store._conn.execute("PRAGMA journal_mode").fetchone()
+        assert row[0] == "wal"
+        store.close()
