@@ -45,6 +45,7 @@ sanna-mcp = "sanna.mcp.__main__:main"
 sanna-create-bundle = "sanna.cli:main_create_bundle"
 sanna-verify-bundle = "sanna.cli:main_verify_bundle"
 sanna-drift-report = "sanna.cli:main_drift_report"
+sanna-init = "sanna.init_constitution:main"
 # Legacy aliases
 c3m-receipt = "sanna.cli:main_generate"
 c3m-verify = "sanna.cli:main_verify"
@@ -57,7 +58,7 @@ Issues = "https://github.com/nicallen-exd/sanna/issues"
 where = ["src"]
 
 [tool.setuptools.package-data]
-sanna = ["spec/*.json"]
+sanna = ["spec/*.json", "templates/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,108 @@
+# =============================================================================
+# Sanna Constitution — General Purpose / Starter Template
+# =============================================================================
+#
+# Advisory enforcement: only C1 (fabrication) halts; all others warn.
+# This is a starting point meant to be customized for your specific use case.
+# It provides baseline reasoning integrity without being restrictive.
+#
+# Workflow:
+#   1. Customize the sections below for your agent's specific domain
+#   2. Sign it:  sanna-sign-constitution constitution.yaml --private-key sanna_ed25519.key
+#   3. Wire it:  @sanna_observe(constitution_path="constitution.yaml")
+
+sanna_constitution: "1.0.0"
+
+# --- Agent Identity ---
+# Update these fields to match your agent.
+identity:
+  agent_name: "{agent_name}"
+  domain: "general"
+  description: "{description}"
+
+# --- Provenance ---
+# Track who authored and approved this governance document.
+provenance:
+  authored_by: "team@company.com"
+  approved_by:
+    - "lead@company.com"
+  approval_date: "{today}"
+  approval_method: "manual-sign-off"
+  change_history: []
+
+# --- Operational Boundaries ---
+# Start with a single scope boundary. Add more as you identify constraints.
+boundaries:
+  - id: "B001"
+    description: "Operate within the defined domain and task scope"
+    category: "scope"
+    severity: "medium"
+
+# --- Trust Tiers ---
+# Customize these lists as you define what your agent can do.
+trust_tiers:
+  autonomous:
+    - "Retrieve and present information"
+    - "Generate text and summaries"
+  requires_approval:
+    - "Actions with external side effects"
+  prohibited:
+    - "Actions not yet reviewed for safety"
+
+# --- Halt Conditions ---
+halt_conditions:
+  - id: "H001"
+    trigger: "Agent produces output contradicting verified sources"
+    escalate_to: "team-lead@company.com"
+    severity: "critical"
+    enforcement: "halt"
+
+# --- Coherence Invariants ---
+# Advisory enforcement: C1 at halt (fabrication is always critical),
+# C2-C5 at warn (log issues without blocking execution).
+# Increase enforcement levels as your trust model matures.
+invariants:
+  # C1: Context Contradiction — the most critical check
+  - id: "INV_NO_FABRICATION"
+    rule: "Do not claim facts absent from provided sources."
+    enforcement: "{enforcement_c1}"
+
+  # C2: Unmarked Inference
+  - id: "INV_MARK_INFERENCE"
+    rule: "Clearly mark inferences and speculation as such."
+    enforcement: "{enforcement_c2}"
+
+  # C3: False Certainty
+  - id: "INV_NO_FALSE_CERTAINTY"
+    rule: "Do not express certainty exceeding evidence strength."
+    enforcement: "{enforcement_c3}"
+
+  # C4: Conflict Collapse
+  - id: "INV_PRESERVE_TENSION"
+    rule: "Do not collapse conflicting evidence without explicit justification."
+    enforcement: "{enforcement_c4}"
+
+  # C5: Premature Compression
+  - id: "INV_NO_PREMATURE_COMPRESSION"
+    rule: "Do not issue unconditional conclusions when evidence is mixed."
+    enforcement: "{enforcement_c5}"
+
+# --- Authority Boundaries ---
+# Start minimal and expand as you define your agent's action space.
+# Uncomment and customize the sections below as needed.
+authority_boundaries:
+  can_execute:
+    - "retrieve_information"
+    - "generate_text"
+  cannot_execute: []
+  must_escalate: []
+
+# --- Escalation Targets ---
+escalation_targets:
+  default: "log"
+
+# No trusted_sources configured — all sources treated equally by C1.
+# Add trusted_sources section when you have distinct data source tiers.
+
+# This field is set by `sanna-sign-constitution` — do not edit manually:
+policy_hash: null

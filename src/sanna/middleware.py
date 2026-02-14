@@ -610,6 +610,7 @@ def sanna_observe(
     _func=None,
     *,
     receipt_dir: Optional[str] = None,
+    store=None,
     context_param: Optional[str] = None,
     query_param: Optional[str] = None,
     constitution_path: Optional[str] = None,
@@ -633,6 +634,9 @@ def sanna_observe(
             This is the primary way to configure checks. The constitution's
             invariants drive which checks run and how they enforce.
         receipt_dir: Directory to write receipt JSON. None to skip.
+        store: Optional ReceiptStore instance or db_path string. When
+            provided, receipts are auto-saved after generation. Store
+            failures are logged but never break receipt generation.
         context_param: Explicit name of the context parameter.
         query_param: Explicit name of the query parameter.
         strict: If True (default), validate constitution against JSON schema
@@ -648,6 +652,15 @@ def sanna_observe(
     """
     if on_violation not in ("halt", "warn", "log"):
         raise ValueError(f"on_violation must be 'halt', 'warn', or 'log', got {on_violation!r}")
+
+    # Resolve store at decoration time
+    _store_instance = None
+    if store is not None:
+        if isinstance(store, str):
+            from .store import ReceiptStore as _ReceiptStore
+            _store_instance = _ReceiptStore(store)
+        else:
+            _store_instance = store
 
     # Decoration-time constitution loading
     loaded_constitution = None
@@ -827,6 +840,13 @@ def sanna_observe(
             # 6. Write receipt to disk if configured
             if receipt_dir is not None:
                 _write_receipt(receipt, receipt_dir)
+
+            # 6b. Save to store if configured
+            if _store_instance is not None:
+                try:
+                    _store_instance.save(receipt)
+                except Exception:
+                    logger.warning("Failed to save receipt to store", exc_info=True)
 
             # 7. Apply enforcement
             if enforcement_decision == "HALTED":
