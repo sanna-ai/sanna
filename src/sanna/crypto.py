@@ -64,14 +64,22 @@ def generate_keypair(
     output_dir: str | Path = ".",
     signed_by: Optional[str] = None,
     write_metadata: bool = False,
+    label: Optional[str] = None,
 ) -> tuple[Path, Path]:
     """Generate an Ed25519 keypair and write to PEM files.
 
+    Key files are named by their key_id (SHA-256 of the public key):
+    ``<key_id>.key``, ``<key_id>.pub``, and ``<key_id>.meta.json``.
+
+    A metadata sidecar ``<key_id>.meta.json`` is always created,
+    containing ``key_id``, ``created_at``, ``algorithm``, and optionally
+    ``label`` and ``signed_by``.
+
     Args:
         output_dir: Directory for key files.
-        signed_by: Human-readable identity label for the keypair.
-        write_metadata: If True and signed_by is provided, write a
-            sanna_ed25519.meta.json alongside the keypair.
+        signed_by: Human-readable signer identity (stored in meta.json).
+        write_metadata: Legacy parameter, ignored. Meta.json is always written.
+        label: Human-friendly label for the keypair (e.g. "author", "approver").
 
     Returns (private_key_path, public_key_path).
     """
@@ -80,9 +88,10 @@ def generate_keypair(
 
     private_key = Ed25519PrivateKey.generate()
     public_key = private_key.public_key()
+    key_id = compute_key_id(public_key)
 
-    private_path = output_dir / "sanna_ed25519.key"
-    public_path = output_dir / "sanna_ed25519.pub"
+    private_path = output_dir / f"{key_id}.key"
+    public_path = output_dir / f"{key_id}.pub"
 
     private_bytes = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
@@ -104,19 +113,37 @@ def generate_keypair(
     except OSError:
         pass  # Windows or restricted filesystem
 
-    if write_metadata and signed_by:
-        key_id = compute_key_id(public_key)
-        meta = {
-            "signed_by": signed_by,
-            "key_id": key_id,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "public_key_path": public_path.name,
-            "private_key_path": private_path.name,
-        }
-        meta_path = output_dir / "sanna_ed25519.meta.json"
-        meta_path.write_text(json.dumps(meta, indent=2))
+    # Always write metadata sidecar
+    meta: dict = {
+        "key_id": key_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "algorithm": "Ed25519",
+    }
+    if label:
+        meta["label"] = label
+    if signed_by:
+        meta["signed_by"] = signed_by
+    meta_path = output_dir / f"{key_id}.meta.json"
+    meta_path.write_text(json.dumps(meta, indent=2))
 
     return private_path, public_path
+
+
+def load_key_metadata(key_path: str | Path) -> dict | None:
+    """Read the .meta.json sidecar for a key file, if it exists.
+
+    Args:
+        key_path: Path to a ``.key`` or ``.pub`` file.
+
+    Returns the parsed metadata dict, or None if the sidecar is missing.
+    """
+    key_path = Path(key_path)
+    # Derive meta path: replace .key/.pub extension with .meta.json
+    stem = key_path.stem
+    meta_path = key_path.parent / f"{stem}.meta.json"
+    if meta_path.exists():
+        return json.loads(meta_path.read_text())
+    return None
 
 
 def load_private_key(path: str | Path) -> Ed25519PrivateKey:

@@ -169,6 +169,26 @@ def format_verify_summary(result: VerificationResult, receipt: dict) -> str:
         for warn in result.warnings[:3]:
             lines.append(f"  • {warn}")
 
+    # Identity verification section
+    iv = receipt.get("identity_verification")
+    if iv and isinstance(iv, dict):
+        lines.extend([
+            "",
+            "-" * 50,
+            "IDENTITY CLAIMS",
+            "-" * 50,
+        ])
+        for claim in iv.get("claims", []):
+            status = claim.get("status", "unknown")
+            icon = "✓" if status == "verified" else ("✗" if status == "failed" else "?")
+            lines.append(
+                f"  {icon} {claim['provider']}/{claim['claim_type']} "
+                f"({claim['credential_id']}): {status}"
+            )
+        total = iv.get("total_claims", 0)
+        verified = iv.get("verified", 0)
+        lines.append(f"  Summary: {verified}/{total} verified")
+
     lines.extend(["", "=" * 50])
     return "\n".join(lines)
 
@@ -462,25 +482,33 @@ def main_keygen():
     )
     parser.add_argument("--output-dir", "-o", default=".",
                        help="Directory for key files (default: current directory)")
-    parser.add_argument("--signed-by", help="Human-readable identity label (writes meta.json alongside keypair)")
+    parser.add_argument("--label", help="Human-friendly label for the keypair (e.g. 'author', 'approver')")
+    parser.add_argument("--signed-by", help="Human-readable signer identity (stored in meta.json)")
     parser.add_argument("--version", action="version", version=f"sanna-keygen {TOOL_VERSION}")
 
     args = parser.parse_args()
 
-    from .crypto import generate_keypair
+    from .crypto import generate_keypair, load_key_metadata
 
     private_path, public_path = generate_keypair(
         args.output_dir,
         signed_by=args.signed_by,
-        write_metadata=bool(args.signed_by),
+        label=args.label,
     )
 
-    print(f"Ed25519 keypair generated:")
+    # Read back metadata to get key_id for display
+    meta = load_key_metadata(public_path)
+    key_id = meta["key_id"] if meta else private_path.stem
+
+    if args.label:
+        print(f"Generated Ed25519 keypair '{args.label}' ({key_id[:16]}...)")
+    else:
+        print(f"Generated Ed25519 keypair ({key_id[:16]}...)")
     print(f"  Private key: {private_path}")
     print(f"  Public key:  {public_path}")
+    meta_path = private_path.with_suffix(".meta.json")
+    print(f"  Metadata:    {meta_path}")
     if args.signed_by:
-        meta_path = Path(args.output_dir) / "sanna_ed25519.meta.json"
-        print(f"  Metadata:    {meta_path}")
         print(f"  Identity:    {args.signed_by}")
     print()
     print("Usage:")
@@ -499,6 +527,9 @@ def main_verify_constitution():
     )
     parser.add_argument("constitution", help="Path to constitution YAML/JSON file")
     parser.add_argument("--public-key", help="Path to Ed25519 public key for signature verification")
+    parser.add_argument("--identity-provider-keys",
+                       help="Comma-separated key_id=path pairs for identity claim verification "
+                            "(e.g., 'trulioo-key=trulioo.pub,ops-key=ops.pub')")
     parser.add_argument("--version", action="version", version=f"sanna-verify-constitution {TOOL_VERSION}")
 
     args = parser.parse_args()
@@ -549,6 +580,32 @@ def main_verify_constitution():
             print(f"Signature: PRESENT (key_id={sig.key_id}) — provide --public-key to verify")
 
     print(f"Agent:    {constitution.identity.agent_name}")
+
+    # Identity claims section
+    claims = constitution.identity.identity_claims
+    if claims:
+        print(f"Identity Claims: {len(claims)} claims found")
+        if args.identity_provider_keys:
+            # Parse key_id=path pairs
+            provider_keys: dict[str, str] = {}
+            for pair in args.identity_provider_keys.split(","):
+                pair = pair.strip()
+                if "=" in pair:
+                    kid, kpath = pair.split("=", 1)
+                    provider_keys[kid.strip()] = kpath.strip()
+
+            from .constitution import verify_identity_claims
+            summary = verify_identity_claims(constitution.identity, provider_keys)
+            for r in summary.results:
+                icon = "✓" if r.status == "verified" else ("✗" if r.status == "failed" else "?")
+                print(f"  {icon} {r.claim.provider}/{r.claim.claim_type} ({r.claim.credential_id}): {r.status}")
+                if r.detail and r.status != "verified":
+                    print(f"      {r.detail}")
+        else:
+            for c in claims:
+                print(f"  - {c.provider}/{c.claim_type} ({c.credential_id})")
+            print("  Note: Use --identity-provider-keys to verify claim signatures.")
+
     print(f"Status:   VERIFIED")
 
     return 0

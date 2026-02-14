@@ -1400,7 +1400,7 @@ class TestFingerprintExcludesApproval:
 
         receipt = {
             "schema_version": "0.1",
-            "tool_version": "0.9.0",
+            "tool_version": "0.9.1",
             "checks_version": "4",
             "receipt_id": "test-id",
             "receipt_fingerprint": expected_fp,

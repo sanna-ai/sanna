@@ -559,14 +559,14 @@ class TestChainVerification:
 
 class TestV063Versions:
     def test_tool_version(self):
-        assert TOOL_VERSION == "0.9.0"
+        assert TOOL_VERSION == "0.9.1"
 
     def test_checks_version(self):
         assert CHECKS_VERSION == "4"
 
     def test_init_version(self):
         import sanna
-        assert sanna.__version__ == "0.9.0"
+        assert sanna.__version__ == "0.9.1"
 
 
 # =============================================================================

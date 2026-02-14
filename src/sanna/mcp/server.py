@@ -831,6 +831,85 @@ def check_constitution_approval(
 
 
 # =============================================================================
+# TOOL: verify_identity_claims
+# =============================================================================
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+    ),
+)
+def sanna_verify_identity_claims(
+    constitution_path: str,
+    provider_keys: dict[str, str] | None = None,
+) -> str:
+    """Verify identity claims on a constitution's agent identity.
+
+    Loads the constitution and verifies any identity_claims against
+    provided provider public keys. Returns per-claim verification
+    results.
+
+    Args:
+        constitution_path: Path to the constitution YAML/JSON file.
+        provider_keys: Optional mapping of public_key_id to file path
+            for provider public keys. If not provided, all claims with
+            signatures get "no_key" status.
+
+    Returns:
+        JSON string with verification summary and per-claim results.
+    """
+    try:
+        from sanna.constitution import (
+            load_constitution,
+            verify_identity_claims,
+            SannaConstitutionError,
+        )
+        from dataclasses import asdict
+
+        try:
+            constitution = load_constitution(constitution_path)
+        except FileNotFoundError:
+            return json.dumps({
+                "error": f"Constitution file not found: {constitution_path}",
+            })
+        except (SannaConstitutionError, ValueError) as e:
+            return json.dumps({
+                "error": f"Failed to load constitution: {e}",
+            })
+
+        summary = verify_identity_claims(
+            constitution.identity,
+            provider_keys=provider_keys,
+        )
+
+        return json.dumps({
+            "total_claims": summary.total_claims,
+            "verified": summary.verified_count,
+            "failed": summary.failed_count,
+            "unverified": summary.unverified_count,
+            "all_verified": summary.all_verified,
+            "claims": [
+                {
+                    "provider": r.claim.provider,
+                    "claim_type": r.claim.claim_type,
+                    "credential_id": r.claim.credential_id,
+                    "status": r.status,
+                    "detail": r.detail,
+                }
+                for r in summary.results
+            ],
+        }, indent=2)
+
+    except Exception as e:
+        logger.exception("sanna_verify_identity_claims failed")
+        return json.dumps({
+            "error": f"Internal error: {e}",
+        })
+
+
+# =============================================================================
 # SERVER RUNNER
 # =============================================================================
 

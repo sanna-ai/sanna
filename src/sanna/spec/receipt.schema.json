@@ -389,6 +389,39 @@
       "type": "object",
       "description": "Optional vendor-specific metadata. Ignored by verifier but preserved in receipt.",
       "additionalProperties": true
+    },
+    "identity_verification": {
+      "description": "Identity claim verification results. Present only when constitution has identity_claims.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "total_claims": {"type": "integer", "minimum": 0},
+            "verified": {"type": "integer", "minimum": 0},
+            "failed": {"type": "integer", "minimum": 0},
+            "unverified": {"type": "integer", "minimum": 0},
+            "all_verified": {"type": "boolean"},
+            "claims": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "provider": {"type": "string"},
+                  "claim_type": {"type": "string"},
+                  "credential_id": {"type": "string"},
+                  "status": {
+                    "type": "string",
+                    "enum": ["verified", "unverified", "failed", "expired", "no_key"]
+                  }
+                },
+                "required": ["provider", "claim_type", "credential_id", "status"]
+              }
+            }
+          },
+          "required": ["total_claims", "verified", "failed", "unverified", "all_verified", "claims"]
+        },
+        {"type": "null"}
+      ]
     }
   },
   "additionalProperties": false,

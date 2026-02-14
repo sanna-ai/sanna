@@ -561,6 +561,17 @@ def verify_receipt(
         errors.extend(chain_errors)
         warnings.extend(chain_warnings)
 
+    # 9. Identity verification reporting (point-in-time, no re-verification)
+    iv = receipt.get("identity_verification")
+    if iv and isinstance(iv, dict):
+        total = iv.get("total_claims", 0)
+        verified = iv.get("verified", 0)
+        if not iv.get("all_verified", True):
+            warnings.append(
+                f"Identity claims: {total} total, {verified} verified "
+                f"(not all claims verified)"
+            )
+
     # Determine result
     if not fp_match:
         errors.insert(0, f"Fingerprint mismatch: computed {fp_computed}, expected {fp_expected}")

@@ -120,11 +120,47 @@ class Provenance:
 
 
 @dataclass
+class IdentityClaim:
+    """A verifiable identity assertion from an external provider.
+
+    Claims follow a standard format: provider issues a signed credential
+    that Sanna can verify using the provider's public key.
+    """
+    provider: str           # "trulioo", "vouched", "sumsub", "internal"
+    claim_type: str         # "digital_agent_passport", "deployment_attestation"
+    credential_id: str      # External credential reference
+    issued_at: str          # ISO 8601 timestamp
+    expires_at: str = ""    # Optional expiry
+    signature: str = ""     # Base64-encoded Ed25519 signature from provider
+    public_key_id: str = "" # Key ID for the provider's signing key
+
+
+@dataclass
+class IdentityVerificationResult:
+    """Result of verifying a single identity claim."""
+    claim: IdentityClaim
+    status: str             # "verified", "unverified", "failed", "expired", "no_key"
+    detail: str = ""
+
+
+@dataclass
+class IdentityVerificationSummary:
+    """Aggregate result of verifying all identity claims on an agent."""
+    results: list[IdentityVerificationResult] = field(default_factory=list)
+    all_verified: bool = True
+    total_claims: int = 0
+    verified_count: int = 0
+    failed_count: int = 0
+    unverified_count: int = 0
+
+
+@dataclass
 class AgentIdentity:
     agent_name: str
     domain: str
     description: str = ""
     extensions: dict = field(default_factory=dict)
+    identity_claims: list[IdentityClaim] = field(default_factory=list)
 
 
 @dataclass
@@ -396,12 +432,34 @@ def parse_constitution(data: dict) -> Constitution:
 
     identity_data = data["identity"]
     _identity_known_keys = {"agent_name", "domain", "description"}
+
+    # Parse identity_claims into structured IdentityClaim list
+    _identity_claims: list[IdentityClaim] = []
+    raw_claims = identity_data.get("identity_claims")
+    if isinstance(raw_claims, list):
+        for claim_data in raw_claims:
+            if not isinstance(claim_data, dict):
+                continue
+            try:
+                _identity_claims.append(IdentityClaim(
+                    provider=claim_data.get("provider", ""),
+                    claim_type=claim_data.get("claim_type", ""),
+                    credential_id=claim_data.get("credential_id", ""),
+                    issued_at=claim_data.get("issued_at", ""),
+                    expires_at=claim_data.get("expires_at", ""),
+                    signature=claim_data.get("signature", ""),
+                    public_key_id=claim_data.get("public_key_id", ""),
+                ))
+            except (TypeError, KeyError):
+                continue  # Malformed claim, skip gracefully
+
     identity = AgentIdentity(
         agent_name=identity_data["agent_name"],
         domain=identity_data["domain"],
         description=identity_data.get("description", ""),
         extensions={k: v for k, v in identity_data.items()
                     if k not in _identity_known_keys},
+        identity_claims=_identity_claims,
     )
 
     prov_data = data["provenance"]
@@ -795,6 +853,131 @@ def _approval_record_to_signable_dict(record: ApprovalRecord) -> dict:
     if record.previous_version_hash is not None:
         d["previous_version_hash"] = record.previous_version_hash
     return d
+
+
+def _claim_to_signable_dict(claim: IdentityClaim) -> dict:
+    """Build canonical dict for identity claim signature verification.
+
+    Includes all IdentityClaim fields EXCEPT signature (set to "").
+    Same pattern as approval and constitution signatures.
+    """
+    d: dict = {
+        "provider": claim.provider,
+        "claim_type": claim.claim_type,
+        "credential_id": claim.credential_id,
+        "issued_at": claim.issued_at,
+        "signature": "",  # excluded from signing
+        "public_key_id": claim.public_key_id,
+    }
+    if claim.expires_at:
+        d["expires_at"] = claim.expires_at
+    return d
+
+
+def verify_identity_claims(
+    identity: AgentIdentity,
+    provider_keys: dict[str, str] | None = None,
+) -> IdentityVerificationSummary:
+    """Verify identity claims on an AgentIdentity.
+
+    Args:
+        identity: The AgentIdentity with claims to verify.
+        provider_keys: Mapping of public_key_id to path to public key file.
+            If None or empty, all claims with signatures get "no_key" status.
+
+    Returns:
+        IdentityVerificationSummary with per-claim results.
+    """
+    from .crypto import verify_signature, load_public_key
+    from .hashing import canonical_json_bytes
+
+    if not identity.identity_claims:
+        return IdentityVerificationSummary(
+            results=[],
+            all_verified=True,
+            total_claims=0,
+            verified_count=0,
+            failed_count=0,
+            unverified_count=0,
+        )
+
+    provider_keys = provider_keys or {}
+    results: list[IdentityVerificationResult] = []
+
+    for claim in identity.identity_claims:
+        # 1. No signature → unverified
+        if not claim.signature:
+            results.append(IdentityVerificationResult(
+                claim=claim,
+                status="unverified",
+                detail="No signature on claim",
+            ))
+            continue
+
+        # 2. No matching key → no_key
+        if claim.public_key_id not in provider_keys:
+            results.append(IdentityVerificationResult(
+                claim=claim,
+                status="no_key",
+                detail=f"No public key available for provider key '{claim.public_key_id}'",
+            ))
+            continue
+
+        # 3. Check expiry (before signature verification)
+        if claim.expires_at:
+            try:
+                expires = datetime.fromisoformat(claim.expires_at)
+                now = datetime.now(timezone.utc)
+                # Normalize naive datetime to UTC
+                if expires.tzinfo is None:
+                    expires = expires.replace(tzinfo=timezone.utc)
+                if now > expires:
+                    results.append(IdentityVerificationResult(
+                        claim=claim,
+                        status="expired",
+                        detail=f"Claim expired at {claim.expires_at}",
+                    ))
+                    continue
+            except (ValueError, TypeError):
+                pass  # Invalid expiry format, proceed to sig check
+
+        # 4. Verify signature
+        try:
+            pub_key = load_public_key(provider_keys[claim.public_key_id])
+            signable = _claim_to_signable_dict(claim)
+            data = canonical_json_bytes(signable)
+            valid = verify_signature(data, claim.signature, pub_key)
+            if valid:
+                results.append(IdentityVerificationResult(
+                    claim=claim,
+                    status="verified",
+                    detail="Signature verified",
+                ))
+            else:
+                results.append(IdentityVerificationResult(
+                    claim=claim,
+                    status="failed",
+                    detail="Signature verification failed",
+                ))
+        except Exception as exc:
+            results.append(IdentityVerificationResult(
+                claim=claim,
+                status="failed",
+                detail=f"Signature verification error: {exc}",
+            ))
+
+    verified = sum(1 for r in results if r.status == "verified")
+    failed = sum(1 for r in results if r.status == "failed")
+    unverified = sum(1 for r in results if r.status in ("unverified", "no_key", "expired"))
+
+    return IdentityVerificationSummary(
+        results=results,
+        all_verified=len(results) > 0 and verified == len(results),
+        total_claims=len(results),
+        verified_count=verified,
+        failed_count=failed,
+        unverified_count=unverified,
+    )
 
 
 def approve_constitution(

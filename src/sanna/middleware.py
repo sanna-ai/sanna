@@ -623,6 +623,7 @@ def sanna_observe(
     query_param: Optional[str] = None,
     constitution_path: Optional[str] = None,
     private_key_path: Optional[str] = None,
+    identity_provider_keys: Optional[dict[str, str]] = None,
     strict: bool = True,
     # Legacy parameters — ignored when constitution has invariants
     on_violation: str = "halt",
@@ -647,6 +648,9 @@ def sanna_observe(
             failures are logged but never break receipt generation.
         context_param: Explicit name of the context parameter.
         query_param: Explicit name of the query parameter.
+        identity_provider_keys: Optional mapping of public_key_id to path to
+            public key file for identity claim verification. If not provided,
+            claims get "unverified" status (graceful degradation).
         strict: If True (default), validate constitution against JSON schema
             on load. Catches typos like ``invariant:`` instead of ``invariants:``.
         on_violation: Legacy. Used when no constitution invariants are present.
@@ -839,6 +843,30 @@ def sanna_observe(
                     extensions=extensions,
                 )
                 enforcement_decision = "PASSED"
+
+            # 5a. Identity verification (NOT in fingerprint — added post-hash)
+            if loaded_constitution and loaded_constitution.identity.identity_claims:
+                from .constitution import verify_identity_claims as _verify_claims
+                iv_summary = _verify_claims(
+                    loaded_constitution.identity,
+                    provider_keys=identity_provider_keys,
+                )
+                receipt["identity_verification"] = {
+                    "total_claims": iv_summary.total_claims,
+                    "verified": iv_summary.verified_count,
+                    "failed": iv_summary.failed_count,
+                    "unverified": iv_summary.unverified_count,
+                    "all_verified": iv_summary.all_verified,
+                    "claims": [
+                        {
+                            "provider": r.claim.provider,
+                            "claim_type": r.claim.claim_type,
+                            "credential_id": r.claim.credential_id,
+                            "status": r.status,
+                        }
+                        for r in iv_summary.results
+                    ],
+                }
 
             # 5b. Sign receipt if private key provided
             if private_key_path is not None:

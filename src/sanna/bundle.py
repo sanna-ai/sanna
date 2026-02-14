@@ -183,6 +183,14 @@ def create_bundle(
     governance_summary["constitution_approval_verified"] = (
         metadata["approval_status"] == "approved" and approver_public_key_path is not None
     )
+
+    # v0.9.1: Identity verification in governance_summary
+    iv = receipt.get("identity_verification")
+    if iv and isinstance(iv, dict):
+        governance_summary["identity_claims_total"] = iv.get("total_claims", 0)
+        governance_summary["identity_claims_verified"] = iv.get("verified", 0)
+        governance_summary["identity_claims_all_verified"] = iv.get("all_verified", False)
+
     metadata["governance_summary"] = governance_summary
 
     # Create zip archive

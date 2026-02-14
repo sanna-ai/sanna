@@ -256,8 +256,11 @@ class TestEd25519Keygen:
         priv_path, pub_path = generate_keypair(tmp_path)
         assert priv_path.exists()
         assert pub_path.exists()
-        assert priv_path.name == "sanna_ed25519.key"
-        assert pub_path.name == "sanna_ed25519.pub"
+        assert priv_path.suffix == ".key"
+        assert pub_path.suffix == ".pub"
+        # Filenames are key_id-based (64-char hex stem)
+        assert len(priv_path.stem) == 64
+        assert priv_path.stem == pub_path.stem
 
     def test_load_generated_keys(self, tmp_path):
         priv_path, pub_path = generate_keypair(tmp_path)
@@ -750,14 +753,14 @@ class TestConstitutionSchema:
 
 class TestV061Versions:
     def test_tool_version(self):
-        assert TOOL_VERSION == "0.9.0"
+        assert TOOL_VERSION == "0.9.1"
 
     def test_checks_version(self):
         assert CHECKS_VERSION == "4"
 
     def test_init_version(self):
         import sanna
-        assert sanna.__version__ == "0.9.0"
+        assert sanna.__version__ == "0.9.1"
 
 
 # =============================================================================
@@ -818,34 +821,42 @@ class TestFullKeyId:
 
 class TestKeygenMetadata:
     def test_metadata_written_with_signed_by(self, tmp_path):
-        """generate_keypair with signed_by + write_metadata should create meta.json."""
-        generate_keypair(tmp_path, signed_by="compliance-team", write_metadata=True)
-        meta_path = tmp_path / "sanna_ed25519.meta.json"
+        """generate_keypair with signed_by should create meta.json with signed_by."""
+        _, pub_path = generate_keypair(tmp_path, signed_by="compliance-team")
+        meta_path = pub_path.with_suffix(".meta.json")
         assert meta_path.exists()
         meta = json.loads(meta_path.read_text())
         assert meta["signed_by"] == "compliance-team"
         assert "key_id" in meta
         assert len(meta["key_id"]) == 64
-        assert "generated_at" in meta
-        assert meta["public_key_path"] == "sanna_ed25519.pub"
-        assert meta["private_key_path"] == "sanna_ed25519.key"
+        assert "created_at" in meta
+        assert meta["algorithm"] == "Ed25519"
 
-    def test_no_metadata_without_flag(self, tmp_path):
-        """Without write_metadata, no meta.json should be created."""
-        generate_keypair(tmp_path, signed_by="someone")
-        meta_path = tmp_path / "sanna_ed25519.meta.json"
-        assert not meta_path.exists()
+    def test_metadata_always_created(self, tmp_path):
+        """meta.json is always created, even without signed_by or label."""
+        _, pub_path = generate_keypair(tmp_path)
+        meta_path = pub_path.with_suffix(".meta.json")
+        assert meta_path.exists()
+        meta = json.loads(meta_path.read_text())
+        assert "key_id" in meta
+        assert "created_at" in meta
+        assert meta["algorithm"] == "Ed25519"
+        assert "signed_by" not in meta
+        assert "label" not in meta
 
-    def test_no_metadata_without_signed_by(self, tmp_path):
-        """Without signed_by, no meta.json even if write_metadata=True."""
-        generate_keypair(tmp_path, write_metadata=True)
-        meta_path = tmp_path / "sanna_ed25519.meta.json"
-        assert not meta_path.exists()
+    def test_metadata_with_label(self, tmp_path):
+        """meta.json includes label when provided."""
+        _, pub_path = generate_keypair(tmp_path, label="approver")
+        meta_path = pub_path.with_suffix(".meta.json")
+        assert meta_path.exists()
+        meta = json.loads(meta_path.read_text())
+        assert meta["label"] == "approver"
 
     def test_metadata_key_id_matches_pubkey(self, tmp_path):
         """meta.json key_id should match the actual public key."""
-        _, pub_path = generate_keypair(tmp_path, signed_by="test", write_metadata=True)
-        meta = json.loads((tmp_path / "sanna_ed25519.meta.json").read_text())
+        _, pub_path = generate_keypair(tmp_path)
+        meta_path = pub_path.with_suffix(".meta.json")
+        meta = json.loads(meta_path.read_text())
         pub = load_public_key(pub_path)
         assert meta["key_id"] == compute_key_id(pub)
 
