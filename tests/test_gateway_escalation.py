@@ -1838,3 +1838,92 @@ downstream:
 
         config = load_gateway_config(str(config_file))
         assert config.max_pending_escalations == 42
+
+
+# =============================================================================
+# APPROVAL IDEMPOTENCY (Fix 5)
+# =============================================================================
+
+class TestApprovalIdempotency:
+    def test_approve_already_approved_returns_error(
+        self, mock_server_path, signed_constitution,
+    ):
+        """Approving an already-approved escalation returns ALREADY_EXECUTING."""
+        const_path, key_path, _ = signed_constitution
+
+        async def _test():
+            gw = SannaGateway(
+                server_name="mock",
+                command=sys.executable,
+                args=[mock_server_path],
+                constitution_path=const_path,
+                signing_key_path=key_path,
+            )
+            await gw.start()
+            try:
+                # Trigger escalation
+                esc_result = await gw._forward_call(
+                    "mock_update_item",
+                    {"item_id": "1", "name": "new"},
+                )
+                esc_data = json.loads(esc_result.content[0].text)
+                esc_id = esc_data["escalation_id"]
+
+                # Manually set status to "approved" (simulates crash during
+                # execution)
+                gw.escalation_store.mark_status(esc_id, "approved")
+
+                # Second approve should fail
+                token = _get_approval_token(gw, esc_id)
+                result = await gw._forward_call(
+                    _META_TOOL_APPROVE,
+                    {"escalation_id": esc_id, "approval_token": token},
+                )
+                assert result.isError is True
+                data = json.loads(result.content[0].text)
+                assert data["error"] == "ESCALATION_ALREADY_EXECUTING"
+            finally:
+                await gw.shutdown()
+
+        asyncio.run(_test())
+
+    def test_approve_failed_entry_returns_error(
+        self, mock_server_path, signed_constitution,
+    ):
+        """Approving a failed escalation returns ESCALATION_FAILED."""
+        const_path, key_path, _ = signed_constitution
+
+        async def _test():
+            gw = SannaGateway(
+                server_name="mock",
+                command=sys.executable,
+                args=[mock_server_path],
+                constitution_path=const_path,
+                signing_key_path=key_path,
+            )
+            await gw.start()
+            try:
+                # Trigger escalation
+                esc_result = await gw._forward_call(
+                    "mock_update_item",
+                    {"item_id": "1", "name": "new"},
+                )
+                esc_data = json.loads(esc_result.content[0].text)
+                esc_id = esc_data["escalation_id"]
+
+                # Manually set status to "failed"
+                gw.escalation_store.mark_status(esc_id, "failed")
+
+                # Approve should fail
+                token = _get_approval_token(gw, esc_id)
+                result = await gw._forward_call(
+                    _META_TOOL_APPROVE,
+                    {"escalation_id": esc_id, "approval_token": token},
+                )
+                assert result.isError is True
+                data = json.loads(result.content[0].text)
+                assert data["error"] == "ESCALATION_FAILED"
+            finally:
+                await gw.shutdown()
+
+        asyncio.run(_test())

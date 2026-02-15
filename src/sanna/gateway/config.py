@@ -74,6 +74,7 @@ class DownstreamConfig:
     default_policy: str = "can_execute"
     timeout: float = 30.0
     tools: dict[str, ToolPolicyConfig] = field(default_factory=dict)
+    optional: bool = False
 
 
 @dataclass
@@ -228,6 +229,13 @@ def _parse_downstream(
         )
     name = str(name)
 
+    if "_" in name:
+        raise GatewayConfigError(
+            f"{prefix}: downstream name '{name}' must not contain "
+            f"underscores (reserved for tool namespace separator). "
+            f"Use hyphens instead: '{name.replace('_', '-')}'"
+        )
+
     command = raw.get("command")
     if not command:
         raise GatewayConfigError(
@@ -288,6 +296,9 @@ def _parse_downstream(
                 policy=policy, reason=reason,
             )
 
+    # optional
+    optional = bool(raw.get("optional", False))
+
     return DownstreamConfig(
         name=name,
         command=command,
@@ -296,6 +307,7 @@ def _parse_downstream(
         default_policy=default_policy,
         timeout=timeout,
         tools=tools,
+        optional=optional,
     )
 
 

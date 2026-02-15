@@ -1347,3 +1347,185 @@ class TestExtractResultText:
                 await gw.shutdown()
 
         asyncio.run(_test())
+
+
+# =============================================================================
+# CIRCUIT BREAKER PROBE: list_tools HEALTH CHECK (Fix 1)
+# =============================================================================
+
+class TestCircuitBreakerProbe:
+    def test_probe_uses_list_tools_not_call_tool(
+        self, mock_server_path, signed_constitution,
+    ):
+        """Probe calls list_tools(), not a user tool call."""
+        from datetime import datetime, timedelta, timezone
+
+        const_path, private_key, _ = signed_constitution
+
+        async def _test():
+            gw = SannaGateway(
+                server_name="mock",
+                command=sys.executable,
+                args=[mock_server_path],
+                constitution_path=const_path,
+                signing_key_path=private_key,
+            )
+            await gw.start()
+            try:
+                ds = gw._first_ds
+                conn = ds.connection
+                original_list_tools = conn.list_tools
+                original_call_tool = conn.call_tool
+
+                list_tools_count = 0
+                call_tool_count = 0
+
+                async def mock_list_tools():
+                    nonlocal list_tools_count
+                    list_tools_count += 1
+                    return await original_list_tools()
+
+                async def mock_call_tool(name, args=None, **kw):
+                    nonlocal call_tool_count
+                    call_tool_count += 1
+                    return await original_call_tool(name, args, **kw)
+
+                conn.list_tools = mock_list_tools
+                conn.call_tool = mock_call_tool
+
+                # Force OPEN with cooldown elapsed
+                ds.circuit_state = CircuitState.OPEN
+                ds.circuit_opened_at = (
+                    datetime.now(timezone.utc) - timedelta(seconds=61)
+                )
+
+                # Forward a call — should trigger probe
+                result = await gw._forward_call("mock_get_status", {})
+
+                # list_tools was called for the probe
+                assert list_tools_count >= 1
+                # call_tool was called for the user's actual request
+                assert call_tool_count == 1
+                assert result.isError is not True
+            finally:
+                await gw.shutdown()
+
+        asyncio.run(_test())
+
+    def test_failed_probe_blocks_user_call(
+        self, mock_server_path, signed_constitution,
+    ):
+        """Failed probe returns error without forwarding user call."""
+        from datetime import datetime, timedelta, timezone
+        from sanna.gateway.mcp_client import DownstreamConnectionError
+
+        const_path, private_key, _ = signed_constitution
+
+        async def _test():
+            gw = SannaGateway(
+                server_name="mock",
+                command=sys.executable,
+                args=[mock_server_path],
+                constitution_path=const_path,
+                signing_key_path=private_key,
+            )
+            await gw.start()
+            try:
+                ds = gw._first_ds
+                conn = ds.connection
+                call_tool_count = 0
+                original_call_tool = conn.call_tool
+
+                async def mock_call_tool(name, args=None, **kw):
+                    nonlocal call_tool_count
+                    call_tool_count += 1
+                    return await original_call_tool(name, args, **kw)
+
+                async def failing_list_tools():
+                    raise DownstreamConnectionError("probe failed")
+
+                conn.list_tools = failing_list_tools
+                conn.call_tool = mock_call_tool
+
+                # Force OPEN with cooldown elapsed
+                ds.circuit_state = CircuitState.OPEN
+                ds.circuit_opened_at = (
+                    datetime.now(timezone.utc) - timedelta(seconds=61)
+                )
+
+                result = await gw._forward_call("mock_get_status", {})
+                assert result.isError is True
+                assert "unhealthy" in _extract_result_text(result)
+                # User tool call was NOT forwarded
+                assert call_tool_count == 0
+            finally:
+                await gw.shutdown()
+
+        asyncio.run(_test())
+
+
+# =============================================================================
+# RECEIPT FILE PERMISSIONS (Fix 3)
+# =============================================================================
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only permissions")
+class TestReceiptPermissions:
+    def test_receipt_dir_0700(
+        self, mock_server_path, signed_constitution, tmp_path,
+    ):
+        """Receipt store directory has 0o700 permissions."""
+        const_path, private_key, _ = signed_constitution
+        store = str(tmp_path / "receipts")
+
+        async def _test():
+            gw = SannaGateway(
+                server_name="mock",
+                command=sys.executable,
+                args=[mock_server_path],
+                constitution_path=const_path,
+                signing_key_path=private_key,
+                receipt_store_path=store,
+            )
+            await gw.start()
+            try:
+                await gw._forward_call("mock_get_status", {})
+                import stat
+                mode = os.stat(store).st_mode & 0o777
+                assert mode == 0o700, f"Expected 0o700, got {oct(mode)}"
+            finally:
+                await gw.shutdown()
+
+        asyncio.run(_test())
+
+    def test_receipt_file_0600(
+        self, mock_server_path, signed_constitution, tmp_path,
+    ):
+        """Receipt files have 0o600 permissions."""
+        const_path, private_key, _ = signed_constitution
+        store = str(tmp_path / "receipts")
+
+        async def _test():
+            gw = SannaGateway(
+                server_name="mock",
+                command=sys.executable,
+                args=[mock_server_path],
+                constitution_path=const_path,
+                signing_key_path=private_key,
+                receipt_store_path=store,
+            )
+            await gw.start()
+            try:
+                await gw._forward_call("mock_get_status", {})
+                import stat
+                from pathlib import Path
+                files = list(Path(store).glob("*.json"))
+                assert len(files) >= 1
+                for f in files:
+                    mode = f.stat().st_mode & 0o777
+                    assert mode == 0o600, (
+                        f"Expected 0o600 for {f.name}, got {oct(mode)}"
+                    )
+            finally:
+                await gw.shutdown()
+
+        asyncio.run(_test())

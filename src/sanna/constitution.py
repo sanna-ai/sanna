@@ -225,6 +225,88 @@ class AuthorityBoundaries:
     default_escalation: str = "log"
 
 
+# ---------------------------------------------------------------------------
+# Reasoning configuration (v1.1+)
+# ---------------------------------------------------------------------------
+
+VALID_JUSTIFICATION_LEVELS = frozenset({"must_escalate", "cannot_execute", "can_execute"})
+VALID_ON_MISSING_JUSTIFICATION = frozenset({"block", "escalate", "allow"})
+VALID_ON_CHECK_ERROR = frozenset({"block", "escalate", "allow"})
+
+
+@dataclass
+class GLCCheckConfig:
+    """Base configuration for a governance-level reasoning check."""
+    enabled: bool = True
+
+
+@dataclass
+class GLCMinimumSubstanceConfig(GLCCheckConfig):
+    """Config for minimum-substance reasoning check.
+
+    Rejects justifications shorter than ``min_length`` characters.
+    """
+    min_length: int = 20
+
+
+@dataclass
+class GLCNoParrotingConfig(GLCCheckConfig):
+    """Config for no-parroting reasoning check.
+
+    Rejects justifications that contain any blocklisted phrase.
+    """
+    blocklist: list[str] = field(default_factory=lambda: [
+        "because you asked",
+        "you told me to",
+        "you requested",
+    ])
+
+
+@dataclass
+class GLCLLMCoherenceConfig(GLCCheckConfig):
+    """Config for LLM coherence reasoning check.
+
+    Uses an LLM judge to score justification quality.
+    Only applied for actions matching ``enabled_for`` enforcement levels.
+    """
+    enabled_for: list[str] = field(default_factory=lambda: ["must_escalate"])
+    timeout_ms: int = 2000
+    score_threshold: float = 0.6
+
+
+@dataclass
+class ReasoningConfig:
+    """Configuration for governance-level reasoning checks (v1.1+).
+
+    Controls when and how agent justifications are evaluated before
+    enforcement decisions (escalation, denial, etc.).
+
+    Attributes:
+        require_justification_for: Enforcement levels that require
+            a justification string. Valid values: ``"must_escalate"``,
+            ``"cannot_execute"``, ``"can_execute"``.
+        on_missing_justification: Action when justification is missing
+            for a required level. ``"block"`` (deny), ``"escalate"``
+            (route to human), or ``"allow"`` (proceed anyway).
+        on_check_error: Action when a reasoning check errors.
+        checks: Named check configs. Known keys:
+            ``"glc_minimum_substance"``, ``"glc_no_parroting"``,
+            ``"glc_llm_coherence"``.
+        evaluate_before_escalation: If True, run reasoning checks
+            before the escalation round-trip.
+        auto_deny_on_reasoning_failure: If True, automatically deny
+            tool calls when reasoning checks fail.
+    """
+    require_justification_for: list[str] = field(
+        default_factory=lambda: ["must_escalate", "cannot_execute"],
+    )
+    on_missing_justification: str = "block"
+    on_check_error: str = "block"
+    checks: dict[str, GLCCheckConfig] = field(default_factory=dict)
+    evaluate_before_escalation: bool = True
+    auto_deny_on_reasoning_failure: bool = False
+
+
 @dataclass
 class ApprovalRecord:
     """A single approval record binding an approver to a constitution version.
@@ -277,6 +359,8 @@ class Constitution:
     authority_boundaries: Optional[AuthorityBoundaries] = None
     trusted_sources: Optional[TrustedSources] = None
     approval: Optional[ApprovalChain] = None
+    version: str = "1.0"
+    reasoning: Optional[ReasoningConfig] = None
 
 
 # =============================================================================
@@ -413,6 +497,126 @@ def validate_constitution_data(data: dict) -> list[str]:
                         errors.append(f"authority_boundaries.must_escalate[{i}] must be a dict")
                     elif not rule.get("condition"):
                         errors.append(f"authority_boundaries.must_escalate[{i}].condition is required")
+
+    # Reasoning config (optional, v1.1+)
+    reasoning = data.get("reasoning")
+    if reasoning is not None:
+        if not isinstance(reasoning, dict):
+            errors.append("reasoning must be a dict")
+        else:
+            errors.extend(_validate_reasoning_config(reasoning))
+
+    return errors
+
+
+def _validate_reasoning_config(reasoning: dict) -> list[str]:
+    """Validate the reasoning configuration section. Returns error strings."""
+    errors: list[str] = []
+
+    # require_justification_for
+    rjf = reasoning.get("require_justification_for")
+    if rjf is not None:
+        if not isinstance(rjf, list):
+            errors.append("reasoning.require_justification_for must be a list")
+        else:
+            for i, level in enumerate(rjf):
+                if level not in VALID_JUSTIFICATION_LEVELS:
+                    errors.append(
+                        f"reasoning.require_justification_for[{i}] "
+                        f"'{level}' must be one of "
+                        f"{sorted(VALID_JUSTIFICATION_LEVELS)}"
+                    )
+
+    # on_missing_justification
+    omj = reasoning.get("on_missing_justification")
+    if omj is not None and omj not in VALID_ON_MISSING_JUSTIFICATION:
+        errors.append(
+            f"reasoning.on_missing_justification '{omj}' must be one of "
+            f"{sorted(VALID_ON_MISSING_JUSTIFICATION)}"
+        )
+
+    # on_check_error
+    oce = reasoning.get("on_check_error")
+    if oce is not None and oce not in VALID_ON_CHECK_ERROR:
+        errors.append(
+            f"reasoning.on_check_error '{oce}' must be one of "
+            f"{sorted(VALID_ON_CHECK_ERROR)}"
+        )
+
+    # checks
+    checks = reasoning.get("checks")
+    if checks is not None:
+        if not isinstance(checks, dict):
+            errors.append("reasoning.checks must be a dict")
+        else:
+            for check_name, check_cfg in checks.items():
+                if not isinstance(check_cfg, dict):
+                    errors.append(f"reasoning.checks.{check_name} must be a dict")
+                    continue
+                errors.extend(
+                    _validate_reasoning_check(check_name, check_cfg)
+                )
+
+    return errors
+
+
+def _validate_reasoning_check(name: str, cfg: dict) -> list[str]:
+    """Validate a single reasoning check config block."""
+    errors: list[str] = []
+    prefix = f"reasoning.checks.{name}"
+
+    # enabled must be bool if present
+    if "enabled" in cfg and not isinstance(cfg["enabled"], bool):
+        errors.append(f"{prefix}.enabled must be a boolean")
+
+    if name == "glc_minimum_substance":
+        ml = cfg.get("min_length")
+        if ml is not None:
+            if not isinstance(ml, int) or isinstance(ml, bool):
+                errors.append(f"{prefix}.min_length must be an integer")
+            elif ml <= 0:
+                errors.append(f"{prefix}.min_length must be > 0, got {ml}")
+
+    elif name == "glc_no_parroting":
+        bl = cfg.get("blocklist")
+        if bl is not None:
+            if not isinstance(bl, list):
+                errors.append(f"{prefix}.blocklist must be a list")
+            else:
+                for i, item in enumerate(bl):
+                    if not isinstance(item, str) or not item.strip():
+                        errors.append(
+                            f"{prefix}.blocklist[{i}] must be a non-empty string"
+                        )
+
+    elif name == "glc_llm_coherence":
+        ef = cfg.get("enabled_for")
+        if ef is not None:
+            if not isinstance(ef, list):
+                errors.append(f"{prefix}.enabled_for must be a list")
+            else:
+                for i, level in enumerate(ef):
+                    if level not in VALID_JUSTIFICATION_LEVELS:
+                        errors.append(
+                            f"{prefix}.enabled_for[{i}] '{level}' "
+                            f"must be one of {sorted(VALID_JUSTIFICATION_LEVELS)}"
+                        )
+
+        st = cfg.get("score_threshold")
+        if st is not None:
+            if not isinstance(st, (int, float)):
+                errors.append(f"{prefix}.score_threshold must be a number")
+            elif not (0.0 <= float(st) <= 1.0):
+                errors.append(
+                    f"{prefix}.score_threshold must be 0.0-1.0, got {st}"
+                )
+
+        tm = cfg.get("timeout_ms")
+        if tm is not None:
+            if not isinstance(tm, int) or isinstance(tm, bool):
+                errors.append(f"{prefix}.timeout_ms must be an integer")
+            elif tm <= 0:
+                errors.append(f"{prefix}.timeout_ms must be > 0, got {tm}")
 
     return errors
 
@@ -602,6 +806,15 @@ def parse_constitution(data: dict) -> Constitution:
                 ))
             approval = ApprovalChain(records=records)
 
+    # Version (optional, v1.1+) — defaults to "1.0" for backward compat
+    version = str(data.get("version", "1.0"))
+
+    # Reasoning config (optional, v1.1+)
+    reasoning = None
+    reasoning_data = data.get("reasoning")
+    if reasoning_data is not None and isinstance(reasoning_data, dict) and version >= "1.1":
+        reasoning = _parse_reasoning_config(reasoning_data)
+
     return Constitution(
         schema_version=str(schema_version),
         identity=identity,
@@ -614,6 +827,56 @@ def parse_constitution(data: dict) -> Constitution:
         authority_boundaries=authority_boundaries,
         trusted_sources=trusted_sources,
         approval=approval,
+        version=version,
+        reasoning=reasoning,
+    )
+
+
+def _parse_reasoning_check(name: str, cfg: dict) -> GLCCheckConfig:
+    """Parse a single reasoning check config dict into the appropriate dataclass."""
+    enabled = cfg.get("enabled", True)
+
+    if name == "glc_minimum_substance":
+        return GLCMinimumSubstanceConfig(
+            enabled=enabled,
+            min_length=cfg.get("min_length", 20),
+        )
+    elif name == "glc_no_parroting":
+        return GLCNoParrotingConfig(
+            enabled=enabled,
+            blocklist=cfg.get("blocklist", GLCNoParrotingConfig().blocklist),
+        )
+    elif name == "glc_llm_coherence":
+        return GLCLLMCoherenceConfig(
+            enabled=enabled,
+            enabled_for=cfg.get("enabled_for", ["must_escalate"]),
+            timeout_ms=cfg.get("timeout_ms", 2000),
+            score_threshold=cfg.get("score_threshold", 0.6),
+        )
+    else:
+        # Unknown check type — store as base config
+        return GLCCheckConfig(enabled=enabled)
+
+
+def _parse_reasoning_config(data: dict) -> ReasoningConfig:
+    """Parse a reasoning config dict into a ReasoningConfig dataclass."""
+    checks: dict[str, GLCCheckConfig] = {}
+    checks_data = data.get("checks", {})
+    if isinstance(checks_data, dict):
+        for name, cfg in checks_data.items():
+            if isinstance(cfg, dict):
+                checks[name] = _parse_reasoning_check(name, cfg)
+
+    return ReasoningConfig(
+        require_justification_for=data.get(
+            "require_justification_for",
+            ["must_escalate", "cannot_execute"],
+        ),
+        on_missing_justification=data.get("on_missing_justification", "block"),
+        on_check_error=data.get("on_check_error", "block"),
+        checks=checks,
+        evaluate_before_escalation=data.get("evaluate_before_escalation", True),
+        auto_deny_on_reasoning_failure=data.get("auto_deny_on_reasoning_failure", False),
     )
 
 
@@ -645,6 +908,38 @@ def _identity_dict(identity: AgentIdentity) -> dict:
         d["identity_claims"] = [asdict(c) for c in identity.identity_claims]
 
     return d
+
+
+def _reasoning_check_to_dict(name: str, check: GLCCheckConfig, *, for_signing: bool = False) -> dict:
+    """Serialize a single reasoning check config to a plain dict.
+
+    When ``for_signing=True``, float values are converted to integer
+    basis points (0-10000) to satisfy RFC 8785 canonical JSON constraints.
+    """
+    d = asdict(check)
+    if for_signing and name == "glc_llm_coherence" and isinstance(check, GLCLLMCoherenceConfig):
+        d["score_threshold"] = int(round(check.score_threshold * 10000))
+    return d
+
+
+def _reasoning_config_to_dict(reasoning: ReasoningConfig, *, for_signing: bool = False) -> dict:
+    """Serialize ReasoningConfig to a plain dict.
+
+    When ``for_signing=True``, float values are converted to integer
+    basis points for RFC 8785 compatibility (used by hashing and Ed25519
+    signing). When ``False`` (default), floats are preserved (for YAML output).
+    """
+    checks_dict: dict[str, dict] = {}
+    for name, check in reasoning.checks.items():
+        checks_dict[name] = _reasoning_check_to_dict(name, check, for_signing=for_signing)
+    return {
+        "require_justification_for": reasoning.require_justification_for,
+        "on_missing_justification": reasoning.on_missing_justification,
+        "on_check_error": reasoning.on_check_error,
+        "checks": checks_dict,
+        "evaluate_before_escalation": reasoning.evaluate_before_escalation,
+        "auto_deny_on_reasoning_failure": reasoning.auto_deny_on_reasoning_failure,
+    }
 
 
 def compute_constitution_hash(constitution: Constitution) -> str:
@@ -701,6 +996,11 @@ def compute_constitution_hash(constitution: Constitution) -> str:
     # Include trusted_sources only if present (backward compat)
     if constitution.trusted_sources is not None:
         hashable["trusted_sources"] = asdict(constitution.trusted_sources)
+
+    # Include reasoning only if present (backward compat:
+    # v1.0 constitutions without reasoning produce the same hash as before)
+    if constitution.reasoning is not None:
+        hashable["reasoning"] = _reasoning_config_to_dict(constitution.reasoning, for_signing=True)
 
     canonical = json.dumps(hashable, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
@@ -771,6 +1071,12 @@ def constitution_to_signable_dict(constitution: Constitution) -> dict:
     if constitution.trusted_sources is not None:
         result["trusted_sources"] = asdict(constitution.trusted_sources)
 
+    # v1.1+: Include version and reasoning in signing material
+    if constitution.version != "1.0":
+        result["version"] = constitution.version
+    if constitution.reasoning is not None:
+        result["reasoning"] = _reasoning_config_to_dict(constitution.reasoning, for_signing=True)
+
     return result
 
 
@@ -813,6 +1119,8 @@ def sign_constitution(
             authority_boundaries=constitution.authority_boundaries,
             trusted_sources=constitution.trusted_sources,
             approval=constitution.approval,
+            version=constitution.version,
+            reasoning=constitution.reasoning,
         )
         prov_signature = sign_constitution_full(pre_signed, private_key_path, signed_by=signed_by)
 
@@ -835,6 +1143,8 @@ def sign_constitution(
         authority_boundaries=constitution.authority_boundaries,
         trusted_sources=constitution.trusted_sources,
         approval=constitution.approval,
+        version=constitution.version,
+        reasoning=constitution.reasoning,
     )
 
 
@@ -1102,6 +1412,8 @@ def approve_constitution(
         authority_boundaries=constitution.authority_boundaries,
         trusted_sources=constitution.trusted_sources,
         approval=approval_chain,
+        version=constitution.version,
+        reasoning=constitution.reasoning,
     )
 
     # 11. Write back
@@ -1280,6 +1592,12 @@ def constitution_to_dict(constitution: Constitution) -> dict:
         result["trusted_sources"] = asdict(constitution.trusted_sources)
 
     result["policy_hash"] = constitution.policy_hash
+
+    # v1.1+: version and reasoning
+    if constitution.version != "1.0":
+        result["version"] = constitution.version
+    if constitution.reasoning is not None:
+        result["reasoning"] = _reasoning_config_to_dict(constitution.reasoning)
 
     # Approval chain (v0.9.0+) — included in serialization but NOT in
     # policy_hash or content_hash computation.

@@ -323,20 +323,20 @@ class TestEnvInterpolation:
     ):
         """Env var interpolation only happens in env blocks, not paths."""
         const_path, key_path = signed_files
-        monkeypatch.setenv("MOCK_NAME", "should_not_resolve")
+        monkeypatch.setenv("MOCK-NAME", "should-not-resolve")
         content = f"""\
         gateway:
           constitution: {const_path}
           signing_key: {key_path}
 
         downstream:
-          - name: "${{MOCK_NAME}}"
+          - name: "${{MOCK-NAME}}"
             command: echo
         """
         cfg_path = _write_config(tmp_path, content)
         cfg = load_gateway_config(cfg_path)
-        # The ${MOCK_NAME} in name field should NOT be interpolated
-        assert cfg.downstreams[0].name == "${MOCK_NAME}"
+        # The ${MOCK-NAME} in name field should NOT be interpolated
+        assert cfg.downstreams[0].name == "${MOCK-NAME}"
 
 
 # =============================================================================
@@ -612,3 +612,112 @@ class TestErrorHandling:
         cfg_path = _write_config(tmp_path, content)
         with pytest.raises(GatewayConfigError, match="downstream"):
             load_gateway_config(cfg_path)
+
+
+# =============================================================================
+# 9. NAMESPACE VALIDATION (Fix 2)
+# =============================================================================
+
+class TestNamespaceValidation:
+    def test_underscore_name_rejected(self, tmp_path, signed_files):
+        """Downstream name with underscore raises GatewayConfigError."""
+        const_path, key_path = signed_files
+        content = f"""\
+        gateway:
+          constitution: {const_path}
+          signing_key: {key_path}
+
+        downstream:
+          - name: my_server
+            command: echo
+        """
+        cfg_path = _write_config(tmp_path, content)
+        with pytest.raises(GatewayConfigError, match="underscore"):
+            load_gateway_config(cfg_path)
+
+    def test_hyphen_name_accepted(self, tmp_path, signed_files):
+        """Downstream name with hyphens is accepted."""
+        const_path, key_path = signed_files
+        content = f"""\
+        gateway:
+          constitution: {const_path}
+          signing_key: {key_path}
+
+        downstream:
+          - name: my-server
+            command: echo
+        """
+        cfg_path = _write_config(tmp_path, content)
+        cfg = load_gateway_config(cfg_path)
+        assert cfg.downstreams[0].name == "my-server"
+
+    def test_multiple_underscores_rejected(self, tmp_path, signed_files):
+        """Name with multiple underscores also rejected."""
+        const_path, key_path = signed_files
+        content = f"""\
+        gateway:
+          constitution: {const_path}
+          signing_key: {key_path}
+
+        downstream:
+          - name: my_bad_name
+            command: echo
+        """
+        cfg_path = _write_config(tmp_path, content)
+        with pytest.raises(GatewayConfigError, match="underscore"):
+            load_gateway_config(cfg_path)
+
+    def test_error_suggests_hyphen_replacement(self, tmp_path, signed_files):
+        """Error message suggests hyphenated alternative."""
+        const_path, key_path = signed_files
+        content = f"""\
+        gateway:
+          constitution: {const_path}
+          signing_key: {key_path}
+
+        downstream:
+          - name: my_server
+            command: echo
+        """
+        cfg_path = _write_config(tmp_path, content)
+        with pytest.raises(GatewayConfigError, match="my-server"):
+            load_gateway_config(cfg_path)
+
+
+# =============================================================================
+# 10. OPTIONAL DOWNSTREAM CONFIG (Fix 6)
+# =============================================================================
+
+class TestOptionalDownstreamConfig:
+    def test_optional_true_parsed(self, tmp_path, signed_files):
+        """Config with optional: true parses correctly."""
+        const_path, key_path = signed_files
+        content = f"""\
+        gateway:
+          constitution: {const_path}
+          signing_key: {key_path}
+
+        downstream:
+          - name: my-server
+            command: echo
+            optional: true
+        """
+        cfg_path = _write_config(tmp_path, content)
+        cfg = load_gateway_config(cfg_path)
+        assert cfg.downstreams[0].optional is True
+
+    def test_optional_default_false(self, tmp_path, signed_files):
+        """Config without optional defaults to False."""
+        const_path, key_path = signed_files
+        content = f"""\
+        gateway:
+          constitution: {const_path}
+          signing_key: {key_path}
+
+        downstream:
+          - name: my-server
+            command: echo
+        """
+        cfg_path = _write_config(tmp_path, content)
+        cfg = load_gateway_config(cfg_path)
+        assert cfg.downstreams[0].optional is False

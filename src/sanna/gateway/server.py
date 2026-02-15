@@ -112,6 +112,7 @@ class DownstreamSpec:
     policy_overrides: dict[str, str] = field(default_factory=dict)
     default_policy: str | None = None
     circuit_breaker_cooldown: float = _DEFAULT_CIRCUIT_BREAKER_COOLDOWN
+    optional: bool = False
 
 
 @dataclass
@@ -329,6 +330,13 @@ class SannaGateway:
                 )
             self._downstream_states: dict[str, _DownstreamState] = {}
             for spec in downstreams:
+                if "_" in spec.name:
+                    raise ValueError(
+                        f"Downstream name '{spec.name}' must not contain "
+                        f"underscores (reserved for tool namespace "
+                        f"separator). Use hyphens instead: "
+                        f"'{spec.name.replace('_', '-')}'"
+                    )
                 if spec.name in self._downstream_states:
                     raise ValueError(
                         f"Duplicate downstream name: {spec.name}"
@@ -338,6 +346,13 @@ class SannaGateway:
                 )
         elif server_name is not None and command is not None:
             # Legacy single-downstream constructor
+            if "_" in server_name:
+                raise ValueError(
+                    f"server_name '{server_name}' must not contain "
+                    f"underscores (reserved for tool namespace "
+                    f"separator). Use hyphens instead: "
+                    f"'{server_name.replace('_', '-')}'"
+                )
             spec = DownstreamSpec(
                 name=server_name,
                 command=command,
@@ -373,6 +388,9 @@ class SannaGateway:
         self._check_configs: list | None = None
         self._custom_records: list | None = None
         self._last_receipt: dict | None = None
+
+        # Block G: reasoning evaluator (set in start() after constitution loads)
+        self._reasoning_evaluator: Any = None
 
         # Block E: escalation state
         self._escalation_store = EscalationStore(
@@ -561,7 +579,18 @@ class SannaGateway:
                 env=spec.env,
                 timeout=spec.timeout,
             )
-            await ds_state.connection.connect()
+            try:
+                await ds_state.connection.connect()
+            except Exception as e:
+                if spec.optional:
+                    logger.warning(
+                        "Optional downstream '%s' failed to connect: "
+                        "%s. Continuing without it.",
+                        spec.name, e,
+                    )
+                    ds_state.connection = None
+                    continue
+                raise
 
             for tool in ds_state.connection.tools:
                 prefixed = f"{spec.name}_{tool['name']}"
@@ -621,6 +650,16 @@ class SannaGateway:
                 len(self._check_configs),
             )
 
+            # Block G: Initialize reasoning evaluator if configured
+            self._reasoning_evaluator = None
+            if self._constitution.reasoning:
+                from sanna.reasoning import ReasoningEvaluator
+
+                self._reasoning_evaluator = ReasoningEvaluator(
+                    self._constitution,
+                )
+                logger.info("Reasoning evaluator initialized")
+
         logger.info(
             "Gateway started: %d tools from %d downstream(s)",
             len(self._tool_map),
@@ -674,6 +713,7 @@ class SannaGateway:
         self._constitution_ref = None
         self._check_configs = None
         self._custom_records = None
+        self._reasoning_evaluator = None
         self._escalation_store.clear()
 
     async def run_stdio(self) -> None:
@@ -700,7 +740,23 @@ class SannaGateway:
                 continue
             for tool_dict in ds_state.connection.tools:
                 prefixed = f"{ds_state.spec.name}_{tool_dict['name']}"
-                tools.append(_dict_to_tool(prefixed, tool_dict))
+                # Block G: mutate schema to add _justification if required
+                effective_dict = tool_dict
+                if (
+                    self._reasoning_evaluator
+                    and self._constitution
+                ):
+                    from sanna.gateway.schema_mutation import (
+                        mutate_tool_schema,
+                    )
+
+                    effective_dict = mutate_tool_schema(
+                        tool_dict,
+                        self._constitution,
+                        ds_state.spec.policy_overrides,
+                        ds_state.spec.default_policy,
+                    )
+                tools.append(_dict_to_tool(prefixed, effective_dict))
 
         # Block E: add gateway meta-tools (not prefixed)
         tools.extend(_build_meta_tools())
@@ -898,30 +954,37 @@ class SannaGateway:
     async def _probe_call(
         self,
         prefixed_name: str,
-        original_name: str,
-        arguments: dict[str, Any],
         ds_state: _DownstreamState,
-    ) -> types.CallToolResult:
-        """Forward a single probe call during HALF_OPEN state.
+    ) -> types.CallToolResult | None:
+        """Run a protocol-level health probe during HALF_OPEN state.
 
-        If the probe succeeds, the circuit transitions to CLOSED.
-        If it fails, the circuit transitions back to OPEN.
+        Uses ``list_tools()`` as a lightweight health check instead of
+        forwarding the user's real request.
+
+        Returns ``None`` on success (caller should proceed with normal
+        forwarding) or an error ``CallToolResult`` on failure.
         """
-        if self._constitution is None:
-            # No constitution — transparent passthrough
-            result = await ds_state.connection.call_tool(
-                original_name, arguments,
+        try:
+            await ds_state.connection.list_tools()
+        except Exception as e:
+            # Probe failed: reopen circuit
+            ds_state.circuit_state = CircuitState.OPEN
+            ds_state.circuit_opened_at = datetime.now(timezone.utc)
+            logger.warning(
+                "Circuit breaker probe failed for '%s': %s",
+                ds_state.spec.name, e,
             )
-            await self._after_downstream_call(
-                result, ds_state, is_probe=True,
-            )
-            return result
-        else:
-            # With constitution — run through enforcement
-            return await self._enforced_call(
-                prefixed_name, original_name, arguments, ds_state,
-                is_probe=True,
-            )
+            return self._make_unhealthy_result(prefixed_name, ds_state)
+
+        # Probe succeeded: close circuit
+        ds_state.circuit_state = CircuitState.CLOSED
+        ds_state.circuit_opened_at = None
+        ds_state.consecutive_failures = 0
+        logger.info(
+            "Circuit breaker recovered for '%s' (probe: list_tools)",
+            ds_state.spec.name,
+        )
+        return None
 
     # -- receipt persistence (Block F) ---------------------------------------
 
@@ -936,6 +999,8 @@ class SannaGateway:
 
         store_dir = Path(self._receipt_store_path)
         store_dir.mkdir(parents=True, exist_ok=True)
+        if sys.platform != "win32":
+            os.chmod(store_dir, 0o700)
 
         ts = receipt.get("timestamp", "")
         # Sanitize for filesystem: replace colons and + with underscores
@@ -948,6 +1013,8 @@ class SannaGateway:
             tmp_path = filepath.with_suffix(".tmp")
             tmp_path.write_text(json.dumps(receipt, indent=2))
             os.replace(str(tmp_path), str(filepath))
+            if sys.platform != "win32":
+                os.chmod(filepath, 0o600)
             logger.info("Receipt persisted: %s", filename)
         except OSError as e:
             logger.error("Failed to persist receipt %s: %s", filename, e)
@@ -999,30 +1066,48 @@ class SannaGateway:
                     datetime.now(timezone.utc) - ds_state.circuit_opened_at
                 ).total_seconds()
                 if elapsed >= ds_state.spec.circuit_breaker_cooldown:
-                    # Transition to HALF_OPEN — this call becomes the probe
+                    # Transition to HALF_OPEN — probe with list_tools
                     ds_state.circuit_state = CircuitState.HALF_OPEN
                     logger.info(
                         "Circuit breaker cooldown elapsed for '%s' "
-                        "(%.1fs) — sending probe",
+                        "(%.1fs) — probing with list_tools",
                         ds_state.spec.name,
                         elapsed,
                     )
-                    return await self._probe_call(
-                        name, original, arguments, ds_state,
+                    probe_result = await self._probe_call(
+                        name, ds_state,
                     )
-            # Cooldown not elapsed — block the call
-            error_result = self._make_unhealthy_result(name, ds_state)
-            if self._constitution is not None:
-                receipt = self._generate_error_receipt(
-                    prefixed_name=name,
-                    original_name=original,
-                    arguments=arguments,
-                    error_text=_extract_result_text(error_result),
-                    server_name=ds_state.spec.name,
-                )
-                self._last_receipt = receipt
-                self._persist_receipt(receipt)
-            return error_result
+                    if probe_result is not None:
+                        # Probe failed — return error with receipt
+                        if self._constitution is not None:
+                            receipt = self._generate_error_receipt(
+                                prefixed_name=name,
+                                original_name=original,
+                                arguments=arguments,
+                                error_text=_extract_result_text(
+                                    probe_result,
+                                ),
+                                server_name=ds_state.spec.name,
+                            )
+                            self._last_receipt = receipt
+                            self._persist_receipt(receipt)
+                        return probe_result
+                    # Probe succeeded — circuit now CLOSED, fall through
+
+            # Still OPEN (cooldown not elapsed or probe didn't run) — block
+            if ds_state.circuit_state == CircuitState.OPEN:
+                error_result = self._make_unhealthy_result(name, ds_state)
+                if self._constitution is not None:
+                    receipt = self._generate_error_receipt(
+                        prefixed_name=name,
+                        original_name=original,
+                        arguments=arguments,
+                        error_text=_extract_result_text(error_result),
+                        server_name=ds_state.spec.name,
+                    )
+                    self._last_receipt = receipt
+                    self._persist_receipt(receipt)
+                return error_result
 
         if ds_state.circuit_state == CircuitState.HALF_OPEN:
             # Already probing — block concurrent calls
@@ -1109,7 +1194,61 @@ class SannaGateway:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }]
 
-        # 3. Enforce and get result
+        # 3. Block G: Run reasoning evaluation if configured
+        reasoning_evaluation = None
+        if self._reasoning_evaluator:
+            reasoning_evaluation = await self._reasoning_evaluator.evaluate(
+                tool_name=original_name,
+                args=arguments,
+                enforcement_level=decision.boundary_type,
+            )
+
+            # Handle reasoning failure according to constitution config
+            if reasoning_evaluation and not reasoning_evaluation.passed:
+                reasoning_config = self._constitution.reasoning
+                if reasoning_config:
+                    if reasoning_config.auto_deny_on_reasoning_failure:
+                        decision = AuthorityDecision(
+                            decision="halt",
+                            reason=(
+                                "Reasoning evaluation failed: "
+                                f"{reasoning_evaluation.failure_reason}"
+                            ),
+                            boundary_type=decision.boundary_type,
+                        )
+                        authority_decisions.append({
+                            "action": original_name,
+                            "decision": "halt",
+                            "reason": decision.reason,
+                            "boundary_type": decision.boundary_type,
+                            "timestamp": datetime.now(
+                                timezone.utc,
+                            ).isoformat(),
+                        })
+                    elif (
+                        reasoning_config.on_check_error == "escalate"
+                        and decision.decision == "allow"
+                    ):
+                        decision = AuthorityDecision(
+                            decision="escalate",
+                            reason=(
+                                "Reasoning evaluation failed, "
+                                "escalating: "
+                                f"{reasoning_evaluation.failure_reason}"
+                            ),
+                            boundary_type="must_escalate",
+                        )
+                        authority_decisions.append({
+                            "action": original_name,
+                            "decision": "escalate",
+                            "reason": decision.reason,
+                            "boundary_type": "must_escalate",
+                            "timestamp": datetime.now(
+                                timezone.utc,
+                            ).isoformat(),
+                        })
+
+        # 4. Enforce and get result
         result_text = ""
         tool_result = None
         halt_event = None
@@ -1134,12 +1273,17 @@ class SannaGateway:
             return await self._handle_escalation(
                 prefixed_name, original_name, arguments,
                 decision, ds_state,
+                reasoning_evaluation=reasoning_evaluation,
             )
         else:
             logger.info("ALLOW %s", original_name)
-            # Forward to downstream
+            # Strip _justification before forwarding to downstream
+            forward_args = {
+                k: v for k, v in arguments.items()
+                if k != "_justification"
+            }
             tool_result = await ds_state.connection.call_tool(
-                original_name, arguments,
+                original_name, forward_args,
             )
             # Block F: crash recovery
             await self._after_downstream_call(
@@ -1147,7 +1291,7 @@ class SannaGateway:
             )
             result_text = _extract_result_text(tool_result)
 
-        # 4. Generate receipt
+        # 5. Generate receipt
         downstream_is_error = (
             tool_result is not None and tool_result.isError is True
         )
@@ -1161,12 +1305,13 @@ class SannaGateway:
             halt_event=halt_event,
             server_name=server_name,
             downstream_is_error=downstream_is_error,
+            reasoning_evaluation=reasoning_evaluation,
         )
 
         self._last_receipt = receipt
         self._persist_receipt(receipt)
 
-        # 5. Return result
+        # 6. Return result
         if decision.decision == "halt":
             return types.CallToolResult(
                 content=[types.TextContent(
@@ -1186,6 +1331,7 @@ class SannaGateway:
         arguments: dict[str, Any],
         decision: Any,
         ds_state: _DownstreamState,
+        reasoning_evaluation: Any = None,
     ) -> types.CallToolResult:
         """Create a pending escalation and return structured result."""
         server_name = ds_state.spec.name
@@ -1269,6 +1415,7 @@ class SannaGateway:
             authority_decisions=authority_decisions,
             escalation_id=entry.escalation_id,
             server_name=server_name,
+            reasoning_evaluation=reasoning_evaluation,
         )
 
         entry.escalation_receipt_id = receipt["receipt_id"]
@@ -1326,7 +1473,47 @@ class SannaGateway:
                 isError=True,
             )
 
-        # Validate approval token (after existence/expiry checks)
+        # Guard: only pending escalations can be approved
+        if entry.status == "approved":
+            logger.warning(
+                "Duplicate approve for %s (status: approved)",
+                escalation_id,
+            )
+            return types.CallToolResult(
+                content=[types.TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "error": "ESCALATION_ALREADY_EXECUTING",
+                        "escalation_id": escalation_id,
+                        "detail": (
+                            "This escalation is already being executed. "
+                            "It may have been approved previously."
+                        ),
+                    }),
+                )],
+                isError=True,
+            )
+        if entry.status == "failed":
+            logger.warning(
+                "Approve attempted for failed escalation %s",
+                escalation_id,
+            )
+            return types.CallToolResult(
+                content=[types.TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "error": "ESCALATION_FAILED",
+                        "escalation_id": escalation_id,
+                        "detail": (
+                            "This escalation previously failed during "
+                            "execution. Create a new escalation to retry."
+                        ),
+                    }),
+                )],
+                isError=True,
+            )
+
+        # Validate approval token (after existence/expiry/status checks)
         if self._require_approval_token:
             if not approval_token:
                 return types.CallToolResult(
@@ -1389,8 +1576,13 @@ class SannaGateway:
             )
 
         try:
+            # Strip _justification before forwarding to downstream
+            forward_args = {
+                k: v for k, v in entry.arguments.items()
+                if k != "_justification"
+            }
             tool_result = await ds_state.connection.call_tool(
-                entry.original_name, entry.arguments,
+                entry.original_name, forward_args,
             )
         except Exception:
             self._escalation_store.mark_status(escalation_id, "failed")
@@ -1617,13 +1809,27 @@ class SannaGateway:
         token_hash: str | None = None,
         server_name: str | None = None,
         downstream_is_error: bool = False,
+        reasoning_evaluation: Any = None,
     ) -> dict:
-        """Generate and optionally sign a gateway receipt."""
+        """Generate and optionally sign a gateway receipt.
+
+        v2.0: Computes a Receipt Triad (input_hash, reasoning_hash,
+        action_hash) and embeds it in ``extensions.gateway_v2``.  The
+        triad binds the tool call to any agent justification for
+        auditability.  The ``_justification`` key in arguments is
+        extracted and hashed separately, then stripped from the
+        forwarded arguments.
+        """
         from sanna.middleware import (
             generate_constitution_receipt,
             build_trace_data,
         )
         from sanna.hashing import hash_text, hash_obj
+        from sanna.gateway.receipt_v2 import (
+            compute_receipt_triad,
+            receipt_triad_to_dict,
+            RECEIPT_VERSION_2,
+        )
 
         # Resolve server_name from tool routing if not explicit
         if server_name is None:
@@ -1661,6 +1867,16 @@ class SannaGateway:
             arguments_hash = hash_text("")
         tool_output_hash = hash_text(result_text) if result_text else hash_text("")
 
+        # v2.0: Extract justification and compute Receipt Triad
+        justification = arguments.get("_justification")
+        if isinstance(justification, str):
+            justification_stripped = True
+        else:
+            justification = None
+            justification_stripped = False
+
+        triad = compute_receipt_triad(original_name, arguments, justification)
+
         extensions: dict[str, Any] = {
             "gateway": {
                 "server_name": server_name,
@@ -1673,7 +1889,49 @@ class SannaGateway:
                 "tool_output_hash": tool_output_hash,
                 "downstream_is_error": downstream_is_error,
             },
+            # v2.0: Receipt Triad and structured records
+            # NOTE: action.args stores only the arguments_hash (not raw
+            # args) because MCP tool arguments may contain floats which
+            # are incompatible with RFC 8785 canonical JSON used for
+            # fingerprint computation.  Raw args are recoverable from
+            # the receipt's inputs.context field.
+            "gateway_v2": {
+                "receipt_version": RECEIPT_VERSION_2,
+                "receipt_triad": receipt_triad_to_dict(triad),
+                "action": {
+                    "tool": original_name,
+                    "args_hash": arguments_hash,
+                    "justification_stripped": justification_stripped,
+                },
+                "enforcement": {
+                    "level": decision.boundary_type,
+                    "constitution_version": (
+                        self._constitution.schema_version
+                        if self._constitution else ""
+                    ),
+                    "constitution_hash": (
+                        self._constitution.policy_hash
+                        if self._constitution
+                        and self._constitution.policy_hash
+                        else ""
+                    ),
+                },
+            },
         }
+
+        # Block G: embed reasoning evaluation in gateway_v2
+        # Use for_signing=True to convert floats to integer basis points
+        # for RFC 8785 canonical JSON compatibility (extensions are hashed).
+        if reasoning_evaluation is not None:
+            from sanna.gateway.receipt_v2 import (
+                reasoning_evaluation_to_dict,
+            )
+
+            extensions["gateway_v2"]["reasoning_evaluation"] = (
+                reasoning_evaluation_to_dict(
+                    reasoning_evaluation, for_signing=True,
+                )
+            )
 
         # Include escalation chain info in extensions when present
         if escalation_id is not None:
@@ -1873,6 +2131,7 @@ def run_gateway() -> None:
             policy_overrides=policy_overrides,
             default_policy=ds.default_policy,
             circuit_breaker_cooldown=config.circuit_breaker_cooldown,
+            optional=ds.optional,
         ))
 
     gateway = SannaGateway(

@@ -186,6 +186,41 @@ class DownstreamConnection:
         await self.close()
         await self.connect()
 
+    async def list_tools(self) -> list[dict[str, Any]]:
+        """Re-discover tools from the downstream server (protocol-level).
+
+        This is a lightweight MCP protocol call that does not consume
+        any user action.  Used by the circuit breaker probe for health
+        checks.
+
+        Returns:
+            Current tool list from the downstream server.
+
+        Raises:
+            DownstreamConnectionError: If not connected or call fails.
+            DownstreamTimeoutError: If the operation times out.
+        """
+        if not self._connected or self._session is None:
+            raise DownstreamConnectionError(
+                "Not connected to downstream server"
+            )
+
+        try:
+            tools_result = await asyncio.wait_for(
+                self._session.list_tools(), timeout=self._timeout,
+            )
+            self._tools = [_tool_to_dict(t) for t in tools_result.tools]
+            self._tool_names = {t["name"] for t in self._tools}
+            return list(self._tools)
+        except asyncio.TimeoutError:
+            raise DownstreamTimeoutError(
+                f"list_tools timed out after {self._timeout}s"
+            )
+        except Exception as e:
+            raise DownstreamConnectionError(
+                f"list_tools failed: {type(e).__name__}: {e}"
+            ) from e
+
     # -- tool calls ----------------------------------------------------------
 
     async def call_tool(

@@ -1124,3 +1124,133 @@ class TestMultiDownstream:
         """Must provide either downstreams or server_name+command."""
         with pytest.raises(ValueError, match="Either 'downstreams'"):
             SannaGateway()
+
+
+# =============================================================================
+# NAMESPACE COLLISION VALIDATION (Fix 2)
+# =============================================================================
+
+class TestNamespaceCollision:
+    def test_underscore_in_downstreams_list_rejected(self):
+        """Underscore in downstream name rejected in downstreams list."""
+        with pytest.raises(ValueError, match="underscore"):
+            SannaGateway(
+                downstreams=[
+                    DownstreamSpec(
+                        name="my_server",
+                        command="echo",
+                    ),
+                ],
+            )
+
+    def test_underscore_in_server_name_rejected(self):
+        """Underscore in legacy server_name rejected."""
+        with pytest.raises(ValueError, match="underscore"):
+            SannaGateway(
+                server_name="my_server",
+                command="echo",
+            )
+
+    def test_hyphen_in_name_accepted(self, mock_server_path):
+        """Hyphen in downstream name is accepted."""
+        gw = SannaGateway(
+            server_name="my-server",
+            command=sys.executable,
+            args=[mock_server_path],
+        )
+        assert gw.server_name == "my-server"
+
+
+# =============================================================================
+# OPTIONAL DOWNSTREAM STARTUP (Fix 6)
+# =============================================================================
+
+class TestOptionalDownstream:
+    def test_optional_failure_does_not_kill_startup(
+        self, mock_server_path,
+    ):
+        """Optional downstream failure → gateway starts with remaining."""
+        async def _test():
+            gw = SannaGateway(
+                downstreams=[
+                    DownstreamSpec(
+                        name="good",
+                        command=sys.executable,
+                        args=[mock_server_path],
+                    ),
+                    DownstreamSpec(
+                        name="bad",
+                        command="nonexistent-command-xyz",
+                        optional=True,
+                    ),
+                ],
+            )
+            await gw.start()
+            try:
+                # Good downstream connected
+                ds_good = gw.downstream_states["good"]
+                assert ds_good.connection is not None
+
+                # Bad downstream connection is None
+                ds_bad = gw.downstream_states["bad"]
+                assert ds_bad.connection is None
+
+                # Good downstream tools are available
+                tools = gw._build_tool_list()
+                names = {t.name for t in tools if t.name not in _META_TOOL_NAMES}
+                assert any(n.startswith("good_") for n in names)
+                assert not any(n.startswith("bad_") for n in names)
+            finally:
+                await gw.shutdown()
+
+        asyncio.run(_test())
+
+    def test_required_failure_kills_startup(self, mock_server_path):
+        """Required downstream failure → gateway startup fails."""
+        async def _test():
+            gw = SannaGateway(
+                downstreams=[
+                    DownstreamSpec(
+                        name="good",
+                        command=sys.executable,
+                        args=[mock_server_path],
+                    ),
+                    DownstreamSpec(
+                        name="bad",
+                        command="nonexistent-command-xyz",
+                        optional=False,
+                    ),
+                ],
+            )
+            with pytest.raises(Exception):
+                await gw.start()
+
+        asyncio.run(_test())
+
+    def test_all_optional_all_fail(self):
+        """All optional downstreams fail → gateway starts with no tools."""
+        async def _test():
+            gw = SannaGateway(
+                downstreams=[
+                    DownstreamSpec(
+                        name="opt-a",
+                        command="nonexistent-a-xyz",
+                        optional=True,
+                    ),
+                    DownstreamSpec(
+                        name="opt-b",
+                        command="nonexistent-b-xyz",
+                        optional=True,
+                    ),
+                ],
+            )
+            await gw.start()
+            try:
+                tools = gw._build_tool_list()
+                # Only meta-tools, no downstream tools
+                names = {t.name for t in tools if t.name not in _META_TOOL_NAMES}
+                assert len(names) == 0
+            finally:
+                await gw.shutdown()
+
+        asyncio.run(_test())

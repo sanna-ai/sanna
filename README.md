@@ -344,6 +344,29 @@ Module: `sanna.adapters.langfuse`
 
 Deterministic test vectors in `tests/vectors/` for third-party verifier implementations. Cover RFC 8785 canonical JSON, Ed25519 constitution signatures, and receipt signatures using fixed seeds.
 
+## Reasoning Receipts
+
+Sanna generates **reasoning receipts** — cryptographically-signed artifacts that prove an AI agent's reasoning was evaluated against governance rules.
+
+### Receipt Triad
+
+Every reasoning receipt cryptographically binds three components:
+- **Input Hash**: What the agent saw (context leading to action)
+- **Reasoning Hash**: Why it decided (justification for action)
+- **Action Hash**: What it did (tool call + parameters)
+
+### Gateway Checks
+
+Reasoning is evaluated through four checks:
+1. **Presence**: Justification exists and is non-empty
+2. **Substance**: Meets minimum length requirement (default 20 chars)
+3. **No Parroting**: Doesn't contain blocklist phrases like "because you asked"
+4. **LLM Coherence**: Semantic alignment between reasoning and action (0.0-1.0 score)
+
+Configure reasoning governance in your constitution's `reasoning:` section. Model selection for LLM coherence is configured via the `SANNA_LLM_MODEL` environment variable.
+
+See [docs/reasoning-receipts.md](docs/reasoning-receipts.md) for full details.
+
 ## CLI Reference
 
 | Command | Description |

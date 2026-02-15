@@ -258,6 +258,8 @@ def sign_constitution_full(
         policy_hash=constitution.policy_hash,
         authority_boundaries=constitution.authority_boundaries,
         trusted_sources=constitution.trusted_sources,
+        version=getattr(constitution, "version", "1.0"),
+        reasoning=getattr(constitution, "reasoning", None),
     )
 
     signable_dict = constitution_to_signable_dict(signing_constitution)

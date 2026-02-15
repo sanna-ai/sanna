@@ -21,6 +21,7 @@ from sanna.gateway.migrate import (
     ServerEntry,
     WindsurfAdapter,
     _GATEWAY_TEMPLATES,
+    _append_reasoning_comment,
     detect_installed_clients,
     detect_secrets,
     execute_migration,
@@ -816,3 +817,296 @@ class TestCLIDispatch:
         from sanna.gateway.migrate import migrate_command
         code = migrate_command(["--client", "cursor"])
         assert code == 1
+
+
+# =============================================================================
+# NAMESPACE SANITIZATION (Fix 2)
+# =============================================================================
+
+class TestNamespaceSanitization:
+    def test_underscore_names_sanitized_in_gateway_yaml(self, tmp_path):
+        """Server names with underscores become hyphens in gateway.yaml."""
+        import yaml
+        from sanna.gateway.migrate import _build_gateway_yaml
+
+        server = ServerEntry(
+            name="my_notion_server",
+            command="npx",
+            args=["-y", "notion-mcp"],
+        )
+        plan = MigrationPlan(
+            client_name="claude-desktop",
+            config_path=tmp_path / "config.json",
+            backup_path=tmp_path / "config.json.bak",
+            servers=[server],
+            sanna_dir=tmp_path / ".sanna",
+            keys_dir=tmp_path / ".sanna" / "keys",
+            constitution_path=tmp_path / ".sanna" / "constitution.yaml",
+            constitution_template="openclaw-personal",
+            gateway_config_path=tmp_path / ".sanna" / "gateway.yaml",
+            receipt_store_dir=tmp_path / ".sanna" / "receipts",
+            migratable=[server],
+            skipped=[],
+            detected_secrets={},
+            already_migrated=False,
+            keypair_exists=False,
+            constitution_exists=False,
+        )
+
+        yaml_str = _build_gateway_yaml(plan, signing_key_path=None)
+        config = yaml.safe_load(yaml_str)
+        ds_name = config["downstream"][0]["name"]
+        assert "_" not in ds_name
+        assert ds_name == "my-notion-server"
+
+
+# =============================================================================
+# CONSTITUTION PUBLIC KEY IN CONFIG (Fix 4)
+# =============================================================================
+
+class TestConstitutionKeyInConfig:
+    def test_gateway_yaml_includes_public_key(self, tmp_path):
+        """Generated gateway.yaml includes constitution_public_key."""
+        import yaml
+        from sanna.gateway.migrate import _build_gateway_yaml
+
+        pub_key = tmp_path / "keys" / "gateway.pub"
+
+        server = ServerEntry(name="mock", command="echo")
+        plan = MigrationPlan(
+            client_name="claude-desktop",
+            config_path=tmp_path / "config.json",
+            backup_path=tmp_path / "config.json.bak",
+            servers=[server],
+            sanna_dir=tmp_path / ".sanna",
+            keys_dir=tmp_path / ".sanna" / "keys",
+            constitution_path=tmp_path / ".sanna" / "constitution.yaml",
+            constitution_template="openclaw-personal",
+            gateway_config_path=tmp_path / ".sanna" / "gateway.yaml",
+            receipt_store_dir=tmp_path / ".sanna" / "receipts",
+            migratable=[server],
+            skipped=[],
+            detected_secrets={},
+            already_migrated=False,
+            keypair_exists=False,
+            constitution_exists=False,
+        )
+
+        yaml_str = _build_gateway_yaml(
+            plan,
+            signing_key_path=tmp_path / "keys" / "gateway.key",
+            public_key_path=pub_key,
+        )
+        config = yaml.safe_load(yaml_str)
+        assert "constitution_public_key" in config["gateway"]
+        assert str(pub_key) in config["gateway"]["constitution_public_key"]
+
+    def test_no_public_key_omits_field(self, tmp_path):
+        """Without public_key_path, field is omitted."""
+        import yaml
+        from sanna.gateway.migrate import _build_gateway_yaml
+
+        server = ServerEntry(name="mock", command="echo")
+        plan = MigrationPlan(
+            client_name="claude-desktop",
+            config_path=tmp_path / "config.json",
+            backup_path=tmp_path / "config.json.bak",
+            servers=[server],
+            sanna_dir=tmp_path / ".sanna",
+            keys_dir=tmp_path / ".sanna" / "keys",
+            constitution_path=tmp_path / ".sanna" / "constitution.yaml",
+            constitution_template="openclaw-personal",
+            gateway_config_path=tmp_path / ".sanna" / "gateway.yaml",
+            receipt_store_dir=tmp_path / ".sanna" / "receipts",
+            migratable=[server],
+            skipped=[],
+            detected_secrets={},
+            already_migrated=False,
+            keypair_exists=False,
+            constitution_exists=False,
+        )
+
+        yaml_str = _build_gateway_yaml(plan, signing_key_path=None)
+        config = yaml.safe_load(yaml_str)
+        assert "constitution_public_key" not in config["gateway"]
+
+
+# =============================================================================
+# ATOMIC WRITES (Fix 7)
+# =============================================================================
+
+class TestAtomicWrites:
+    def test_atomic_write_creates_file(self, tmp_path):
+        """_atomic_write creates file with correct content."""
+        from sanna.gateway.migrate import _atomic_write
+
+        filepath = tmp_path / "test.txt"
+        _atomic_write(filepath, "hello world")
+        assert filepath.read_text() == "hello world"
+
+    def test_atomic_write_rejects_symlink(self, tmp_path):
+        """_atomic_write refuses to write through a symlink."""
+        import os
+        from sanna.gateway.migrate import _atomic_write
+
+        real_file = tmp_path / "real.txt"
+        real_file.write_text("original")
+        link = tmp_path / "link.txt"
+        os.symlink(str(real_file), str(link))
+
+        with pytest.raises(ValueError, match="symlink"):
+            _atomic_write(link, "injected")
+
+        # Original content unchanged
+        assert real_file.read_text() == "original"
+
+    @pytest.mark.skipif(
+        platform.system() == "Windows",
+        reason="POSIX-only permissions",
+    )
+    def test_atomic_write_sets_permissions(self, tmp_path):
+        """On POSIX, _atomic_write sets 0o600 permissions."""
+        import os
+        from sanna.gateway.migrate import _atomic_write
+
+        filepath = tmp_path / "secure.txt"
+        _atomic_write(filepath, "secret data")
+        mode = os.stat(filepath).st_mode & 0o777
+        assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+
+    def test_atomic_write_no_partial_on_target(self, tmp_path):
+        """If target didn't exist and write fails, target remains absent."""
+        import os
+        from unittest.mock import patch
+        from sanna.gateway.migrate import _atomic_write
+
+        filepath = tmp_path / "never.txt"
+
+        with patch("os.replace", side_effect=OSError("disk full")):
+            with pytest.raises(OSError, match="disk full"):
+                _atomic_write(filepath, "data")
+
+        assert not filepath.exists()
+
+
+# =============================================================================
+# MIGRATION REASONING COMMENT (v0.11.0)
+# =============================================================================
+
+class TestMigrationReasoningComment:
+    def test_migration_appends_reasoning_comment(self, tmp_path):
+        """execute_migration() appends commented reasoning section to new constitutions."""
+        servers = {"mock": {"command": "echo", "args": ["test"]}}
+        cfg_path = _write_client_config(tmp_path, servers)
+        sanna_dir = tmp_path / ".sanna"
+
+        adapter = ClaudeDesktopAdapter()
+        plan = plan_migration(adapter, cfg_path, sanna_dir=sanna_dir)
+        result = execute_migration(plan)
+
+        assert result.success is True
+        content = plan.constitution_path.read_text()
+        assert "Reasoning governance" in content
+        assert "require_justification_for" in content
+        assert "glc_002_minimum_substance" in content
+        assert "glc_005_llm_coherence" in content
+        assert "SANNA_LLM_MODEL" in content
+
+    def test_reasoning_comment_is_yaml_comment(self, tmp_path):
+        """Reasoning section is commented out (all lines start with #)."""
+        servers = {"mock": {"command": "echo", "args": ["test"]}}
+        cfg_path = _write_client_config(tmp_path, servers)
+        sanna_dir = tmp_path / ".sanna"
+
+        adapter = ClaudeDesktopAdapter()
+        plan = plan_migration(adapter, cfg_path, sanna_dir=sanna_dir)
+        execute_migration(plan)
+
+        content = plan.constitution_path.read_text()
+        # Find the reasoning block
+        in_reasoning = False
+        for line in content.splitlines():
+            if "Reasoning governance" in line:
+                in_reasoning = True
+            if in_reasoning and line.strip():
+                assert line.strip().startswith("#"), (
+                    f"Non-comment line in reasoning block: {line!r}"
+                )
+
+    def test_reasoning_comment_idempotent(self, tmp_path):
+        """_append_reasoning_comment is idempotent — no duplicate on second call."""
+        from sanna.gateway.migrate import _append_reasoning_comment
+
+        filepath = tmp_path / "const.yaml"
+        filepath.write_text("sanna_constitution: '1.0.0'\n")
+
+        _append_reasoning_comment(filepath)
+        content_first = filepath.read_text()
+        count_first = content_first.count("Reasoning governance")
+        assert count_first == 1
+
+        _append_reasoning_comment(filepath)
+        content_second = filepath.read_text()
+        count_second = content_second.count("Reasoning governance")
+        assert count_second == 1
+        assert content_first == content_second
+
+    def test_constitution_still_loadable_with_comment(self, tmp_path):
+        """Constitution with appended reasoning comment still loads and verifies."""
+        servers = {"mock": {"command": "echo", "args": ["test"]}}
+        cfg_path = _write_client_config(tmp_path, servers)
+        sanna_dir = tmp_path / ".sanna"
+
+        adapter = ClaudeDesktopAdapter()
+        plan = plan_migration(adapter, cfg_path, sanna_dir=sanna_dir)
+        execute_migration(plan)
+
+        from sanna.constitution import load_constitution
+        const = load_constitution(str(plan.constitution_path))
+        assert const.policy_hash is not None
+
+
+# =============================================================================
+# EXAMPLE CONSTITUTION VALIDATION
+# =============================================================================
+
+class TestExampleReasoningConstitution:
+    def test_reasoning_example_is_valid_yaml(self):
+        """examples/constitutions/reasoning-example.yaml is valid YAML."""
+        import yaml
+        example_path = (
+            Path(__file__).parent.parent
+            / "examples" / "constitutions" / "reasoning-example.yaml"
+        )
+        assert example_path.is_file(), f"Missing: {example_path}"
+        data = yaml.safe_load(example_path.read_text())
+        assert data["sanna_constitution"] == "1.1"
+        assert "reasoning" in data
+        assert "require_justification_for" in data["reasoning"]
+
+    def test_reasoning_example_has_all_checks(self):
+        """Example constitution includes all three configurable checks."""
+        import yaml
+        example_path = (
+            Path(__file__).parent.parent
+            / "examples" / "constitutions" / "reasoning-example.yaml"
+        )
+        data = yaml.safe_load(example_path.read_text())
+        checks = data["reasoning"]["checks"]
+        assert "glc_002_minimum_substance" in checks
+        assert "glc_003_no_parroting" in checks
+        assert "glc_005_llm_coherence" in checks
+
+    def test_reasoning_example_no_model_strings(self):
+        """Example constitution has no hardcoded model strings."""
+        example_path = (
+            Path(__file__).parent.parent
+            / "examples" / "constitutions" / "reasoning-example.yaml"
+        )
+        content = example_path.read_text()
+        # Must not contain specific model identifiers
+        assert "claude-sonnet" not in content.lower()
+        assert "claude-3" not in content.lower()
+        assert "claude-4" not in content.lower()
+        assert "sonnet-4" not in content.lower()
+        assert "SANNA_LLM_MODEL" in content

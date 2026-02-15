@@ -19,16 +19,124 @@ from __future__ import annotations
 
 import importlib.resources
 import json
+import logging
 import os
 import platform
 import re
 import shutil
 import sys
+import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("sanna.gateway.migrate")
+
+
+# ---------------------------------------------------------------------------
+# Reasoning constitution comment (v0.11.0)
+# ---------------------------------------------------------------------------
+
+_REASONING_COMMENT = """\
+
+# =============================================================================
+# Reasoning governance (v1.1 — optional)
+# =============================================================================
+#
+# Uncomment and configure to enable reasoning receipt generation.
+# When enabled, governed tool calls require a _justification parameter
+# and reasoning is evaluated before forwarding.
+#
+# reasoning:
+#   require_justification_for:
+#     - must_escalate
+#     - cannot_execute
+#
+#   on_missing_justification: block    # block | escalate | allow
+#   on_check_error: block              # block | escalate | allow
+#
+#   checks:
+#     glc_002_minimum_substance:
+#       enabled: true
+#       min_length: 20
+#
+#     glc_003_no_parroting:
+#       enabled: true
+#       blocklist:
+#         - "because you asked"
+#         - "you told me to"
+#         - "you requested"
+#
+#     glc_005_llm_coherence:
+#       enabled: true
+#       enabled_for:
+#         - must_escalate
+#       timeout_ms: 2000
+#       score_threshold: 0.6
+#       # Model configured via SANNA_LLM_MODEL environment variable
+#
+#   evaluate_before_escalation: true
+#   auto_deny_on_reasoning_failure: false
+"""
+
+
+def _append_reasoning_comment(constitution_path: Path) -> None:
+    """Append the commented reasoning section to a constitution file.
+
+    Idempotent — skips if the file already contains the reasoning marker.
+    """
+    text = constitution_path.read_text(encoding="utf-8")
+    if "Reasoning governance" in text:
+        return
+    with open(constitution_path, "a", encoding="utf-8") as f:
+        f.write(_REASONING_COMMENT)
+
+
+# ---------------------------------------------------------------------------
+# Atomic file I/O
+# ---------------------------------------------------------------------------
+
+def _atomic_write(filepath: Path, content: str) -> None:
+    """Write *content* to *filepath* atomically with symlink protection.
+
+    1. Rejects symlinks (prevents redirect attacks).
+    2. Writes to a temporary file in the same directory.
+    3. Sets 0o600 permissions (POSIX only).
+    4. Atomically replaces the target via ``os.replace()``.
+    """
+    if filepath.is_symlink():
+        target = os.readlink(str(filepath))
+        raise ValueError(
+            f"Refusing to write to symlink: {filepath} -> {target}"
+        )
+
+    fd = None
+    tmp_path: str | None = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(filepath.parent),
+            prefix=f".{filepath.name}.",
+            suffix=".tmp",
+        )
+        os.write(fd, content.encode("utf-8"))
+        os.close(fd)
+        fd = None
+
+        if sys.platform != "win32":
+            os.chmod(tmp_path, 0o600)
+
+        os.replace(tmp_path, str(filepath))
+        tmp_path = None  # successful — no cleanup needed
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -560,7 +668,7 @@ def execute_migration(
         )
     else:
         content = load_gateway_template(plan.constitution_template)
-        plan.constitution_path.write_text(content, encoding="utf-8")
+        _atomic_write(plan.constitution_path, content)
 
         from sanna.constitution import (
             load_constitution,
@@ -575,12 +683,16 @@ def execute_migration(
         )
         save_constitution(signed, str(plan.constitution_path))
 
+        # Append commented reasoning section for v0.11.0 discoverability
+        _append_reasoning_comment(plan.constitution_path)
+
     # 4. Generate gateway.yaml
     gateway_yaml = _build_gateway_yaml(
         plan=plan,
         signing_key_path=private_key_path,
+        public_key_path=public_key_path,
     )
-    plan.gateway_config_path.write_text(gateway_yaml, encoding="utf-8")
+    _atomic_write(plan.gateway_config_path, gateway_yaml)
 
     # 5. Backup original client config
     shutil.copy2(str(plan.config_path), str(plan.backup_path))
@@ -595,9 +707,9 @@ def execute_migration(
         gateway_command="sanna-gateway",
         gateway_args=["--config", str(plan.gateway_config_path)],
     )
-    plan.config_path.write_text(
+    _atomic_write(
+        plan.config_path,
         json.dumps(new_config, indent=2) + "\n",
-        encoding="utf-8",
     )
 
     # Check if sanna-gateway is in PATH
@@ -623,6 +735,7 @@ def execute_migration(
 def _build_gateway_yaml(
     plan: MigrationPlan,
     signing_key_path: Path | None,
+    public_key_path: Path | None = None,
 ) -> str:
     """Build the gateway.yaml content from a migration plan.
 
@@ -648,11 +761,15 @@ def _build_gateway_yaml(
         "receipt_store": str(plan.receipt_store_dir),
         "escalation_timeout": 300,
     }
+    if public_key_path:
+        gateway_section["constitution_public_key"] = str(public_key_path)
 
     downstreams: list[dict[str, Any]] = []
     for server in plan.migratable:
+        # Sanitize: underscores reserved for {server}_{tool} namespacing
+        sanitized_name = server.name.replace("_", "-")
         entry: dict[str, Any] = {
-            "name": server.name,
+            "name": sanitized_name,
             "command": server.command,
         }
         if server.args:

@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.11.0] - 2026-02-15
+
+### Breaking Changes
+- **Constitution v1.1** with optional `reasoning` section (backward compatible — v1.0 constitutions parse without changes)
+- **Receipt v2.0** with `reasoning_evaluation` field (v1.0 receipts still verify)
+- **Schema mutation**: governed tools (`must_escalate`, `cannot_execute`) now include a `_justification` parameter injected at runtime
+
+### Added
+- **Reasoning Receipts** — cryptographically-signed artifacts proving an AI agent's reasoning was evaluated against governance rules before action
+- **Receipt Triad** — every reasoning receipt cryptographically binds `input_hash`, `reasoning_hash`, and `action_hash`
+- **Gateway-Local Checks** — three deterministic checks (presence, substance, no-parroting) plus LLM coherence for semantic alignment scoring
+- **Constitution v1.1** — `reasoning:` section with `require_justification_for`, `on_missing_justification`, `on_check_error`, per-check configuration (`glc_002_minimum_substance`, `glc_003_no_parroting`, `glc_005_llm_coherence`), `evaluate_before_escalation`, `auto_deny_on_reasoning_failure`
+- **Schema Mutation** — automatic `_justification` parameter injection for governed tools; justification stripped before forwarding to downstream
+- **Approval Integration** — human approvers see reasoning evaluation scores and can override with documented reasons
+- **Assurance Levels** — `full` / `partial` / `none` based on check results and errors
+- **Reasoning receipts documentation** (`docs/reasoning-receipts.md`)
+- **Example reasoning constitution** (`examples/constitutions/reasoning-example.yaml`)
+- **Migration reasoning comment** — `sanna-gateway migrate` now appends a commented reasoning section to new constitutions for discoverability
+
+### Fixed
+- **Circuit breaker probe bypasses enforcement** — uses `list_tools()` protocol call, not the user's tool call [P0]
+- **Namespace collision validation** — downstream names with underscores are rejected; migration sanitizes `_` to `-` [P0]
+- **Receipt file permissions** — store directories get 0o700, receipt files get 0o600 on POSIX [P1]
+- **Migration wires `constitution_public_key`** — generated `gateway.yaml` includes the public key path for startup verification [P1]
+- **Escalation approval idempotency** — status guard prevents double-execution of approved/failed escalations [P1]
+- **Multi-downstream optional flag** — `optional: true` on a downstream allows graceful degradation if it fails to connect [P1]
+- **Migration atomic writes** — `_atomic_write()` uses `tempfile.mkstemp()` + `os.replace()` with symlink protection [P1]
+
+### Documentation
+- New reasoning receipts guide (`docs/reasoning-receipts.md`)
+- Updated constitution examples with reasoning section
+- Migration guide for v0.10.x to v0.11.0
+
 ## [0.10.0] - 2026-02-14
 ### Added
 - **MCP enforcement gateway** (`sanna-gateway`) — proxy sits between MCP clients (Claude Desktop, Claude Code) and downstream MCP servers, enforcing constitution-based policy on every tool call

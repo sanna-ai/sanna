@@ -1,0 +1,151 @@
+# =============================================================================
+# Sanna Constitution — Reasoning Governance Example (v1.1)
+# =============================================================================
+#
+# Demonstrates the v0.11.0 reasoning section with all check types configured.
+# Governed tool calls require a _justification parameter. Reasoning is
+# evaluated before forwarding or escalating.
+#
+# Sign:  sanna-sign-constitution reasoning-example.yaml --private-key <key>.key
+# Use:   sanna-gateway --config gateway.yaml
+
+sanna_constitution: "1.1"
+
+identity:
+  agent_name: reasoning-demo
+  domain: general-purpose
+  description: >
+    Example agent demonstrating reasoning receipt generation.
+    Requires justification for escalated and denied actions.
+
+provenance:
+  authored_by: team@example.com
+  approved_by:
+    - lead@example.com
+  approval_date: "2026-02-15"
+  approval_method: manual-sign-off
+  change_history: []
+
+boundaries:
+  - id: B001
+    description: Operate within approved services only
+    category: scope
+    severity: high
+  - id: B002
+    description: Never access credentials without approval
+    category: confidentiality
+    severity: critical
+  - id: B003
+    description: No financial transactions
+    category: authorization
+    severity: critical
+
+halt_conditions:
+  - id: H001
+    trigger: Agent attempts to access credentials or sensitive keys
+    escalate_to: team@example.com
+    severity: critical
+    enforcement: halt
+  - id: H002
+    trigger: Agent attempts destructive operation on production data
+    escalate_to: team@example.com
+    severity: critical
+    enforcement: halt
+
+invariants:
+  - id: INV_NO_FABRICATION
+    rule: Do not claim facts absent from provided sources.
+    enforcement: halt
+  - id: INV_MARK_INFERENCE
+    rule: Clearly mark inferences and speculation as such.
+    enforcement: warn
+  - id: INV_NO_FALSE_CERTAINTY
+    rule: Do not express certainty exceeding evidence strength.
+    enforcement: warn
+  - id: INV_PRESERVE_TENSION
+    rule: Do not collapse conflicting evidence without explicit justification.
+    enforcement: warn
+  - id: INV_NO_PREMATURE_COMPRESSION
+    rule: Do not issue unconditional conclusions when evidence is mixed.
+    enforcement: warn
+
+authority_boundaries:
+  can_execute:
+    - read_file
+    - write_file
+    - search
+    - summarize
+    - fetch
+    - request
+  cannot_execute:
+    - purchase
+    - transfer_funds
+    - read_credentials
+    - deploy
+    - execute_code
+    - drop_table
+    - force_push
+  must_escalate:
+    - condition: "Delete or remove files from filesystem"
+      target:
+        type: log
+    - condition: "Send email or post external message"
+      target:
+        type: log
+    - condition: "Update database page or record"
+      target:
+        type: log
+
+escalation_targets:
+  default: log
+
+# =============================================================================
+# Reasoning governance (v1.1)
+# =============================================================================
+#
+# When enabled, governed tool calls (must_escalate, cannot_execute) require a
+# _justification parameter. The gateway evaluates reasoning before forwarding.
+
+reasoning:
+  # Which enforcement levels require justification
+  require_justification_for:
+    - must_escalate
+    - cannot_execute
+
+  # Block actions with missing required justification
+  on_missing_justification: block    # block | escalate | allow
+
+  # Block actions with failed reasoning checks
+  on_check_error: block              # block | escalate | allow
+
+  # Gateway-local checks
+  checks:
+    # Minimum substance check (length-based)
+    glc_002_minimum_substance:
+      enabled: true
+      min_length: 20
+
+    # No parroting check (blocklist matching)
+    glc_003_no_parroting:
+      enabled: true
+      blocklist:
+        - "because you asked"
+        - "you told me to"
+        - "you requested"
+
+    # LLM coherence check (semantic alignment)
+    glc_005_llm_coherence:
+      enabled: true
+      enabled_for:
+        - must_escalate
+      timeout_ms: 2000
+      score_threshold: 0.6    # 0.0-1.0, higher = more aligned
+      # Model configured via SANNA_LLM_MODEL environment variable
+
+  # Evaluate reasoning before showing to human approver
+  evaluate_before_escalation: true
+
+  # Don't auto-deny on reasoning failure, escalate with warning
+  auto_deny_on_reasoning_failure: false
+
+policy_hash: null
