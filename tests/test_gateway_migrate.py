@@ -194,15 +194,15 @@ class TestAdapterRegistry:
             get_adapter("vscode")
 
     def test_unimplemented_claude_code(self):
-        with pytest.raises(NotImplementedError, match="v0.12.0"):
+        with pytest.raises(NotImplementedError, match="v0.12.1"):
             ClaudeCodeAdapter().config_paths()
 
     def test_unimplemented_cursor(self):
-        with pytest.raises(NotImplementedError, match="v0.12.0"):
+        with pytest.raises(NotImplementedError, match="v0.12.1"):
             CursorAdapter().config_paths()
 
     def test_unimplemented_windsurf(self):
-        with pytest.raises(NotImplementedError, match="v0.12.0"):
+        with pytest.raises(NotImplementedError, match="v0.12.1"):
             WindsurfAdapter().config_paths()
 
     def test_detect_installed_clients(self, tmp_path):

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.1] - 2026-02-16
+
+### Fixed
+- **CI: pytest-asyncio** added to pip install in `.github/workflows/ci.yml`
+- **MCP importorskip guards** added to 4 test sites that import `sanna.gateway.server` (TestPIIRedaction, TestAsyncWebhook, TestFloatFallbackRemoved, TestCLIDispatch)
+
 ## [0.12.0] - 2026-02-16
 
 ### Added

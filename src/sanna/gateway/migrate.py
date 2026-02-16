@@ -341,7 +341,7 @@ class ClaudeDesktopAdapter(ClientAdapter):
 
 
 class ClaudeCodeAdapter(ClientAdapter):
-    """Adapter for Claude Code (stub — coming in v0.12.0)."""
+    """Adapter for Claude Code (stub — coming in v0.12.1)."""
 
     @property
     def name(self) -> str:
@@ -349,7 +349,7 @@ class ClaudeCodeAdapter(ClientAdapter):
 
     def config_paths(self) -> list[Path]:
         raise NotImplementedError(
-            "Claude Code adapter coming in v0.12.0. "
+            "Claude Code adapter coming in v0.12.1. "
             "Use --client claude-desktop for now."
         )
 
@@ -364,7 +364,7 @@ class ClaudeCodeAdapter(ClientAdapter):
 
 
 class CursorAdapter(ClientAdapter):
-    """Adapter for Cursor (stub — coming in v0.12.0)."""
+    """Adapter for Cursor (stub — coming in v0.12.1)."""
 
     @property
     def name(self) -> str:
@@ -372,7 +372,7 @@ class CursorAdapter(ClientAdapter):
 
     def config_paths(self) -> list[Path]:
         raise NotImplementedError(
-            "Cursor adapter coming in v0.12.0. "
+            "Cursor adapter coming in v0.12.1. "
             "Use --client claude-desktop for now."
         )
 
@@ -387,7 +387,7 @@ class CursorAdapter(ClientAdapter):
 
 
 class WindsurfAdapter(ClientAdapter):
-    """Adapter for Windsurf (stub — coming in v0.12.0)."""
+    """Adapter for Windsurf (stub — coming in v0.12.1)."""
 
     @property
     def name(self) -> str:
@@ -395,7 +395,7 @@ class WindsurfAdapter(ClientAdapter):
 
     def config_paths(self) -> list[Path]:
         raise NotImplementedError(
-            "Windsurf adapter coming in v0.12.0. "
+            "Windsurf adapter coming in v0.12.1. "
             "Use --client claude-desktop for now."
         )
 
