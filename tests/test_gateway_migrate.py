@@ -741,6 +741,7 @@ class TestCLIDispatch:
 
     def test_dispatch_legacy_config(self):
         """'--config' dispatches to run_gateway (not migrate)."""
+        pytest.importorskip("mcp")
         import sanna.gateway
         with patch("sanna.gateway.server.run_gateway") as mock:
             with patch("sys.argv", ["sanna-gateway", "--config", "gw.yaml"]):

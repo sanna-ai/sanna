@@ -75,6 +75,7 @@ class TestFloatNormalization:
 class TestFloatFallbackRemoved:
     def test_no_json_dumps_fallback_in_server(self):
         """server.py no longer contains 'json_dumps_fallback' string."""
+        pytest.importorskip("mcp")
         import sanna.gateway.server as server_module
         import inspect
 

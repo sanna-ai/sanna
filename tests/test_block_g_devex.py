@@ -87,6 +87,7 @@ class TestPIIRedaction:
 
     def test_pii_redaction_hash_only(self, tmp_path):
         """Redacted content shows SHA-256 hash, original hash preserved."""
+        pytest.importorskip("mcp")
         from sanna.gateway.server import _redact_for_storage
 
         content = "sensitive user data with PII"
@@ -100,6 +101,7 @@ class TestPIIRedaction:
 
     def test_pii_redaction_disabled(self, tmp_path):
         """No redaction by default in config."""
+        pytest.importorskip("mcp")
         from sanna.gateway.config import RedactionConfig
 
         config = RedactionConfig()
@@ -110,6 +112,7 @@ class TestPIIRedaction:
 
     def test_redaction_before_signing(self, tmp_path):
         """Hash computed on original, then redacted for storage."""
+        pytest.importorskip("mcp")
         from sanna.gateway.server import _redact_for_storage
         from sanna.hashing import hash_text
 
@@ -238,6 +241,7 @@ class TestAsyncWebhook:
     @pytest.mark.asyncio
     async def test_webhook_async(self):
         """Mock endpoint, verify async delivery."""
+        pytest.importorskip("mcp")
         pytest.importorskip("httpx")
         from sanna.enforcement.escalation import (
             EscalationTarget,
@@ -268,6 +272,7 @@ class TestAsyncWebhook:
     @pytest.mark.asyncio
     async def test_webhook_timeout_handled(self, caplog):
         """Mock slow endpoint, verify warning logged."""
+        pytest.importorskip("mcp")
         pytest.importorskip("httpx")
         import httpx
         from sanna.enforcement.escalation import (
