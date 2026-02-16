@@ -247,12 +247,12 @@ class TestCanonicalJson:
         assert result == '{"a":1,"b":2,"c":3}'
 
     def test_canonical_json_float_normalization(self):
-        """Float values are normalized, still deterministic."""
+        """Float values are serialized as JSON numbers, still deterministic."""
         result1 = _canonical_json_for_triad({"score": 0.7, "name": "test"})
         result2 = _canonical_json_for_triad({"name": "test", "score": 0.7})
         assert result1 == result2
-        # Floats are converted to fixed-precision strings
-        assert "0.7000000000" in result1
+        # Floats are now JSON numbers (v0.12.2+), not fixed-precision strings
+        assert "0.7" in result1
 
 
 # =============================================================================

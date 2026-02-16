@@ -69,15 +69,15 @@ class TestPromptInjection:
 
         # The user message should wrap justification in XML tags
         user_msg = captured_payload["messages"][0]["content"]
-        assert "<agent_justification>" in user_msg
-        assert "</agent_justification>" in user_msg
+        assert "<audit>" in user_msg
+        assert "</audit>" in user_msg
         assert malicious in user_msg
 
     @pytest.mark.skipif(not _HAS_HTTPX, reason="httpx not installed")
     @patch("sanna.reasoning.llm_client.httpx.AsyncClient")
     @pytest.mark.asyncio
     async def test_justification_in_xml_tags(self, mock_cls):
-        """Justification appears between <agent_justification> tags."""
+        """Justification appears between <audit> tags."""
         from sanna.reasoning.llm_client import AnthropicJudge
 
         captured_payload = {}
@@ -104,8 +104,8 @@ class TestPromptInjection:
 
         user_msg = captured_payload["messages"][0]["content"]
         # Extract content between XML tags
-        start = user_msg.index("<agent_justification>") + len("<agent_justification>")
-        end = user_msg.index("</agent_justification>")
+        start = user_msg.index("<audit>") + len("<audit>")
+        end = user_msg.index("</audit>")
         tagged_content = user_msg[start:end].strip()
         assert justification in tagged_content
 
@@ -555,8 +555,8 @@ class TestScrutinyLevels:
         assert "logical step" in sys_thr.lower() or "enumerate" in sys_thr.lower() or "each step" in sys_thr.lower()
 
         # Both use XML tags for justification
-        assert "<agent_justification>" in user_std
-        assert "<agent_justification>" in user_thr
+        assert "<audit>" in user_std
+        assert "<audit>" in user_thr
 
         # System prompts differ
         assert sys_std != sys_thr
@@ -638,4 +638,4 @@ class TestOpenAISystemMessage:
         # System message should contain governance framing
         assert "governance auditor" in messages[0]["content"].lower()
         # User message should contain XML-wrapped justification
-        assert "<agent_justification>" in messages[1]["content"]
+        assert "<audit>" in messages[1]["content"]

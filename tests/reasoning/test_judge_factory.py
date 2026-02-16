@@ -26,12 +26,12 @@ except ImportError:
 
 class TestJudgeFactory:
     def test_judge_factory_no_key_fallback(self, monkeypatch, caplog):
-        """No API keys → HeuristicJudge with INFO log."""
+        """No API keys → HeuristicJudge with WARNING log."""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("SANNA_JUDGE_PROVIDER", raising=False)
 
-        with caplog.at_level(logging.INFO, logger="sanna.reasoning.judge_factory"):
+        with caplog.at_level(logging.WARNING, logger="sanna.reasoning.judge_factory"):
             judge = JudgeFactory.create()
 
         assert isinstance(judge, HeuristicJudge)
@@ -111,16 +111,14 @@ class TestJudgeFactory:
         judge = JudgeFactory.create()
         assert isinstance(judge, HeuristicJudge)
 
-    def test_judge_factory_explicit_provider_no_key_fallback(self, monkeypatch, caplog):
-        """Provider specified but no key → falls back to heuristic."""
+    def test_judge_factory_explicit_provider_no_key_raises(self, monkeypatch):
+        """Provider specified but no key → raises ValueError."""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("SANNA_JUDGE_PROVIDER", raising=False)
 
-        with caplog.at_level(logging.INFO, logger="sanna.reasoning.judge_factory"):
-            judge = JudgeFactory.create(provider="anthropic")
-
-        assert isinstance(judge, HeuristicJudge)
+        with pytest.raises(ValueError, match="Explicit provider"):
+            JudgeFactory.create(provider="anthropic")
 
 
 # ---------------------------------------------------------------------------

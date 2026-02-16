@@ -955,7 +955,8 @@ class TestAtomicWrites:
         link = tmp_path / "link.txt"
         os.symlink(str(real_file), str(link))
 
-        with pytest.raises(ValueError, match="symlink"):
+        from sanna.utils.safe_io import SecurityError
+        with pytest.raises(SecurityError, match="symlink"):
             _atomic_write(link, "injected")
 
         # Original content unchanged

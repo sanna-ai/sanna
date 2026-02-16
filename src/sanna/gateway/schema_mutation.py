@@ -123,10 +123,21 @@ def _resolve_enforcement_level(
         return default_policy
 
     # 3. Constitution authority boundary evaluation
+    # When args is empty (tool-listing time), condition-based rules that
+    # depend on argument values cannot be definitively resolved. We still
+    # evaluate to get the best-guess enforcement level, but callers should
+    # treat this as advisory — the actual enforcement happens at call time
+    # with real arguments.
     if constitution.authority_boundaries:
         from sanna.enforcement import evaluate_authority
 
         decision = evaluate_authority(tool_name, {}, constitution)
+        # When evaluated with empty args and the tool wasn't matched by
+        # name-based rules (cannot_execute / can_execute), conservatively
+        # treat it as potentially requiring justification. Argument-dependent
+        # conditions may fire at call time.
+        if decision.boundary_type == "uncategorized":
+            return "runtime_evaluated"
         return decision.boundary_type
 
     return "can_execute"

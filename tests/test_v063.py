@@ -101,10 +101,10 @@ with open(RECEIPT_SCHEMA_PATH) as _f:
 # =============================================================================
 
 class TestRFC8785Canonicalization:
-    def test_float_rejection(self):
-        """canonical_json_bytes should reject floats."""
-        with pytest.raises(TypeError, match="Float value"):
-            canonical_json_bytes({"val": 1.5})
+    def test_float_accepted(self):
+        """canonical_json_bytes accepts finite floats (v0.12.2+)."""
+        result = canonical_json_bytes({"val": 1.5})
+        assert b"1.5" in result
 
     def test_integer_passes(self):
         """canonical_json_bytes should accept integers."""
@@ -118,20 +118,25 @@ class TestRFC8785Canonicalization:
         result = canonical_json_bytes(obj)
         assert result == b'{"a":1,"b":2}'
 
-    def test_nested_float_rejection(self):
-        """Float nested deep in structure should be rejected."""
-        with pytest.raises(TypeError, match=r"\$\.data\.value"):
-            canonical_json_bytes({"data": {"value": 3.14}})
+    def test_nested_float_accepted(self):
+        """Finite float nested deep in structure is now accepted (v0.12.2+)."""
+        result = canonical_json_bytes({"data": {"value": 3.14}})
+        assert b"3.14" in result
 
-    def test_float_in_list_rejection(self):
-        """Float inside a list should be rejected."""
-        with pytest.raises(TypeError, match=r"\$\.items\[0\]"):
-            canonical_json_bytes({"items": [1.0]})
+    def test_float_in_list_accepted(self):
+        """Finite floats inside a list are now accepted (v0.12.2+)."""
+        result = canonical_json_bytes({"items": [1.0]})
+        assert b"1.0" in result
 
-    def test_reject_floats_standalone(self):
-        """_reject_floats should raise for floats."""
-        with pytest.raises(TypeError):
-            _reject_floats({"x": 0.1})
+    def test_reject_floats_allows_finite(self):
+        """_reject_floats now allows finite floats (v0.12.2+)."""
+        _reject_floats({"x": 0.1})  # no exception
+
+    def test_reject_floats_rejects_nan(self):
+        """_reject_floats rejects NaN."""
+        import math
+        with pytest.raises(TypeError, match="Non-finite"):
+            _reject_floats({"x": float("nan")})
 
     def test_reject_floats_passes_ints(self):
         """_reject_floats should not raise for ints."""
@@ -559,14 +564,14 @@ class TestChainVerification:
 
 class TestV063Versions:
     def test_tool_version(self):
-        assert TOOL_VERSION == "0.12.1"
+        assert TOOL_VERSION == "0.12.2"
 
     def test_checks_version(self):
         assert CHECKS_VERSION == "4"
 
     def test_init_version(self):
         import sanna
-        assert sanna.__version__ == "0.12.1"
+        assert sanna.__version__ == "0.12.2"
 
 
 # =============================================================================

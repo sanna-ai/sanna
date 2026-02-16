@@ -71,19 +71,27 @@ _VALID_REDACTION_MODES = frozenset({"hash_only", "pattern_redact"})
 # PII redaction for receipt storage (Block G)
 # ---------------------------------------------------------------------------
 
-def _redact_for_storage(content: str, mode: str = "hash_only") -> str:
+def _redact_for_storage(
+    content: str,
+    mode: str = "hash_only",
+    salt: str = "",
+) -> str:
     """Replace content with a redacted placeholder for receipt storage.
 
     Args:
         content: The original content to redact.
         mode: Redaction mode — ``"hash_only"`` replaces with SHA-256 hash.
+        salt: Per-receipt salt (e.g. receipt_id) appended before hashing.
+            Prevents rainbow-table reversal of low-entropy inputs.
 
     Returns:
-        Redacted string with hash reference for auditability.
+        Redacted string with salted hash reference for auditability.
     """
     if mode == "hash_only":
-        digest = hashlib.sha256(content.encode()).hexdigest()
-        return f"[REDACTED \u2014 SHA-256: {digest}]"
+        digest = hashlib.sha256(
+            (content + salt).encode(),
+        ).hexdigest()
+        return f"[REDACTED \u2014 SHA-256-SALTED: {digest}]"
     # "pattern_redact" reserved for future regex-based PII detection
     return content
 
@@ -271,7 +279,10 @@ class EscalationStore:
                         "Purged %d expired escalation(s)", purged,
                     )
                 if self._persist_path:
-                    self._save_to_disk()
+                    loop = _asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None, self._save_to_disk,
+                    )
 
         self._purge_task = _asyncio.create_task(_purge_loop())
 
@@ -288,7 +299,10 @@ class EscalationStore:
     # -- Disk persistence -----------------------------------------------------
 
     def _save_to_disk(self) -> None:
-        """Persist non-expired pending escalations to JSON file."""
+        """Persist non-expired pending escalations to JSON file.
+
+        Uses atomic_write_sync for symlink protection and crash safety.
+        """
         if not self._persist_path:
             return
         data = {
@@ -296,11 +310,13 @@ class EscalationStore:
             for eid, record in self._pending.items()
             if not self.is_expired(record)
         }
-        os.makedirs(os.path.dirname(self._persist_path), exist_ok=True)
-        tmp_path = self._persist_path + ".tmp"
-        with open(tmp_path, "w") as f:
-            json.dump(data, f)
-        os.replace(tmp_path, self._persist_path)
+        from sanna.utils.safe_io import atomic_write_sync, ensure_secure_dir
+        ensure_secure_dir(Path(os.path.dirname(self._persist_path)))
+        atomic_write_sync(
+            self._persist_path,
+            json.dumps(data),
+            mode=0o600,
+        )
 
     def _load_from_disk(self) -> None:
         """Load pending escalations from disk, skipping expired."""
@@ -579,6 +595,12 @@ class SannaGateway:
         # Block G: PII redaction
         from sanna.gateway.config import RedactionConfig
         self._redaction_config = redaction_config or RedactionConfig()
+        if self._redaction_config.enabled:
+            logger.warning(
+                "Redaction enabled. Original signed receipts will be "
+                "stored alongside separate redacted views. Signature "
+                "verification requires the original receipt file.",
+            )
 
         self._setup_handlers()
 
@@ -594,12 +616,28 @@ class SannaGateway:
         1. ``SANNA_GATEWAY_SECRET`` env var (hex-encoded) — for containers
         2. File at ``secret_path`` (or ``~/.sanna/gateway_secret``)
         3. Generate new random secret and persist to file
+
+        Security: validates the secret is exactly 32 bytes. Uses
+        ``ensure_secure_dir`` for the ``~/.sanna`` directory and
+        ``atomic_write_sync`` for crash-safe, symlink-protected writes.
         """
+        from sanna.utils.safe_io import (
+            SecurityError as SafeIOSecurityError,
+            atomic_write_sync,
+            ensure_secure_dir,
+        )
+
         # 1. Env var override (hex-encoded)
         env_secret = os.environ.get("SANNA_GATEWAY_SECRET")
         if env_secret:
             try:
-                return bytes.fromhex(env_secret)
+                decoded = bytes.fromhex(env_secret)
+                if len(decoded) != 32:
+                    raise SafeIOSecurityError(
+                        f"SANNA_GATEWAY_SECRET must be exactly 32 bytes, "
+                        f"got {len(decoded)}",
+                    )
+                return decoded
             except ValueError:
                 logger.warning(
                     "SANNA_GATEWAY_SECRET is not valid hex, ignoring",
@@ -609,17 +647,19 @@ class SannaGateway:
         path = secret_path or os.path.expanduser("~/.sanna/gateway_secret")
         if os.path.exists(path):
             with open(path, "rb") as f:
-                return f.read()
+                secret = f.read()
+            if len(secret) != 32:
+                raise SafeIOSecurityError(
+                    f"Gateway secret at {path} must be exactly 32 bytes, "
+                    f"got {len(secret)}",
+                )
+            return secret
 
         # 3. Create new secret and persist
         secret = os.urandom(32)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "wb") as f:
-            f.write(secret)
-        try:
-            os.chmod(path, 0o600)
-        except OSError:
-            pass  # Windows doesn't support chmod
+        sanna_dir = os.path.dirname(path)
+        ensure_secure_dir(sanna_dir)
+        atomic_write_sync(path, secret, mode=0o600)
         logger.info("Created gateway secret at %s", path)
         return secret
 
@@ -766,14 +806,15 @@ class SannaGateway:
         token: str,
     ) -> None:
         """Deliver an approval token via configured delivery mechanisms."""
+        import time as _time
+        ttl = int(self._escalation_store.timeout)
         token_info = {
             "escalation_id": entry.escalation_id,
             "token": token,
             "tool_name": entry.prefixed_name,
             "timestamp": entry.created_at,
-            "ttl_remaining": int(
-                self._escalation_store.timeout
-            ),
+            "ttl_remaining": ttl,
+            "expires_at": _time.time() + ttl,
         }
         for method in self._token_delivery:
             if method == "stderr":
@@ -805,33 +846,73 @@ class SannaGateway:
                     entry.escalation_id,
                 )
 
+    #: Maximum number of tokens retained in the pending tokens file.
+    _MAX_PENDING_TOKENS = 1000
+
     def _deliver_token_to_file(
         self, token_info: dict[str, Any],
     ) -> None:
-        """Write token info to ~/.sanna/pending_tokens.json."""
+        """Write token info to ~/.sanna/pending_tokens.json.
+
+        Security and reliability guarantees:
+
+        * **File locking** via ``filelock`` prevents race conditions when
+          multiple concurrent escalations write at the same time.
+        * **TTL pruning** — tokens with an ``expires_at`` timestamp in the
+          past are removed on every write.
+        * **Size cap** — at most ``_MAX_PENDING_TOKENS`` entries are kept;
+          the oldest are dropped if the cap is exceeded.
+        * **Atomic write** via ``atomic_write_sync`` for symlink protection
+          and crash safety.
+        """
+        import time as _time
+        from filelock import FileLock
+        from sanna.utils.safe_io import atomic_write_sync, ensure_secure_dir
+
         tokens_path = os.path.expanduser(
             "~/.sanna/pending_tokens.json",
         )
-        os.makedirs(os.path.dirname(tokens_path), exist_ok=True)
+        ensure_secure_dir(os.path.dirname(tokens_path))
 
-        # Load existing tokens
-        existing: list[dict] = []
-        if os.path.exists(tokens_path):
-            try:
-                with open(tokens_path) as f:
-                    existing = json.load(f)
-                if not isinstance(existing, list):
+        lock = FileLock(tokens_path + ".lock", timeout=10)
+        with lock:
+            # Load existing tokens
+            existing: list[dict] = []
+            if os.path.exists(tokens_path):
+                try:
+                    with open(tokens_path) as f:
+                        existing = json.load(f)
+                    if not isinstance(existing, list):
+                        existing = []
+                except (json.JSONDecodeError, OSError):
                     existing = []
-            except (json.JSONDecodeError, OSError):
-                existing = []
 
-        existing.append(token_info)
+            existing.append(token_info)
 
-        # Atomic write
-        tmp_path = tokens_path + ".tmp"
-        with open(tmp_path, "w") as f:
-            json.dump(existing, f, indent=2)
-        os.replace(tmp_path, tokens_path)
+            # Prune expired tokens (use expires_at if present)
+            now = _time.time()
+            existing = [
+                t for t in existing
+                if t.get("expires_at", now + 1) > now
+            ]
+
+            # Enforce size cap — drop oldest entries beyond the limit
+            cap = self._MAX_PENDING_TOKENS
+            if len(existing) > cap:
+                dropped = len(existing) - cap
+                existing = existing[-cap:]
+                logger.warning(
+                    "Pending token store exceeded %d entries; "
+                    "oldest %d tokens pruned",
+                    cap, dropped,
+                )
+
+            # Atomic write with symlink protection
+            atomic_write_sync(
+                tokens_path,
+                json.dumps(existing, indent=2),
+                mode=0o600,
+            )
 
     # -- handler registration ------------------------------------------------
 
@@ -1290,42 +1371,19 @@ class SannaGateway:
         Filename: ``{timestamp}_{receipt_id}.json`` where timestamp
         uses underscores instead of colons for filesystem safety.
 
-        When PII redaction is enabled, a deep copy of the receipt is
-        made, specified fields are replaced with ``[REDACTED ...]``
-        placeholders, and the redacted copy is stored.  The in-memory
-        ``_last_receipt`` retains full content.  Hashes and signatures
-        are always computed on the original (unredacted) content by
-        ``_generate_receipt()``, so the stored receipt's integrity
-        fields refer to the real data.
+        The original, unmodified signed receipt is always persisted so
+        that offline signature verification succeeds.  When PII
+        redaction is enabled, a separate ``*.redacted.json`` file is
+        also written with sensitive fields replaced by hash
+        placeholders.  This file is clearly marked as non-verifiable.
         """
         if not self._receipt_store_path:
             return
 
-        # Block G: apply redaction before writing to disk
-        stored = receipt
-        if self._redaction_config.enabled:
-            import copy
-            stored = copy.deepcopy(receipt)
-            mode = self._redaction_config.mode
-            fields = self._redaction_config.fields
-
-            if "arguments" in fields:
-                ctx = stored.get("inputs", {}).get("context", "")
-                if ctx:
-                    stored["inputs"]["context"] = _redact_for_storage(
-                        ctx, mode,
-                    )
-            if "result_text" in fields:
-                out = stored.get("outputs", {}).get("output", "")
-                if out:
-                    stored["outputs"]["output"] = _redact_for_storage(
-                        out, mode,
-                    )
+        from sanna.utils.safe_io import atomic_write_sync, ensure_secure_dir
 
         store_dir = Path(self._receipt_store_path)
-        store_dir.mkdir(parents=True, exist_ok=True)
-        if sys.platform != "win32":
-            os.chmod(store_dir, 0o700)
+        ensure_secure_dir(store_dir)
 
         ts = receipt.get("timestamp", "")
         # Sanitize for filesystem: replace colons and + with underscores
@@ -1335,14 +1393,71 @@ class SannaGateway:
 
         filepath = store_dir / filename
         try:
-            tmp_path = filepath.with_suffix(".tmp")
-            tmp_path.write_text(json.dumps(stored, indent=2))
-            os.replace(str(tmp_path), str(filepath))
-            if sys.platform != "win32":
-                os.chmod(filepath, 0o600)
+            # Always persist the original signed receipt
+            atomic_write_sync(
+                filepath,
+                json.dumps(receipt, indent=2),
+                mode=0o600,
+            )
             logger.info("Receipt persisted: %s", filename)
         except OSError as e:
             logger.error("Failed to persist receipt %s: %s", filename, e)
+            return
+
+        # Block G: write a separate redacted view alongside the original
+        if self._redaction_config.enabled:
+            import copy
+            redacted = copy.deepcopy(receipt)
+            mode = self._redaction_config.mode
+            fields = self._redaction_config.fields
+
+            if "arguments" in fields:
+                ctx = redacted.get("inputs", {}).get("context", "")
+                if ctx:
+                    redacted["inputs"]["context"] = _redact_for_storage(
+                        ctx, mode, salt=receipt_id,
+                    )
+            if "result_text" in fields:
+                out = redacted.get("outputs", {}).get("output", "")
+                if out:
+                    redacted["outputs"]["output"] = _redact_for_storage(
+                        out, mode, salt=receipt_id,
+                    )
+
+            redacted["_redaction_notice"] = (
+                "This is a redacted view. Signature verification "
+                "requires the original receipt."
+            )
+
+            redacted_filename = f"{safe_ts}_{receipt_id}.redacted.json"
+            redacted_path = store_dir / redacted_filename
+            try:
+                atomic_write_sync(
+                    redacted_path,
+                    json.dumps(redacted, indent=2),
+                    mode=0o600,
+                )
+                logger.info(
+                    "Redacted receipt view persisted: %s",
+                    redacted_filename,
+                )
+            except OSError as e:
+                logger.warning(
+                    "Failed to persist redacted receipt %s: %s",
+                    redacted_filename, e,
+                )
+
+    async def _persist_receipt_async(self, receipt: dict) -> None:
+        """Offload receipt persistence to thread pool to avoid blocking."""
+        loop = _asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._persist_receipt, receipt)
+
+    async def _deliver_token_async(
+        self, entry: PendingEscalation, token: str,
+    ) -> None:
+        """Deliver token via configured mechanisms, offloading I/O."""
+        loop = _asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._deliver_token, entry, token)
 
     # -- call forwarding with enforcement ------------------------------------
 
@@ -1426,7 +1541,7 @@ class SannaGateway:
                                 boundary_type="downstream_unhealthy",
                             )
                             self._last_receipt = receipt
-                            self._persist_receipt(receipt)
+                            await self._persist_receipt_async(receipt)
                         return probe_result
                     # Probe succeeded — circuit now CLOSED, fall through
 
@@ -1443,7 +1558,7 @@ class SannaGateway:
                         boundary_type="downstream_unhealthy",
                     )
                     self._last_receipt = receipt
-                    self._persist_receipt(receipt)
+                    await self._persist_receipt_async(receipt)
                 return error_result
 
         if ds_state.circuit_state == CircuitState.HALF_OPEN:
@@ -1459,7 +1574,7 @@ class SannaGateway:
                     boundary_type="downstream_unhealthy",
                 )
                 self._last_receipt = receipt
-                self._persist_receipt(receipt)
+                await self._persist_receipt_async(receipt)
             return error_result
 
         # CLOSED — forward normally
@@ -1737,7 +1852,7 @@ class SannaGateway:
         )
 
         self._last_receipt = receipt
-        self._persist_receipt(receipt)
+        await self._persist_receipt_async(receipt)
 
         # 6. Return result
         if decision.decision == "halt":
@@ -1790,7 +1905,7 @@ class SannaGateway:
         if self._require_approval_token:
             token = self._compute_approval_token(entry)
             entry.token_hash = self._hash_token(token)
-            self._deliver_token(entry, token)
+            await self._deliver_token_async(entry, token)
             instruction = (
                 "Approval token required. The user must provide "
                 "the approval token displayed in the gateway terminal."
@@ -1838,7 +1953,7 @@ class SannaGateway:
 
         entry.escalation_receipt_id = receipt["receipt_id"]
         self._last_receipt = receipt
-        self._persist_receipt(receipt)
+        await self._persist_receipt_async(receipt)
 
         # 4. Return structured escalation result
         return types.CallToolResult(
@@ -2079,7 +2194,7 @@ class SannaGateway:
                             reasoning_evaluation=reasoning_evaluation,
                         )
                         self._last_receipt = receipt
-                        self._persist_receipt(receipt)
+                        await self._persist_receipt_async(receipt)
 
                         return types.CallToolResult(
                             content=[types.TextContent(
@@ -2163,7 +2278,7 @@ class SannaGateway:
         )
 
         self._last_receipt = receipt
-        self._persist_receipt(receipt)
+        await self._persist_receipt_async(receipt)
 
         return tool_result
 
@@ -2259,7 +2374,7 @@ class SannaGateway:
         )
 
         self._last_receipt = receipt
-        self._persist_receipt(receipt)
+        await self._persist_receipt_async(receipt)
 
         return types.CallToolResult(
             content=[types.TextContent(
@@ -2283,6 +2398,7 @@ class SannaGateway:
         error_text: str,
         server_name: str | None = None,
         boundary_type: str = "execution_failed",
+        reasoning_evaluation: Any = None,
     ) -> dict:
         """Generate an error receipt for downstream failures.
 
@@ -2295,6 +2411,8 @@ class SannaGateway:
                 failures and ``"execution_failed"`` for downstream
                 runtime errors.  Policy blocks use ``"cannot_execute"``
                 (set elsewhere, not here).
+            reasoning_evaluation: Optional reasoning evaluation result
+                to preserve in the error receipt for audit purposes.
         """
         from sanna.enforcement import AuthorityDecision
         from sanna.receipt import HaltEvent
@@ -2328,6 +2446,7 @@ class SannaGateway:
             authority_decisions=authority_decisions,
             halt_event=halt_event,
             server_name=server_name,
+            reasoning_evaluation=reasoning_evaluation,
         )
 
     # -- receipt generation --------------------------------------------------

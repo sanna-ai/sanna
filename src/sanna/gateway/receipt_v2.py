@@ -73,6 +73,13 @@ class ReceiptTriad:
     (not downstream execution internals).  ``context_limitation``
     documents this constraint for downstream verifiers.
 
+    **Important:** ``input_hash`` and ``action_hash`` represent
+    *gateway-boundary attestation*, not end-to-end execution proof.
+    The gateway attests to what it observed at its boundary; it cannot
+    verify what the downstream server actually executed.  Downstream
+    execution attestation would require the downstream server to
+    produce its own signed receipts — a future architecture concern.
+
     Attributes:
         input_hash: SHA-256 of the canonical tool call (tool name + args).
         reasoning_hash: SHA-256 of the agent justification string

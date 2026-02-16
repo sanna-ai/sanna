@@ -105,18 +105,14 @@ def generate_keypair(
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
     )
 
-    private_path.write_bytes(private_bytes)
-    public_path.write_bytes(public_bytes)
+    from sanna.utils.safe_io import atomic_write_sync
 
-    # Restrict private key permissions (POSIX only)
-    try:
-        import os
-        os.chmod(private_path, 0o600)
-    except OSError:
-        pass  # Windows or restricted filesystem
+    # Private key: atomic write with restricted permissions (0o600)
+    atomic_write_sync(private_path, private_bytes, mode=0o600)
+    # Public key: readable by others (0o644)
+    atomic_write_sync(public_path, public_bytes, mode=0o644)
 
-    # Always write metadata sidecar (atomic via temp + rename)
-    import os
+    # Always write metadata sidecar atomically
     meta: dict = {
         "key_id": key_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -127,9 +123,7 @@ def generate_keypair(
     if signed_by:
         meta["signed_by"] = signed_by
     meta_path = output_dir / f"{key_id}.meta.json"
-    tmp_meta = meta_path.with_suffix(".meta.json.tmp")
-    tmp_meta.write_text(json.dumps(meta, indent=2))
-    os.replace(tmp_meta, meta_path)
+    atomic_write_sync(meta_path, json.dumps(meta, indent=2), mode=0o644)
 
     return private_path, public_path
 

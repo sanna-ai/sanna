@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.12.2] - 2026-02-16
+
+Resolved 15 issues identified by two independent external code reviews before public launch.
+
+### Security
+- **Atomic file writes with symlink protection** — All file write operations now use a shared safe-write helper with randomized temp names, `O_NOFOLLOW`/`O_EXCL` flags, `fsync`, and `os.replace()`. Eliminates symlink-based arbitrary file overwrite attacks.
+- **`~/.sanna` directory hardened** — Directory enforced `0700`, files `0600`, validated at creation. Gateway secret requires exactly 32 bytes.
+- **PII redaction hashes salted** — Redaction hashes now include receipt-specific salt, preventing rainbow table reversal of low-entropy inputs.
+- **Redaction no longer breaks signature verification** — Original signed receipts are persisted intact. Redacted views are written as separate, clearly-marked unsigned files.
+- **Float/string hash collision eliminated** — Canonical JSON serialization now preserves numeric types. Floats and their string representations produce distinct hashes.
+- **Prompt injection isolation in LLM judge** — Audited content wrapped in `<audit>` tags, separating untrusted input from judge instructions.
+- **Token store hardened** — File locking prevents race conditions on concurrent writes. TTL-based pruning and size caps prevent unbounded growth.
+
+### Reliability
+- **Gateway I/O no longer blocks the async loop** — All file writes offloaded to thread pool via `run_in_executor`.
+- **Downstream MCP connection serialized** — Per-connection `asyncio.Lock` prevents frame interleaving on non-concurrent-safe stdio sessions.
+- **Score gating respects error_policy** — Check errors are distinguished from low scores. `error_policy` controls whether errored checks floor the overall score or are excluded.
+
+### Correctness
+- **Keyword matching uses word boundaries** — Authority condition matching uses `\b` regex instead of substring, preventing false positives ("add" no longer matches "padder").
+- **Error receipts preserve reasoning evaluation** — Reasoning context survives into error receipts for complete audit trails.
+- **Schema mutation handles empty args** — Tool-list-time authority evaluation marks arg-dependent conditions as runtime-evaluated rather than incorrectly resolving them.
+
+### Configuration
+- **Explicit judge provider fails loudly** — Requesting a specific judge provider (e.g., "anthropic") that can't be instantiated now raises an error instead of silently falling back to heuristic matching.
+- **Judge capability logging** — Startup logs report which judge backend is active and why.
+- **Redaction config warning** — Enabling redaction logs a prominent warning explaining the signed-vs-stored verification model.
+
+### Dependencies
+- Added `filelock` for token store concurrency safety.
+
+### Tests
+- 1992 tests (10 xfailed), 11 pre-existing MCP compat failures
+
 ## [0.12.1] - 2026-02-16
 
 ### Fixed

@@ -25,7 +25,6 @@ import platform
 import re
 import shutil
 import sys
-import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -101,42 +100,12 @@ def _append_reasoning_comment(constitution_path: Path) -> None:
 def _atomic_write(filepath: Path, content: str) -> None:
     """Write *content* to *filepath* atomically with symlink protection.
 
-    1. Rejects symlinks (prevents redirect attacks).
-    2. Writes to a temporary file in the same directory.
-    3. Sets 0o600 permissions (POSIX only).
-    4. Atomically replaces the target via ``os.replace()``.
+    Delegates to ``sanna.utils.safe_io.atomic_write_sync`` which provides
+    randomised temp names, symlink rejection, ``os.fsync``, and
+    ``os.replace`` atomicity.
     """
-    if filepath.is_symlink():
-        target = os.readlink(str(filepath))
-        raise ValueError(
-            f"Refusing to write to symlink: {filepath} -> {target}"
-        )
-
-    fd = None
-    tmp_path: str | None = None
-    try:
-        fd, tmp_path = tempfile.mkstemp(
-            dir=str(filepath.parent),
-            prefix=f".{filepath.name}.",
-            suffix=".tmp",
-        )
-        os.write(fd, content.encode("utf-8"))
-        os.close(fd)
-        fd = None
-
-        if sys.platform != "win32":
-            os.chmod(tmp_path, 0o600)
-
-        os.replace(tmp_path, str(filepath))
-        tmp_path = None  # successful — no cleanup needed
-    finally:
-        if fd is not None:
-            os.close(fd)
-        if tmp_path is not None:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+    from sanna.utils.safe_io import atomic_write_sync
+    atomic_write_sync(filepath, content, mode=0o600)
 
 
 # ---------------------------------------------------------------------------

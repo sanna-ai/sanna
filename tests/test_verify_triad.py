@@ -55,7 +55,7 @@ def _make_receipt_with_triad(
 
     receipt = {
         "schema_version": "0.1",
-        "tool_version": "0.12.1",
+        "tool_version": "0.12.2",
         "checks_version": "4",
         "receipt_id": "a" * 16,
         "receipt_fingerprint": "b" * 16,

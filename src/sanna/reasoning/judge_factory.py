@@ -77,13 +77,17 @@ class JudgeFactory:
         if provider:
             resolved_key = _key_for_provider(provider)
             if resolved_key:
-                return _make_llm_judge(provider, resolved_key, model, error_policy)
-            logger.info(
-                "Provider '%s' requested but no API key found. "
-                "Falling back to heuristic judge.",
-                provider,
+                judge = _make_llm_judge(provider, resolved_key, model, error_policy)
+                logger.info(
+                    "Judge initialized: %s (provider=%s)",
+                    type(judge).__name__, provider,
+                )
+                return judge
+            raise ValueError(
+                f"Explicit provider '{provider}' requested but no API "
+                f"key found.  Set the corresponding environment variable "
+                f"(e.g. ANTHROPIC_API_KEY) or pass api_key explicitly."
             )
-            return _make_heuristic()
 
         # 5. SANNA_JUDGE_PROVIDER env var
         env_provider = os.environ.get("SANNA_JUDGE_PROVIDER")
@@ -102,7 +106,7 @@ class JudgeFactory:
             pass
 
         # 7. Fallback — heuristic
-        logger.info(
+        logger.warning(
             "No LLM API key found (ANTHROPIC_API_KEY, OPENAI_API_KEY). "
             "Using deterministic heuristic judge. "
             "Coherence scoring requires an API key — see docs for setup."

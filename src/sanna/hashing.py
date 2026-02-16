@@ -1,50 +1,59 @@
 """
 Canonical hashing for deterministic receipts across platforms.
 
-Canonicalization follows RFC 8785 (JSON Canonicalization Scheme) for the
-restricted type set used by Sanna: str, int, bool, None, list, dict.
-Floats are rejected at serialization time — all numeric values must be
-integers.  This avoids IEEE 754 representation ambiguity and guarantees
-deterministic canonical bytes across every Python implementation.
+Canonicalization follows RFC 8785 (JSON Canonicalization Scheme).
+Supported types: str, int, float, bool, None, list, dict.
+
+Floats are serialized as JSON numbers by Python's ``json.dumps``,
+which uses ``float.__repr__`` (shortest unique decimal representation,
+deterministic across platforms since Python 3.1+).  Non-finite floats
+(NaN, Infinity) are rejected because JSON does not support them.
+
+Prior to v0.12.2, floats were rejected entirely and
+``normalize_floats`` converted them to fixed-precision strings.
+This caused a hash collision: ``{"val": 1.0}`` (float) and
+``{"val": "1.0000000000"}`` (string) produced identical canonical
+bytes.  Since v0.12.2 floats remain as JSON numbers, eliminating
+the collision.
 """
 
 import hashlib
 import json
+import math
 import unicodedata
 from typing import Any
 
 
 def normalize_floats(obj: Any) -> Any:
-    """Convert floats to deterministic string representation for hashing.
+    """Identity pass-through — retained for backward compatibility.
 
-    RFC 8785 canonical JSON rejects floats because IEEE 754 representation
-    is ambiguous across platforms.  This function replaces every float with
-    a fixed-precision string (10 decimal places) so the result can pass
-    through ``canonical_json_bytes`` without fallback.
+    Prior to v0.12.2 this converted every float to a 10-decimal-place
+    string (e.g. ``1.0`` → ``"1.0000000000"``).  That caused a type
+    collision: a float and a string with the same digits hashed
+    identically.
 
-    Non-float values (int, str, bool, None, dict, list) pass through
-    unchanged.
+    Since v0.12.2, ``canonical_json_bytes`` handles floats natively
+    as JSON numbers, so no pre-processing is needed.  This function
+    is kept so existing callers (``receipt_v2.py``, ``server.py``)
+    continue to work without changes.
     """
-    if isinstance(obj, float):
-        return f"{obj:.10f}"
-    if isinstance(obj, dict):
-        return {k: normalize_floats(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [normalize_floats(v) for v in obj]
     return obj
 
 
 def _reject_floats(obj: Any, path: str = "$") -> None:
-    """Recursively reject float values in a structure.
+    """Reject non-finite float values (NaN, Infinity) in a structure.
 
-    Raises TypeError with the JSON-path of the offending value so the
-    caller can fix it before canonicalization.
+    Finite floats are now allowed (since v0.12.2).  Only NaN and
+    Infinity are rejected because JSON does not support them.
+
+    Prior to v0.12.2 this rejected ALL floats.
     """
     if isinstance(obj, float):
-        raise TypeError(
-            f"Float value {obj!r} at {path} — Sanna requires integers for "
-            f"RFC 8785 canonical JSON.  Convert to int (e.g. basis points)."
-        )
+        if not math.isfinite(obj):
+            raise TypeError(
+                f"Non-finite float {obj!r} at {path} — JSON does not "
+                f"support NaN or Infinity."
+            )
     if isinstance(obj, dict):
         for key, val in obj.items():
             _reject_floats(val, f"{path}.{key}")
@@ -69,9 +78,9 @@ def canonicalize_text(s: str) -> str:
 def canonical_json_bytes(obj: Any) -> bytes:
     """Serialize *obj* to RFC 8785 canonical JSON bytes.
 
-    The implementation covers the restricted type set used by Sanna
-    (str, int, bool, None, list, dict).  Floats are rejected — call
-    sites must use integers (e.g. basis-points instead of percentages).
+    Covers str, int, float, bool, None, list, dict.  Non-finite
+    floats (NaN, Infinity) are rejected.  Finite floats are
+    serialized as JSON numbers.
     """
     _reject_floats(obj)
     canon = json.dumps(

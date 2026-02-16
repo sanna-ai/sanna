@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sanna"
-version = "0.12.1"
+version = "0.12.2"
 description = "Coherence checks for AI agents — portable, offline-verifiable reasoning receipts"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -25,6 +25,7 @@ dependencies = [
     "jsonschema>=4.17",
     "pyyaml>=6.0",
     "cryptography>=41.0",
+    "filelock>=3.0",
 ]
 
 [project.optional-dependencies]

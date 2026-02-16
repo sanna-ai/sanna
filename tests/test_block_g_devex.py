@@ -86,14 +86,19 @@ class TestPIIRedaction:
     """PII redaction controls for receipt storage."""
 
     def test_pii_redaction_hash_only(self, tmp_path):
-        """Redacted content shows SHA-256 hash, original hash preserved."""
+        """Redacted content shows salted SHA-256 hash, PII removed."""
         pytest.importorskip("mcp")
         from sanna.gateway.server import _redact_for_storage
 
         content = "sensitive user data with PII"
-        expected_hash = hashlib.sha256(content.encode()).hexdigest()
+        salt = "test-receipt-id"
+        expected_hash = hashlib.sha256(
+            (content + salt).encode(),
+        ).hexdigest()
 
-        redacted = _redact_for_storage(content, mode="hash_only")
+        redacted = _redact_for_storage(
+            content, mode="hash_only", salt=salt,
+        )
 
         assert "[REDACTED" in redacted
         assert expected_hash in redacted
@@ -124,8 +129,12 @@ class TestPIIRedaction:
         output_hash = hash_text(original_output)
 
         # Redacted versions should NOT contain PII
-        redacted_ctx = _redact_for_storage(original_context, "hash_only")
-        redacted_out = _redact_for_storage(original_output, "hash_only")
+        redacted_ctx = _redact_for_storage(
+            original_context, "hash_only", salt="r1",
+        )
+        redacted_out = _redact_for_storage(
+            original_output, "hash_only", salt="r1",
+        )
 
         assert "John Doe" not in redacted_ctx
         assert "123-45-6789" not in redacted_ctx

@@ -52,6 +52,7 @@ class ReasoningPipeline:
             return
 
         self.enabled = True
+        self._error_policy = getattr(self.reasoning_config, "on_api_error", "block")
 
         # Deterministic checks — always sequential, glc_001 always runs
         self.checks: list = []
@@ -401,8 +402,23 @@ class ReasoningPipeline:
                 scoring_method="min_gate",
             )
 
-        overall_score = min(r.score for r in check_results)
-        passed = all(r.passed for r in check_results)
+        # When error_policy is "allow", exclude errored checks from min-gate
+        # so API errors don't floor the overall score.
+        if self._error_policy == "allow":
+            scoring_results = [
+                r for r in check_results
+                if not (r.details and "error" in r.details)
+            ]
+        else:
+            scoring_results = check_results
+
+        if scoring_results:
+            overall_score = min(r.score for r in scoring_results)
+            passed = all(r.passed for r in scoring_results)
+        else:
+            # All checks errored and error_policy is "allow" — pass through
+            overall_score = 1.0
+            passed = True
 
         failed_ids = [r.check_id for r in check_results if not r.passed]
         passed_ids = [r.check_id for r in check_results if r.passed]

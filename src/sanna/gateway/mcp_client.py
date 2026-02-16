@@ -76,6 +76,7 @@ class DownstreamConnection:
         self._exit_stack: AsyncExitStack | None = None
         self._connected = False
         self._last_call_was_connection_error = False
+        self._lock = asyncio.Lock()
 
     # -- properties ----------------------------------------------------------
 
@@ -205,21 +206,22 @@ class DownstreamConnection:
                 "Not connected to downstream server"
             )
 
-        try:
-            tools_result = await asyncio.wait_for(
-                self._session.list_tools(), timeout=self._timeout,
-            )
-            self._tools = [_tool_to_dict(t) for t in tools_result.tools]
-            self._tool_names = {t["name"] for t in self._tools}
-            return list(self._tools)
-        except asyncio.TimeoutError:
-            raise DownstreamTimeoutError(
-                f"list_tools timed out after {self._timeout}s"
-            )
-        except Exception as e:
-            raise DownstreamConnectionError(
-                f"list_tools failed: {type(e).__name__}: {e}"
-            ) from e
+        async with self._lock:
+            try:
+                tools_result = await asyncio.wait_for(
+                    self._session.list_tools(), timeout=self._timeout,
+                )
+                self._tools = [_tool_to_dict(t) for t in tools_result.tools]
+                self._tool_names = {t["name"] for t in self._tools}
+                return list(self._tools)
+            except asyncio.TimeoutError:
+                raise DownstreamTimeoutError(
+                    f"list_tools timed out after {self._timeout}s"
+                )
+            except Exception as e:
+                raise DownstreamConnectionError(
+                    f"list_tools failed: {type(e).__name__}: {e}"
+                ) from e
 
     # -- tool calls ----------------------------------------------------------
 
@@ -249,25 +251,26 @@ class DownstreamConnection:
 
         effective_timeout = timeout if timeout is not None else self._timeout
 
-        try:
-            result = await asyncio.wait_for(
-                self._session.call_tool(name, arguments),
-                timeout=effective_timeout,
-            )
-            self._last_call_was_connection_error = False
-            return result
+        async with self._lock:
+            try:
+                result = await asyncio.wait_for(
+                    self._session.call_tool(name, arguments),
+                    timeout=effective_timeout,
+                )
+                self._last_call_was_connection_error = False
+                return result
 
-        except asyncio.TimeoutError:
-            self._last_call_was_connection_error = True
-            return _error_result(
-                f"Tool call '{name}' timed out after {effective_timeout}s"
-            )
-        except Exception as e:
-            self._last_call_was_connection_error = True
-            self._connected = False
-            return _error_result(
-                f"Tool call '{name}' failed: {type(e).__name__}: {e}"
-            )
+            except asyncio.TimeoutError:
+                self._last_call_was_connection_error = True
+                return _error_result(
+                    f"Tool call '{name}' timed out after {effective_timeout}s"
+                )
+            except Exception as e:
+                self._last_call_was_connection_error = True
+                self._connected = False
+                return _error_result(
+                    f"Tool call '{name}' failed: {type(e).__name__}: {e}"
+                )
 
     # -- context manager -----------------------------------------------------
 
