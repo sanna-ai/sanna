@@ -6,12 +6,15 @@ Uses Python's built-in sqlite3 module with no external dependencies.
 """
 
 import json
+import logging
 import os
 import sqlite3
 import threading
 import uuid
 from datetime import datetime
 from typing import Any, Optional
+
+logger = logging.getLogger("sanna.store")
 
 
 _SCHEMA_VERSION = 1
@@ -132,6 +135,20 @@ class ReceiptStore:
         except Exception:
             self._conn.close()
             raise
+        self._has_json1 = self._detect_json1()
+
+    def _detect_json1(self) -> bool:
+        """Detect whether the SQLite build has JSON1 extension support."""
+        try:
+            self._conn.execute("SELECT json_extract('{}', '$')")
+            return True
+        except sqlite3.OperationalError:
+            logger.warning(
+                "SQLite JSON1 extension not available. "
+                "Receipt querying will use basic filtering. "
+                "For full query support, use a SQLite build with JSON1 enabled."
+            )
+            return False
 
     def _init_schema(self) -> None:
         with self._lock:
@@ -214,11 +231,18 @@ class ReceiptStore:
             clauses.append("halt_event = 1")
 
         if "check_status" in filters:
-            clauses.append(
-                "EXISTS (SELECT 1 FROM json_each(check_statuses) "
-                "WHERE json_extract(value, '$.status') = ?)"
-            )
-            params.append(filters["check_status"])
+            if self._has_json1:
+                clauses.append(
+                    "EXISTS (SELECT 1 FROM json_each(check_statuses) "
+                    "WHERE json_extract(value, '$.status') = ?)"
+                )
+                params.append(filters["check_status"])
+            else:
+                # Fallback: use LIKE on the JSON text column.
+                # json.dumps produces compact format ("status": "X"),
+                # so this pattern matches correctly.
+                clauses.append("check_statuses LIKE ?")
+                params.append(f'%"status": "{filters["check_status"]}"%')
 
         if "since" in filters:
             since = filters["since"]

@@ -232,6 +232,7 @@ class AuthorityBoundaries:
 VALID_JUSTIFICATION_LEVELS = frozenset({"must_escalate", "cannot_execute", "can_execute"})
 VALID_ON_MISSING_JUSTIFICATION = frozenset({"block", "escalate", "allow"})
 VALID_ON_CHECK_ERROR = frozenset({"block", "escalate", "allow"})
+VALID_ON_API_ERROR = frozenset({"block", "allow", "score_zero"})
 
 # Mapping from unnumbered (legacy) check keys to canonical numbered keys.
 # Both forms are accepted in constitutions; numbered is canonical internally.
@@ -288,6 +289,47 @@ class GLCLLMCoherenceConfig(GLCCheckConfig):
     enabled_for: list[str] = field(default_factory=lambda: ["must_escalate"])
     timeout_ms: int = 2000
     score_threshold: float = 0.6
+    judge_override: dict | None = None
+
+
+@dataclass
+class JudgeConfig:
+    """Top-level judge configuration for reasoning evaluation.
+
+    Attributes:
+        default_provider: LLM provider to use (``"anthropic"``,
+            ``"openai"``, ``"heuristic"``, or *None* for auto-detect).
+        default_model: Model name for the judge.  *None* means the
+            provider's default small/fast model.
+        cross_provider: If *True*, the factory selects a different
+            provider from the one the agent is using (if available).
+    """
+    default_provider: str | None = None
+    default_model: str | None = None
+    cross_provider: bool = False
+
+
+@dataclass
+class InvariantJudgeOverride:
+    """Per-invariant judge overrides.
+
+    Allows a specific invariant to use a different provider, model,
+    or scrutiny level than the top-level judge config.
+
+    Attributes:
+        provider: Override provider for this invariant.
+        model: Override model for this invariant.
+        scrutiny: ``"standard"`` (default) or ``"thorough"``.
+            Thorough uses a longer prompt that asks the model to
+            enumerate logical steps before scoring.
+    """
+    provider: str | None = None
+    model: str | None = None
+    scrutiny: str = "standard"
+
+
+VALID_SCRUTINY_LEVELS = frozenset({"standard", "thorough"})
+VALID_JUDGE_PROVIDERS = frozenset({"anthropic", "openai", "heuristic"})
 
 
 @dataclass
@@ -305,10 +347,16 @@ class ReasoningConfig:
             for a required level. ``"block"`` (deny), ``"escalate"``
             (route to human), or ``"allow"`` (proceed anyway).
         on_check_error: Action when a reasoning check errors.
+        on_api_error: Action when an LLM API call fails.
+            ``"block"`` → score 0.0 (fail-closed), ``"allow"`` →
+            score 1.0 (fail-open), ``"score_zero"`` → score 0.0
+            (same as block, different receipt semantics).
         checks: Named check configs. Canonical (numbered) keys:
             ``"glc_002_minimum_substance"``, ``"glc_003_no_parroting"``,
             ``"glc_005_llm_coherence"``. Unnumbered legacy forms are
             also accepted and normalized on parse.
+        judge: Optional judge configuration.  Controls which LLM
+            provider, model, and cross-provider behavior to use.
         evaluate_before_escalation: If True, run reasoning checks
             before the escalation round-trip.
         auto_deny_on_reasoning_failure: If True, automatically deny
@@ -319,7 +367,9 @@ class ReasoningConfig:
     )
     on_missing_justification: str = "block"
     on_check_error: str = "block"
+    on_api_error: str = "block"
     checks: dict[str, GLCCheckConfig] = field(default_factory=dict)
+    judge: JudgeConfig | None = None
     evaluate_before_escalation: bool = True
     auto_deny_on_reasoning_failure: bool = False
 
@@ -562,6 +612,30 @@ def _validate_reasoning_config(reasoning: dict) -> list[str]:
             f"{sorted(VALID_ON_CHECK_ERROR)}"
         )
 
+    # on_api_error
+    oae = reasoning.get("on_api_error")
+    if oae is not None and oae not in VALID_ON_API_ERROR:
+        errors.append(
+            f"reasoning.on_api_error '{oae}' must be one of "
+            f"{sorted(VALID_ON_API_ERROR)}"
+        )
+
+    # judge config
+    judge = reasoning.get("judge")
+    if judge is not None:
+        if not isinstance(judge, dict):
+            errors.append("reasoning.judge must be a dict")
+        else:
+            dp = judge.get("default_provider")
+            if dp is not None and dp not in VALID_JUDGE_PROVIDERS:
+                errors.append(
+                    f"reasoning.judge.default_provider '{dp}' must be one of "
+                    f"{sorted(VALID_JUDGE_PROVIDERS)}"
+                )
+            cp = judge.get("cross_provider")
+            if cp is not None and not isinstance(cp, bool):
+                errors.append("reasoning.judge.cross_provider must be a boolean")
+
     # checks
     checks = reasoning.get("checks")
     if checks is not None:
@@ -642,6 +716,24 @@ def _validate_reasoning_check(name: str, cfg: dict) -> list[str]:
                 errors.append(f"{prefix}.timeout_ms must be an integer")
             elif tm <= 0:
                 errors.append(f"{prefix}.timeout_ms must be > 0, got {tm}")
+
+        jo = cfg.get("judge_override")
+        if jo is not None:
+            if not isinstance(jo, dict):
+                errors.append(f"{prefix}.judge_override must be a dict")
+            else:
+                jo_provider = jo.get("provider")
+                if jo_provider is not None and jo_provider not in VALID_JUDGE_PROVIDERS:
+                    errors.append(
+                        f"{prefix}.judge_override.provider '{jo_provider}' "
+                        f"must be one of {sorted(VALID_JUDGE_PROVIDERS)}"
+                    )
+                jo_scrutiny = jo.get("scrutiny")
+                if jo_scrutiny is not None and jo_scrutiny not in VALID_SCRUTINY_LEVELS:
+                    errors.append(
+                        f"{prefix}.judge_override.scrutiny '{jo_scrutiny}' "
+                        f"must be one of {sorted(VALID_SCRUTINY_LEVELS)}"
+                    )
 
     return errors
 
@@ -879,11 +971,16 @@ def _parse_reasoning_check(name: str, cfg: dict) -> GLCCheckConfig:
             blocklist=cfg.get("blocklist", GLCNoParrotingConfig().blocklist),
         )
     elif canonical == "glc_005_llm_coherence":
+        judge_override_raw = cfg.get("judge_override")
+        judge_override = None
+        if isinstance(judge_override_raw, dict):
+            judge_override = judge_override_raw  # stored as dict, parsed on use
         return GLCLLMCoherenceConfig(
             enabled=enabled,
             enabled_for=cfg.get("enabled_for", ["must_escalate"]),
             timeout_ms=cfg.get("timeout_ms", 2000),
             score_threshold=cfg.get("score_threshold", 0.6),
+            judge_override=judge_override,
         )
     else:
         # Unknown check type — store as base config
@@ -904,6 +1001,16 @@ def _parse_reasoning_config(data: dict) -> ReasoningConfig:
                 canonical = _normalize_check_key(name)
                 checks[canonical] = _parse_reasoning_check(name, cfg)
 
+    # Parse judge config
+    judge_config = None
+    judge_data = data.get("judge")
+    if isinstance(judge_data, dict):
+        judge_config = JudgeConfig(
+            default_provider=judge_data.get("default_provider"),
+            default_model=judge_data.get("default_model"),
+            cross_provider=judge_data.get("cross_provider", False),
+        )
+
     return ReasoningConfig(
         require_justification_for=data.get(
             "require_justification_for",
@@ -911,7 +1018,9 @@ def _parse_reasoning_config(data: dict) -> ReasoningConfig:
         ),
         on_missing_justification=data.get("on_missing_justification", "block"),
         on_check_error=data.get("on_check_error", "block"),
+        on_api_error=data.get("on_api_error", "block"),
         checks=checks,
+        judge=judge_config,
         evaluate_before_escalation=data.get("evaluate_before_escalation", True),
         auto_deny_on_reasoning_failure=data.get("auto_deny_on_reasoning_failure", False),
     )
@@ -970,14 +1079,18 @@ def _reasoning_config_to_dict(reasoning: ReasoningConfig, *, for_signing: bool =
     checks_dict: dict[str, dict] = {}
     for name, check in reasoning.checks.items():
         checks_dict[name] = _reasoning_check_to_dict(name, check, for_signing=for_signing)
-    return {
+    d = {
         "require_justification_for": reasoning.require_justification_for,
         "on_missing_justification": reasoning.on_missing_justification,
         "on_check_error": reasoning.on_check_error,
+        "on_api_error": reasoning.on_api_error,
         "checks": checks_dict,
         "evaluate_before_escalation": reasoning.evaluate_before_escalation,
         "auto_deny_on_reasoning_failure": reasoning.auto_deny_on_reasoning_failure,
     }
+    if reasoning.judge is not None:
+        d["judge"] = asdict(reasoning.judge)
+    return d
 
 
 def compute_constitution_hash(constitution: Constitution) -> str:

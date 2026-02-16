@@ -4,14 +4,26 @@ from __future__ import annotations
 
 from sanna.constitution import Constitution
 from sanna.gateway.receipt_v2 import ReasoningEvaluation
+from .judge import BaseJudge
 from .pipeline import ReasoningPipeline
 
 
 class ReasoningEvaluator:
-    """Facade for reasoning evaluation against a constitution."""
+    """Facade for reasoning evaluation against a constitution.
 
-    def __init__(self, constitution: Constitution):
-        self.pipeline = ReasoningPipeline(constitution)
+    Parameters:
+        constitution: The governance constitution.
+        judge: Optional :class:`BaseJudge` instance.  Passed through
+            to :class:`ReasoningPipeline`.  If *None*, the pipeline
+            resolves a judge via :class:`JudgeFactory`.
+    """
+
+    def __init__(
+        self,
+        constitution: Constitution,
+        judge: BaseJudge | None = None,
+    ):
+        self.pipeline = ReasoningPipeline(constitution, judge=judge)
 
     async def evaluate(
         self,

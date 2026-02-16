@@ -202,10 +202,10 @@ class TestSchemaMutation:
 
         asyncio.run(_test())
 
-    def test_justification_not_added_for_can_execute_tools(
+    def test_justification_optional_for_can_execute_tools(
         self, mock_server_path, reasoning_constitution,
     ):
-        """Tools that are can_execute do NOT get _justification."""
+        """Tools that are can_execute get _justification as OPTIONAL (not required)."""
         const_path, key_path, _ = reasoning_constitution
 
         async def _test():
@@ -227,7 +227,11 @@ class TestSchemaMutation:
 
                 assert search_tool is not None
                 props = search_tool.inputSchema.get("properties", {})
-                assert "_justification" not in props
+                # _justification is present but optional (not in required)
+                assert "_justification" in props
+                assert props["_justification"]["type"] == "string"
+                required = search_tool.inputSchema.get("required", [])
+                assert "_justification" not in required
             finally:
                 await gw.shutdown()
 

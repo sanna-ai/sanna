@@ -1157,10 +1157,10 @@ class TestArgumentsHashFloatFallback:
 
         asyncio.run(_test())
 
-    def test_float_arguments_use_fallback(
+    def test_float_arguments_use_normalization(
         self, mock_server_path, signed_constitution,
     ):
-        """Float arguments trigger json_dumps_fallback — no crash."""
+        """Float arguments are normalized before JCS hashing — no crash."""
         const_path, key_path, _ = signed_constitution
 
         async def _test():
@@ -1178,17 +1178,17 @@ class TestArgumentsHashFloatFallback:
                     {"name": "accuracy", "threshold": 0.85},
                 )
                 gw_ext = gw.last_receipt["extensions"]["gateway"]
-                assert gw_ext["arguments_hash_method"] == "json_dumps_fallback"
+                assert gw_ext["arguments_hash_method"] == "jcs"
                 assert len(gw_ext["arguments_hash"]) == 16
             finally:
                 await gw.shutdown()
 
         asyncio.run(_test())
 
-    def test_nested_float_uses_fallback(
+    def test_nested_float_uses_normalization(
         self, mock_server_path, signed_constitution,
     ):
-        """Nested float in arguments triggers fallback."""
+        """Nested float in arguments uses normalization."""
         const_path, key_path, _ = signed_constitution
 
         async def _test():
@@ -1214,10 +1214,10 @@ class TestArgumentsHashFloatFallback:
 
         asyncio.run(_test())
 
-    def test_mixed_int_float_uses_fallback(
+    def test_mixed_int_float_uses_normalization(
         self, mock_server_path, signed_constitution,
     ):
-        """Mixed int + float arguments triggers fallback."""
+        """Mixed int + float arguments use normalization, not fallback."""
         const_path, key_path, _ = signed_constitution
 
         async def _test():
@@ -1236,7 +1236,7 @@ class TestArgumentsHashFloatFallback:
                     {"name": "score", "threshold": 0.95},
                 )
                 gw_ext = gw.last_receipt["extensions"]["gateway"]
-                assert gw_ext["arguments_hash_method"] == "json_dumps_fallback"
+                assert gw_ext["arguments_hash_method"] == "jcs"
                 assert len(gw_ext["arguments_hash"]) == 16
             finally:
                 await gw.shutdown()

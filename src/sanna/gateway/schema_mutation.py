@@ -1,13 +1,16 @@
 """Tool schema mutation for governance-level reasoning.
 
-Adds ``_justification`` parameter to downstream tool schemas for
-tools that require justification based on the constitution's
-reasoning configuration and enforcement levels.
+Adds ``_justification`` parameter to downstream tool schemas when
+reasoning is enabled in the constitution.
+
+- **Required** for tools whose enforcement level is in
+  ``require_justification_for`` (typically ``must_escalate`` /
+  ``cannot_execute``).
+- **Optional** for all other tools when reasoning is enabled
+  (catches argument-dependent rules that fire at call time).
 
 Schema mutation happens at tool listing time — before any tool calls
-are made.  The ``_justification`` parameter is added as a required
-string field so MCP clients (Claude Desktop, Claude Code) include it
-in their tool calls.
+are made.
 """
 
 from __future__ import annotations
@@ -24,15 +27,17 @@ def mutate_tool_schema(
     policy_overrides: dict[str, str] | None = None,
     default_policy: str | None = None,
 ) -> dict[str, Any]:
-    """Add ``_justification`` parameter to a tool schema if required.
+    """Add ``_justification`` parameter to a tool schema.
 
-    Uses the policy cascade (per-tool override > default_policy >
-    constitution authority boundaries) to determine enforcement level,
-    then checks if that level is in the constitution's
-    ``require_justification_for`` list.
+    When reasoning is enabled, *every* tool gets ``_justification``
+    added to its schema.  The difference is whether it's required:
+
+    - Tools matching ``require_justification_for`` levels → **required**.
+    - All other tools → **optional** (catches argument-dependent rules
+      that may fire at call time).
 
     Returns a deep copy of the tool dict with ``_justification`` added,
-    or the original dict unchanged if no mutation is needed.
+    or the original dict unchanged if reasoning is disabled.
 
     Args:
         tool_dict: Downstream tool schema dict (must have ``name``).
@@ -55,27 +60,42 @@ def mutate_tool_schema(
         tool_name, constitution, policy_overrides, default_policy,
     )
 
-    if enforcement_level not in require_for:
-        return tool_dict
-
     # Deep copy to avoid mutating the original (stored in connection.tools)
     mutated = copy.deepcopy(tool_dict)
-    input_schema = mutated.setdefault("inputSchema", {"type": "object"})
-    properties = input_schema.setdefault("properties", {})
-    required = input_schema.setdefault("required", [])
 
+    if enforcement_level in require_for:
+        _add_justification_required(mutated)
+    else:
+        _add_justification_optional(mutated)
+
+    return mutated
+
+
+def _add_justification_optional(schema: dict) -> None:
+    """Add ``_justification`` as an optional string parameter."""
+    input_schema = schema.setdefault("inputSchema", {"type": "object"})
+    properties = input_schema.setdefault("properties", {})
     properties["_justification"] = {
         "type": "string",
         "description": (
-            "Explain why this action should be taken. "
-            "Required for governance."
+            "Optional reasoning justification for governance evaluation"
         ),
     }
+    # Do NOT add to required array
 
+
+def _add_justification_required(schema: dict) -> None:
+    """Add ``_justification`` as a required string parameter."""
+    _add_justification_optional(schema)
+    # Override description to indicate it's required
+    props = schema["inputSchema"]["properties"]
+    props["_justification"]["description"] = (
+        "Explain why this action should be taken. "
+        "Required for governance."
+    )
+    required = schema["inputSchema"].setdefault("required", [])
     if "_justification" not in required:
         required.append("_justification")
-
-    return mutated
 
 
 def _resolve_enforcement_level(

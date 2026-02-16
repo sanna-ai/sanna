@@ -99,31 +99,52 @@ authority_boundaries:
     - delete_repo
     - revoke_access
   must_escalate:
-    - condition: "Push to protected branch or main"
+    - condition: "push main"
       target:
         type: log
-    - condition: "Merge pull request"
+    - condition: "push protected"
       target:
         type: log
-    - condition: "Send email or post external message"
+    - condition: "merge pull"
       target:
         type: log
-    - condition: "Delete or remove from filesystem"
+    - condition: "send email"
       target:
         type: log
-    - condition: "Access outside project directory"
+    - condition: "post message"
       target:
         type: log
-    - condition: "Calendar event creation or modification"
+    - condition: "delete file"
       target:
         type: log
-    - condition: "Database operation on staging or development"
+    - condition: "remove file"
       target:
         type: log
-    - condition: "Modify system settings or environment configuration"
+    - condition: "access outside"
       target:
         type: log
-    - condition: "Publish package to registry"
+    - condition: "create event"
+      target:
+        type: log
+    - condition: "modify event"
+      target:
+        type: log
+    - condition: "database staging"
+      target:
+        type: log
+    - condition: "database development"
+      target:
+        type: log
+    - condition: "modify settings"
+      target:
+        type: log
+    - condition: "modify configuration"
+      target:
+        type: log
+    - condition: "publish package"
+      target:
+        type: log
+    - condition: "npm publish"
       target:
         type: log
 

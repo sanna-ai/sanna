@@ -14,6 +14,26 @@ import unicodedata
 from typing import Any
 
 
+def normalize_floats(obj: Any) -> Any:
+    """Convert floats to deterministic string representation for hashing.
+
+    RFC 8785 canonical JSON rejects floats because IEEE 754 representation
+    is ambiguous across platforms.  This function replaces every float with
+    a fixed-precision string (10 decimal places) so the result can pass
+    through ``canonical_json_bytes`` without fallback.
+
+    Non-float values (int, str, bool, None, dict, list) pass through
+    unchanged.
+    """
+    if isinstance(obj, float):
+        return f"{obj:.10f}"
+    if isinstance(obj, dict):
+        return {k: normalize_floats(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [normalize_floats(v) for v in obj]
+    return obj
+
+
 def _reject_floats(obj: Any, path: str = "$") -> None:
     """Recursively reject float values in a structure.
 

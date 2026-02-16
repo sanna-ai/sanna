@@ -78,6 +78,32 @@ class DownstreamConfig:
 
 
 @dataclass
+class RedactionConfig:
+    """PII redaction controls for receipt storage.
+
+    When enabled, the gateway redacts specified fields from receipts
+    before writing them to disk.  Hashes are always computed on the
+    FULL (unredacted) content first, so the receipt signature covers
+    the original data.  The stored copy replaces raw values with a
+    ``[REDACTED — SHA-256: ...]`` placeholder.
+
+    Attributes:
+        enabled: Whether redaction is active.  ``False`` by default.
+        mode: ``"hash_only"`` replaces content with its SHA-256 hash.
+            ``"pattern_redact"`` is reserved for future regex-based
+            PII detection.
+        fields: Receipt fields to redact.  Supported values:
+            ``"arguments"`` (inputs.context) and ``"result_text"``
+            (outputs.output).
+    """
+    enabled: bool = False
+    mode: str = "hash_only"
+    fields: list[str] = field(
+        default_factory=lambda: ["arguments", "result_text"],
+    )
+
+
+@dataclass
 class GatewayConfig:
     """Top-level gateway configuration."""
     transport: str = "stdio"
@@ -89,6 +115,19 @@ class GatewayConfig:
     max_pending_escalations: int = 100
     circuit_breaker_cooldown: float = 60.0
     downstreams: list[DownstreamConfig] = field(default_factory=list)
+    # Block E v2: escalation hardening
+    gateway_secret_path: str = ""
+    escalation_persist_path: str = ""
+    approval_requires_reason: bool = False
+    token_delivery: list[str] = field(
+        default_factory=lambda: ["file", "stderr"],
+    )
+    # Block G: PII redaction
+    redaction: RedactionConfig = field(
+        default_factory=RedactionConfig,
+    )
+    # Block G: receipt store mode
+    receipt_store_mode: str = "filesystem"
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +217,14 @@ def load_gateway_config(config_path: str) -> GatewayConfig:
         receipt_store = _resolve_path(str(receipt_store_raw), config_dir)
         Path(receipt_store).mkdir(parents=True, exist_ok=True)
 
+    _valid_store_modes = {"filesystem", "sqlite", "both"}
+    receipt_store_mode = str(gw_raw.get("receipt_store_mode", "filesystem"))
+    if receipt_store_mode not in _valid_store_modes:
+        raise GatewayConfigError(
+            f"Invalid receipt_store_mode: '{receipt_store_mode}'. "
+            f"Must be one of: {', '.join(sorted(_valid_store_modes))}"
+        )
+
     escalation_timeout = float(gw_raw.get("escalation_timeout", 300))
     max_pending_escalations = int(
         gw_raw.get("max_pending_escalations", 100),
@@ -186,6 +233,61 @@ def load_gateway_config(config_path: str) -> GatewayConfig:
         gw_raw.get("circuit_breaker_cooldown", 60),
     )
     transport = str(gw_raw.get("transport", "stdio"))
+
+    # Block E v2: escalation hardening config
+    gateway_secret_path = ""
+    gsp_raw = gw_raw.get("gateway_secret_path")
+    if gsp_raw:
+        gateway_secret_path = _resolve_path(str(gsp_raw), config_dir)
+
+    escalation_persist_path = ""
+    epp_raw = gw_raw.get("escalation_persist_path")
+    if epp_raw:
+        escalation_persist_path = _resolve_path(str(epp_raw), config_dir)
+
+    approval_requires_reason = bool(
+        gw_raw.get("approval_requires_reason", False),
+    )
+
+    _valid_delivery = {"stderr", "file", "log", "callback"}
+    token_delivery_raw = gw_raw.get("token_delivery", ["file", "stderr"])
+    if isinstance(token_delivery_raw, str):
+        token_delivery_raw = [token_delivery_raw]
+    token_delivery = [str(d) for d in token_delivery_raw]
+    for d in token_delivery:
+        if d not in _valid_delivery:
+            raise GatewayConfigError(
+                f"Invalid token_delivery method: '{d}'. "
+                f"Must be one of: {', '.join(sorted(_valid_delivery))}"
+            )
+
+    # -- redaction section --
+    redaction = RedactionConfig()
+    redaction_raw = gw_raw.get("redaction")
+    if isinstance(redaction_raw, dict):
+        redaction_enabled = bool(redaction_raw.get("enabled", False))
+        redaction_mode = str(redaction_raw.get("mode", "hash_only"))
+        if redaction_mode not in ("hash_only", "pattern_redact"):
+            raise GatewayConfigError(
+                f"Invalid redaction mode: '{redaction_mode}'. "
+                f"Must be 'hash_only' or 'pattern_redact'."
+            )
+        redaction_fields_raw = redaction_raw.get(
+            "fields", ["arguments", "result_text"],
+        )
+        valid_fields = {"arguments", "result_text"}
+        redaction_fields = [str(f) for f in redaction_fields_raw]
+        for f in redaction_fields:
+            if f not in valid_fields:
+                raise GatewayConfigError(
+                    f"Invalid redaction field: '{f}'. "
+                    f"Must be one of: {', '.join(sorted(valid_fields))}"
+                )
+        redaction = RedactionConfig(
+            enabled=redaction_enabled,
+            mode=redaction_mode,
+            fields=redaction_fields,
+        )
 
     # -- downstream section --
     ds_raw = raw.get("downstream")
@@ -213,6 +315,12 @@ def load_gateway_config(config_path: str) -> GatewayConfig:
         max_pending_escalations=max_pending_escalations,
         circuit_breaker_cooldown=circuit_breaker_cooldown,
         downstreams=downstreams,
+        gateway_secret_path=gateway_secret_path,
+        escalation_persist_path=escalation_persist_path,
+        approval_requires_reason=approval_requires_reason,
+        token_delivery=token_delivery,
+        redaction=redaction,
+        receipt_store_mode=receipt_store_mode,
     )
 
 
@@ -229,11 +337,10 @@ def _parse_downstream(
         )
     name = str(name)
 
-    if "_" in name:
+    if not re.match(r'^[a-zA-Z0-9_-]+$', name):
         raise GatewayConfigError(
-            f"{prefix}: downstream name '{name}' must not contain "
-            f"underscores (reserved for tool namespace separator). "
-            f"Use hyphens instead: '{name.replace('_', '-')}'"
+            f"{prefix}: downstream name '{name}' contains invalid "
+            f"characters. Use alphanumeric, hyphens, and underscores only."
         )
 
     command = raw.get("command")

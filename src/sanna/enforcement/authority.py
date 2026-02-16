@@ -182,20 +182,25 @@ def _build_action_context(action: str, params: dict) -> str:
 
 
 def _matches_condition(condition: str, action_context: str) -> bool:
-    """Keyword-based condition matching (heuristic v0).
+    """Keyword-based condition matching (heuristic v1).
 
     Extracts significant words (3+ chars, not stop words) from the condition
-    and checks if ANY appear as a substring of the action context.
+    and checks if ALL appear as a substring of the action context.
 
     Falls back to full condition substring matching if no significant
     keywords remain after filtering.
+
+    .. versionchanged:: 0.12.0
+       Changed from ``any()`` to ``all()`` — ALL significant words must
+       be present.  "delete production database" no longer matches
+       "list production services".
     """
     context_lower = action_context.lower()
     words = condition.lower().split()
     significant = [w for w in words if len(w) >= 3 and w not in _STOP_WORDS]
     if not significant:
-        return condition.strip().lower() in context_lower
-    return any(word in context_lower for word in significant)
+        return False
+    return all(word in context_lower for word in significant)
 
 
 def _resolve_escalation_target(

@@ -321,22 +321,28 @@ class TestEnvInterpolation:
     def test_env_interpolation_only_in_env_blocks(
         self, tmp_path, signed_files, monkeypatch,
     ):
-        """Env var interpolation only happens in env blocks, not paths."""
+        """Env var interpolation only happens in env blocks, not other
+        config fields like default_policy or reason strings."""
         const_path, key_path = signed_files
-        monkeypatch.setenv("MOCK-NAME", "should-not-resolve")
+        monkeypatch.setenv("MOCK_POLICY", "can_execute")
         content = f"""\
         gateway:
           constitution: {const_path}
           signing_key: {key_path}
 
         downstream:
-          - name: "${{MOCK-NAME}}"
+          - name: mock-server
             command: echo
+            default_policy: can_execute
+            env:
+              API_KEY: "${{MOCK_POLICY}}"
         """
         cfg_path = _write_config(tmp_path, content)
         cfg = load_gateway_config(cfg_path)
-        # The ${MOCK-NAME} in name field should NOT be interpolated
-        assert cfg.downstreams[0].name == "${MOCK-NAME}"
+        # env block values ARE interpolated
+        assert cfg.downstreams[0].env["API_KEY"] == "can_execute"
+        # name field is NOT interpolated (it's used as-is)
+        assert cfg.downstreams[0].name == "mock-server"
 
 
 # =============================================================================
@@ -619,8 +625,8 @@ class TestErrorHandling:
 # =============================================================================
 
 class TestNamespaceValidation:
-    def test_underscore_name_rejected(self, tmp_path, signed_files):
-        """Downstream name with underscore raises GatewayConfigError."""
+    def test_underscore_name_accepted(self, tmp_path, signed_files):
+        """Downstream name with underscore is now accepted (Block G)."""
         const_path, key_path = signed_files
         content = f"""\
         gateway:
@@ -632,8 +638,8 @@ class TestNamespaceValidation:
             command: echo
         """
         cfg_path = _write_config(tmp_path, content)
-        with pytest.raises(GatewayConfigError, match="underscore"):
-            load_gateway_config(cfg_path)
+        cfg = load_gateway_config(cfg_path)
+        assert cfg.downstreams[0].name == "my_server"
 
     def test_hyphen_name_accepted(self, tmp_path, signed_files):
         """Downstream name with hyphens is accepted."""
@@ -651,8 +657,8 @@ class TestNamespaceValidation:
         cfg = load_gateway_config(cfg_path)
         assert cfg.downstreams[0].name == "my-server"
 
-    def test_multiple_underscores_rejected(self, tmp_path, signed_files):
-        """Name with multiple underscores also rejected."""
+    def test_multiple_underscores_accepted(self, tmp_path, signed_files):
+        """Name with multiple underscores accepted (Block G)."""
         const_path, key_path = signed_files
         content = f"""\
         gateway:
@@ -660,15 +666,15 @@ class TestNamespaceValidation:
           signing_key: {key_path}
 
         downstream:
-          - name: my_bad_name
+          - name: my_good_name
             command: echo
         """
         cfg_path = _write_config(tmp_path, content)
-        with pytest.raises(GatewayConfigError, match="underscore"):
-            load_gateway_config(cfg_path)
+        cfg = load_gateway_config(cfg_path)
+        assert cfg.downstreams[0].name == "my_good_name"
 
-    def test_error_suggests_hyphen_replacement(self, tmp_path, signed_files):
-        """Error message suggests hyphenated alternative."""
+    def test_special_chars_rejected(self, tmp_path, signed_files):
+        """Names with special characters are rejected."""
         const_path, key_path = signed_files
         content = f"""\
         gateway:
@@ -676,11 +682,11 @@ class TestNamespaceValidation:
           signing_key: {key_path}
 
         downstream:
-          - name: my_server
+          - name: "my server!"
             command: echo
         """
         cfg_path = _write_config(tmp_path, content)
-        with pytest.raises(GatewayConfigError, match="my-server"):
+        with pytest.raises(GatewayConfigError, match="invalid.*characters"):
             load_gateway_config(cfg_path)
 
 

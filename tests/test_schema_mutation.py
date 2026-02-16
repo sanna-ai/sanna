@@ -82,8 +82,8 @@ class TestNoMutation:
 
         assert result is tool
 
-    def test_can_execute_not_in_require_for(self):
-        """can_execute tool when only must_escalate requires justification."""
+    def test_can_execute_gets_optional_justification(self):
+        """can_execute tool gets optional _justification (not required)."""
         reasoning = ReasoningConfig(require_justification_for=["must_escalate"])
         ab = AuthorityBoundaries(can_execute=["search"])
         constitution = _make_constitution(reasoning=reasoning, authority_boundaries=ab)
@@ -91,7 +91,9 @@ class TestNoMutation:
 
         result = mutate_tool_schema(tool, constitution)
 
-        assert result is tool
+        # _justification is added as optional (in properties but NOT required)
+        assert "_justification" in result["inputSchema"]["properties"]
+        assert "_justification" not in result["inputSchema"].get("required", [])
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +229,9 @@ class TestPolicyCascade:
             default_policy="must_escalate",
         )
 
-        assert result is tool  # No mutation (can_execute)
+        # can_execute gets optional _justification (not required)
+        assert "_justification" in result["inputSchema"]["properties"]
+        assert "_justification" not in result["inputSchema"].get("required", [])
 
 
 # ---------------------------------------------------------------------------

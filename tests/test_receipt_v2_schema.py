@@ -246,11 +246,13 @@ class TestCanonicalJson:
         result = _canonical_json_for_triad({"c": 3, "a": 1, "b": 2})
         assert result == '{"a":1,"b":2,"c":3}'
 
-    def test_canonical_json_float_fallback(self):
-        """Float values trigger json.dumps fallback, still deterministic."""
+    def test_canonical_json_float_normalization(self):
+        """Float values are normalized, still deterministic."""
         result1 = _canonical_json_for_triad({"score": 0.7, "name": "test"})
         result2 = _canonical_json_for_triad({"name": "test", "score": 0.7})
         assert result1 == result2
+        # Floats are converted to fixed-precision strings
+        assert "0.7000000000" in result1
 
 
 # =============================================================================

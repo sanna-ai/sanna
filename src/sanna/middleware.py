@@ -611,6 +611,53 @@ def _write_receipt(receipt: dict, receipt_dir: str) -> Path:
 
 
 # =============================================================================
+# PRE-EXECUTION REASONING GATE
+# =============================================================================
+
+
+def _run_reasoning_gate(
+    constitution,
+    justification: str,
+    kwargs: dict,
+    func_name: str = "",
+) -> dict | None:
+    """Run reasoning pipeline synchronously before function execution.
+
+    Returns a dict with ``passed`` (bool) and ``failure_reason`` (str)
+    if reasoning checks ran, or *None* if reasoning is not configured
+    or the pipeline is unavailable.
+    """
+    import asyncio
+
+    try:
+        from .reasoning.pipeline import ReasoningPipeline
+    except ImportError:
+        return None
+
+    try:
+        pipeline = ReasoningPipeline(constitution)
+        if not pipeline.enabled:
+            return None
+
+        # Run the async pipeline in a sync context
+        evaluation = asyncio.run(pipeline.evaluate(
+            tool_name=func_name,
+            args=kwargs,
+            enforcement_level="must_escalate",
+        ))
+
+        return {
+            "passed": evaluation.passed,
+            "failure_reason": evaluation.failure_reason,
+            "overall_score": evaluation.overall_score,
+            "assurance": evaluation.assurance,
+        }
+    except Exception as e:
+        logger.warning("Pre-execution reasoning gate failed: %s", e)
+        return None
+
+
+# =============================================================================
 # THE DECORATOR
 # =============================================================================
 
@@ -713,13 +760,35 @@ def sanna_observe(
             # 1. Capture inputs
             resolved = _resolve_inputs(func, args, kwargs, context_param, query_param)
 
-            # 2. Execute the wrapped function
+            # 2. Pre-execution reasoning gate
+            #    If constitution has reasoning config and _justification is
+            #    present in kwargs, evaluate reasoning BEFORE calling func.
+            #    Halt enforcement → raise SannaHaltError without executing.
+            reasoning_pre_result = None
+            if loaded_constitution and loaded_constitution.reasoning:
+                justification = kwargs.get("_justification", "")
+                if justification and isinstance(justification, str):
+                    reasoning_pre_result = _run_reasoning_gate(
+                        loaded_constitution, justification, kwargs,
+                        func_name=func.__name__,
+                    )
+                    if reasoning_pre_result and not reasoning_pre_result.get("passed", True):
+                        enforcement = loaded_constitution.reasoning.on_missing_justification
+                        auto_deny = loaded_constitution.reasoning.auto_deny_on_reasoning_failure
+                        if enforcement == "block" or auto_deny:
+                            raise SannaHaltError(
+                                f"Reasoning checks failed before execution: "
+                                f"{reasoning_pre_result.get('failure_reason', 'unknown')}",
+                                receipt=reasoning_pre_result,
+                            )
+
+            # 3. Execute the wrapped function
             start_ms = time.monotonic_ns() // 1_000_000
             result = func(*args, **kwargs)
             end_ms = time.monotonic_ns() // 1_000_000
             execution_time_ms = end_ms - start_ms
 
-            # 3. Capture output
+            # 4. Capture output
             output_str = _to_str(result)
 
             # 4. Build trace

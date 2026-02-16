@@ -5,8 +5,8 @@ for gateway-level receipts, plus structured reasoning evaluation for
 governance-level checks on agent justifications.
 
 All hashes use ``sha256:`` prefix for algorithm agility. Canonical JSON
-follows RFC 8785 where possible; floats fall back to ``json.dumps``
-(same pattern as gateway argument hashing).
+follows RFC 8785; floats are normalized to fixed-precision strings before
+canonicalization (no json.dumps fallback needed).
 
 Dataclass-based models following the existing Sanna patterns.
 """
@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass, field, asdict
 from typing import Any, Optional
 
-from sanna.hashing import canonical_json_bytes
+from sanna.hashing import canonical_json_bytes, normalize_floats
 
 
 # ---------------------------------------------------------------------------
@@ -26,6 +27,15 @@ from sanna.hashing import canonical_json_bytes
 # ---------------------------------------------------------------------------
 
 RECEIPT_VERSION_2 = "2.0"
+
+#: Default maximum size (bytes) for stored payloads (result_text, arguments).
+#: Content is hashed in full before truncation for storage.
+#: Override via ``SANNA_MAX_STORED_PAYLOAD_BYTES`` env var.
+MAX_STORED_PAYLOAD_BYTES = int(
+    os.environ.get("SANNA_MAX_STORED_PAYLOAD_BYTES", 64 * 1024)
+)
+
+_TRUNCATION_MARKER = "\n[TRUNCATED — full content hashed but not stored]"
 
 VALID_CHECK_METHODS = frozenset({
     "deterministic_presence",
@@ -110,15 +120,33 @@ class ReasoningEvaluation:
         assurance: Quality level — ``"full"`` (all checks passed),
             ``"partial"`` (some passed), ``"none"`` (all failed or no checks).
         checks: Individual check results.
-        overall_score: Weighted aggregate score (0.0–1.0).
+        overall_score: ``min(scores)`` — strictest check, used for gating.
         passed: Whether reasoning evaluation passed overall.
         failure_reason: Human-readable reason for failure (when ``passed=False``).
+        failed_check_ids: IDs of checks that failed threshold.
+        passed_check_ids: IDs of checks that passed.
+        weighted_score: Weighted average (deterministic=0.3, llm=0.7).
+        hard_failures: Deterministic check failures (reproducible).
+        soft_failures: LLM check failures (non-reproducible, attestation only).
+        scoring_method: Scoring algorithm identifier.
+
+    .. versionchanged:: 0.12.0
+       Added scoring detail fields: ``failed_check_ids``,
+       ``passed_check_ids``, ``weighted_score``, ``hard_failures``,
+       ``soft_failures``, ``scoring_method``.
     """
     assurance: str        # "full" | "partial" | "none"
     checks: list          # list[GatewayCheckResult] (as dicts after asdict)
-    overall_score: float  # 0.0-1.0
+    overall_score: float  # 0.0-1.0 (min gate)
     passed: bool
     failure_reason: Optional[str] = None
+    # v0.12.0 scoring detail
+    failed_check_ids: Optional[list] = None
+    passed_check_ids: Optional[list] = None
+    weighted_score: Optional[float] = None
+    hard_failures: Optional[list] = None
+    soft_failures: Optional[list] = None
+    scoring_method: str = "min_gate"
 
 
 # ---------------------------------------------------------------------------
@@ -302,16 +330,13 @@ def _sha256_prefixed(data: bytes) -> str:
 
 
 def _canonical_json_for_triad(obj: Any) -> str:
-    """RFC 8785 canonical JSON, with json.dumps fallback for floats.
+    """RFC 8785 canonical JSON with float normalization.
 
-    Uses the same fallback strategy as gateway argument hashing:
-    try canonical_json_bytes first, fall back to json.dumps on TypeError.
+    Floats are converted to fixed-precision strings before
+    canonicalization, eliminating the need for a json.dumps fallback.
     """
-    try:
-        return canonical_json_bytes(obj).decode("utf-8")
-    except TypeError:
-        # Float values in arguments — use deterministic json.dumps
-        return json.dumps(obj, sort_keys=True, separators=(",", ":"))
+    normalized = normalize_floats(obj)
+    return canonical_json_bytes(normalized).decode("utf-8")
 
 
 def compute_receipt_triad(
@@ -377,6 +402,8 @@ def reasoning_evaluation_to_dict(
     d = asdict(evaluation)
     if for_signing:
         d["overall_score"] = int(round(evaluation.overall_score * 10000))
+        if d.get("weighted_score") is not None:
+            d["weighted_score"] = int(round(evaluation.weighted_score * 10000))
         for i, check in enumerate(d.get("checks", [])):
             if isinstance(check, dict) and "score" in check:
                 check["score"] = int(round(evaluation.checks[i].score * 10000))
@@ -406,3 +433,40 @@ def gateway_receipt_v2_to_dict(
     if receipt.signature is not None:
         d["signature"] = asdict(receipt.signature)
     return d
+
+
+# ---------------------------------------------------------------------------
+# Payload truncation for storage
+# ---------------------------------------------------------------------------
+
+
+def truncate_for_storage(
+    text: str | None,
+    max_bytes: int = MAX_STORED_PAYLOAD_BYTES,
+) -> str | None:
+    """Truncate text for receipt storage, preserving hash integrity.
+
+    The caller is expected to hash the *full* content before calling
+    this function.  The truncated value is only for storage/display.
+
+    Args:
+        text: The text to potentially truncate (or *None*).
+        max_bytes: Maximum byte length (UTF-8).  Defaults to
+            :data:`MAX_STORED_PAYLOAD_BYTES` (64 KB, env-configurable).
+
+    Returns:
+        The original text (if within limit), truncated text with marker,
+        or *None* if input was *None*.
+    """
+    if text is None:
+        return None
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    # Leave room for the truncation marker
+    marker_bytes = _TRUNCATION_MARKER.encode("utf-8")
+    cut = max_bytes - len(marker_bytes)
+    if cut < 0:
+        cut = 0
+    truncated = encoded[:cut].decode("utf-8", errors="ignore")
+    return truncated + _TRUNCATION_MARKER

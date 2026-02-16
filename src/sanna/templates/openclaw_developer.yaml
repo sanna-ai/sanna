@@ -104,10 +104,16 @@ authority_boundaries:
     - force_push
     - drop_table
   must_escalate:
-    - condition: "Delete or remove from filesystem"
+    - condition: "delete file"
       target:
         type: log
-    - condition: "Update database page or CRM record"
+    - condition: "remove file"
+      target:
+        type: log
+    - condition: "update page"
+      target:
+        type: log
+    - condition: "update record"
       target:
         type: log
 

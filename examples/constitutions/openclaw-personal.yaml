@@ -100,19 +100,31 @@ authority_boundaries:
     - force_push
     - drop_table
   must_escalate:
-    - condition: "Send email or post external message"
+    - condition: "send email"
       target:
         type: log
-    - condition: "Delete or remove from filesystem"
+    - condition: "post message"
       target:
         type: log
-    - condition: "Access outside working directory"
+    - condition: "delete file"
       target:
         type: log
-    - condition: "Calendar event creation or modification"
+    - condition: "remove file"
       target:
         type: log
-    - condition: "Update database page or CRM record"
+    - condition: "access outside"
+      target:
+        type: log
+    - condition: "create event"
+      target:
+        type: log
+    - condition: "modify event"
+      target:
+        type: log
+    - condition: "update page"
+      target:
+        type: log
+    - condition: "update record"
       target:
         type: log
 

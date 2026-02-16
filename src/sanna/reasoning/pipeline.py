@@ -5,6 +5,9 @@ Runs deterministic checks (glc_001–003) and optionally LLM coherence
 a ReasoningEvaluation for embedding in gateway receipts.
 
 All check execution is async — the gateway runs in an event loop.
+
+v0.12.0: Pipeline uses :class:`BaseJudge` interface (via
+:class:`JudgeFactory`) instead of calling ``llm_client`` directly.
 """
 
 from __future__ import annotations
@@ -21,19 +24,31 @@ from .checks import (
     NoParrotingCheck,
     LLMCoherenceCheck,
 )
+from .judge import BaseJudge, JudgeVerdict
 
 logger = logging.getLogger("sanna.reasoning.pipeline")
 
 
 class ReasoningPipeline:
-    """Orchestrates reasoning checks according to constitution config (async)."""
+    """Orchestrates reasoning checks according to constitution config (async).
 
-    def __init__(self, constitution: Constitution):
+    Parameters:
+        constitution: The governance constitution.
+        judge: Optional judge instance.  If *None* and glc_005 is
+            enabled, the pipeline creates one via :class:`JudgeFactory`.
+    """
+
+    def __init__(
+        self,
+        constitution: Constitution,
+        judge: BaseJudge | None = None,
+    ):
         self.constitution = constitution
         self.reasoning_config = constitution.reasoning
 
         if not self.reasoning_config:
             self.enabled = False
+            self.judge: BaseJudge | None = None
             return
 
         self.enabled = True
@@ -52,14 +67,57 @@ class ReasoningPipeline:
             config = self._check_config_dict("glc_003_no_parroting")
             self.checks.append(NoParrotingCheck(config))
 
-        # glc_005 (LLM coherence) — stored separately, runs conditionally
+        # glc_005 (LLM coherence) — uses judge interface (v0.12.0+)
+        self._llm_coherence_enabled = self._is_check_enabled("glc_005_llm_coherence")
+        self._llm_config = self._check_config_dict("glc_005_llm_coherence") if self._llm_coherence_enabled else {}
+
+        # Legacy path: also create LLMCoherenceCheck for backward compat
+        # (used when no judge is provided and API key is present)
         self.llm_check = None
-        if self._is_check_enabled("glc_005_llm_coherence"):
-            config = self._check_config_dict("glc_005_llm_coherence")
-            try:
-                self.llm_check = LLMCoherenceCheck(config)
-            except (ValueError, ImportError) as e:
-                logger.warning("LLM coherence check disabled: %s", e)
+
+        if judge is not None:
+            # Caller explicitly provided a judge — use it
+            self.judge = judge
+        elif self._llm_coherence_enabled:
+            # Try to get an LLM judge via factory.
+            # If factory returns HeuristicJudge (no API key), don't use it
+            # for the LLM coherence step — skip the check instead.
+            # Heuristic is only used when explicitly injected.
+            candidate = self._create_judge_from_factory()
+            if candidate is not None and candidate.provider_name() != "heuristic":
+                self.judge = candidate
+            else:
+                self.judge = None
+                # Fallback: try legacy LLMCoherenceCheck
+                try:
+                    self.llm_check = LLMCoherenceCheck(self._llm_config)
+                except (ValueError, ImportError) as e:
+                    logger.warning("LLM coherence check disabled: %s", e)
+        else:
+            self.judge = None
+
+    def _create_judge_from_factory(self) -> BaseJudge | None:
+        """Create a judge via JudgeFactory using constitution config."""
+        try:
+            from .judge_factory import JudgeFactory
+
+            error_policy = getattr(self.reasoning_config, "on_api_error", "block")
+
+            # Pass judge config from constitution if available
+            judge_cfg = getattr(self.reasoning_config, "judge", None)
+            provider = getattr(judge_cfg, "default_provider", None) if judge_cfg else None
+            model = getattr(judge_cfg, "default_model", None) if judge_cfg else None
+            cross_provider = getattr(judge_cfg, "cross_provider", False) if judge_cfg else False
+
+            return JudgeFactory.create(
+                provider=provider,
+                model=model,
+                error_policy=error_policy,
+                cross_provider=cross_provider,
+            )
+        except Exception as e:
+            logger.warning("JudgeFactory.create() failed: %s", e)
+            return None
 
     # ------------------------------------------------------------------
     # Config helpers
@@ -180,32 +238,13 @@ class ReasoningPipeline:
 
         # Run LLM coherence check if enabled for this enforcement level
         # Only runs when all deterministic checks passed
-        if self.llm_check and self._should_run_llm(enforcement_level):
+        if self._should_run_llm(enforcement_level):
             if all(r.passed for r in check_results):
-                start_ms = time.perf_counter() * 1000
-                try:
-                    llm_result = await self.llm_check.execute(
-                        justification, context,
-                    )
-                except Exception as exc:
-                    latency_ms = int(
-                        (time.perf_counter() * 1000) - start_ms,
-                    )
-                    logger.warning(
-                        "LLM check raised %s", type(exc).__name__,
-                    )
-                    llm_result = GatewayCheckResult(
-                        check_id=self.llm_check.check_id(),
-                        method=self.llm_check.method(),
-                        passed=False,
-                        score=0.0,
-                        latency_ms=latency_ms,
-                        details={
-                            "error": "check_exception",
-                            "exception_type": type(exc).__name__,
-                        },
-                    )
-                check_results.append(llm_result)
+                llm_result = await self._run_llm_check(
+                    tool_name, args, justification, context,
+                )
+                if llm_result is not None:
+                    check_results.append(llm_result)
 
         # Determine assurance level
         has_errors = any("error" in (r.details or {}) for r in check_results)
@@ -220,9 +259,99 @@ class ReasoningPipeline:
 
         return self._finalize(check_results, assurance)
 
+    async def _run_llm_check(
+        self,
+        tool_name: str,
+        args: dict,
+        justification: str,
+        context: dict,
+    ) -> GatewayCheckResult | None:
+        """Run LLM coherence check via judge interface or legacy check."""
+        score_threshold = self._llm_config.get("score_threshold", 0.6)
+
+        # Preferred path: use BaseJudge interface (v0.12.0+)
+        if self.judge is not None:
+            start_ms = time.perf_counter() * 1000
+            try:
+                # Build constitution_context from per-invariant judge_override
+                constitution_context = None
+                llm_check_cfg = self.reasoning_config.checks.get("glc_005_llm_coherence")
+                if llm_check_cfg is not None:
+                    override = getattr(llm_check_cfg, "judge_override", None)
+                    if isinstance(override, dict) and override:
+                        constitution_context = override
+
+                judge_result = await self.judge.evaluate(
+                    tool_name=tool_name,
+                    arguments=args,
+                    justification=justification,
+                    invariant_id="glc_005_llm_coherence",
+                    constitution_context=constitution_context,
+                )
+
+                passed = judge_result.score >= score_threshold
+                details: dict | None = None
+                if not passed:
+                    details = {
+                        "score_bp": int(round(judge_result.score * 10000)),
+                        "threshold_bp": int(round(score_threshold * 10000)),
+                    }
+                if judge_result.verdict == JudgeVerdict.ERROR:
+                    details = details or {}
+                    details["error"] = "judge_error"
+                    details["error_detail"] = judge_result.error_detail
+                    details["judge_method"] = judge_result.method
+
+                return GatewayCheckResult(
+                    check_id="glc_005_llm_coherence",
+                    method=judge_result.method,
+                    passed=passed,
+                    score=judge_result.score,
+                    latency_ms=int(judge_result.latency_ms),
+                    details=details,
+                )
+            except Exception as exc:
+                latency_ms = int((time.perf_counter() * 1000) - start_ms)
+                logger.warning("Judge raised %s", type(exc).__name__)
+                return GatewayCheckResult(
+                    check_id="glc_005_llm_coherence",
+                    method="judge_error",
+                    passed=False,
+                    score=0.0,
+                    latency_ms=latency_ms,
+                    details={
+                        "error": "check_exception",
+                        "exception_type": type(exc).__name__,
+                    },
+                )
+
+        # Legacy fallback: use LLMCoherenceCheck directly
+        if self.llm_check is not None:
+            start_ms = time.perf_counter() * 1000
+            try:
+                return await self.llm_check.execute(justification, context)
+            except Exception as exc:
+                latency_ms = int((time.perf_counter() * 1000) - start_ms)
+                logger.warning("LLM check raised %s", type(exc).__name__)
+                return GatewayCheckResult(
+                    check_id="glc_005_llm_coherence",
+                    method="llm_coherence",
+                    passed=False,
+                    score=0.0,
+                    latency_ms=latency_ms,
+                    details={
+                        "error": "check_exception",
+                        "exception_type": type(exc).__name__,
+                    },
+                )
+
+        return None
+
     def _should_run_llm(self, enforcement_level: str) -> bool:
         """Check if LLM should run for this enforcement level."""
-        if not self.llm_check:
+        if not self._llm_coherence_enabled:
+            return False
+        if self.judge is None and self.llm_check is None:
             return False
 
         config = self.reasoning_config.checks.get("glc_005_llm_coherence")
@@ -239,6 +368,9 @@ class ReasoningPipeline:
 
         return enforcement_level in enabled_for
 
+    # Deterministic check ID prefixes — checks that are reproducible
+    _DETERMINISTIC_PREFIXES = ("glc_001", "glc_002", "glc_003")
+
     def _finalize(
         self,
         check_results: list[GatewayCheckResult],
@@ -250,6 +382,9 @@ class ReasoningPipeline:
         Scoring philosophy: overall_score = min(scores).
         Deterministic checks are absolute requirements — a single 0.0
         floors the entire score.
+
+        Also computes weighted_score (deterministic=0.3, LLM=0.7)
+        and classifies failures as hard (deterministic) vs soft (LLM).
         """
         if not check_results:
             return ReasoningEvaluation(
@@ -258,10 +393,49 @@ class ReasoningPipeline:
                 overall_score=0.0,
                 passed=False,
                 failure_reason=failure_reason,
+                failed_check_ids=[],
+                passed_check_ids=[],
+                weighted_score=0.0,
+                hard_failures=[],
+                soft_failures=[],
+                scoring_method="min_gate",
             )
 
         overall_score = min(r.score for r in check_results)
         passed = all(r.passed for r in check_results)
+
+        failed_ids = [r.check_id for r in check_results if not r.passed]
+        passed_ids = [r.check_id for r in check_results if r.passed]
+
+        # Classify failures
+        hard_failures = [
+            cid for cid in failed_ids
+            if any(cid.startswith(p) for p in self._DETERMINISTIC_PREFIXES)
+        ]
+        soft_failures = [
+            cid for cid in failed_ids
+            if not any(cid.startswith(p) for p in self._DETERMINISTIC_PREFIXES)
+        ]
+
+        # Weighted score: deterministic=0.3 weight, LLM=0.7 weight
+        det_scores = [
+            r.score for r in check_results
+            if any(r.check_id.startswith(p) for p in self._DETERMINISTIC_PREFIXES)
+        ]
+        llm_scores = [
+            r.score for r in check_results
+            if not any(r.check_id.startswith(p) for p in self._DETERMINISTIC_PREFIXES)
+        ]
+
+        det_avg = sum(det_scores) / len(det_scores) if det_scores else 1.0
+        llm_avg = sum(llm_scores) / len(llm_scores) if llm_scores else 1.0
+
+        if det_scores and llm_scores:
+            weighted_score = 0.3 * det_avg + 0.7 * llm_avg
+        elif det_scores:
+            weighted_score = det_avg
+        else:
+            weighted_score = llm_avg
 
         return ReasoningEvaluation(
             assurance=assurance,
@@ -269,6 +443,12 @@ class ReasoningPipeline:
             overall_score=overall_score,
             passed=passed,
             failure_reason=failure_reason,
+            failed_check_ids=failed_ids,
+            passed_check_ids=passed_ids,
+            weighted_score=weighted_score,
+            hard_failures=hard_failures,
+            soft_failures=soft_failures,
+            scoring_method="min_gate",
         )
 
     @staticmethod

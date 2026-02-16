@@ -13,7 +13,7 @@ Exit codes:
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field as _field
 from pathlib import Path
 from typing import Optional
 
@@ -23,6 +23,164 @@ from .hashing import hash_text, hash_obj
 
 # Statuses that represent non-evaluated checks (excluded from pass/fail counting)
 _NON_EVALUATED = {"NOT_CHECKED", "ERRORED"}
+
+# Pattern for Receipt Triad hash values: "sha256:" + 64 hex chars
+_TRIAD_HASH_PATTERN = re.compile(r"^sha256:[a-f0-9]{64}$")
+
+
+# =============================================================================
+# RECEIPT TRIAD VERIFICATION (Block I)
+# =============================================================================
+
+@dataclass
+class TriadVerification:
+    """Result of Receipt Triad hash verification.
+
+    Attributes:
+        present: Whether the receipt contains a gateway_v2 receipt_triad.
+        input_hash_valid: Format check passed for input_hash.
+        reasoning_hash_valid: Format check passed for reasoning_hash.
+        action_hash_valid: Format check passed for action_hash.
+        gateway_boundary_consistent: input_hash == action_hash when
+            context_limitation is ``"gateway_boundary"``.
+        input_recomputed: Re-computed input_hash (when tool name and
+            args are recoverable from the receipt).
+        input_hash_match: Whether re-computed input hash matches stored.
+        context_limitation: The context_limitation value from the triad.
+        errors: Verification errors (mismatches, format failures).
+        warnings: Non-fatal issues (truncated content, missing fields).
+    """
+    present: bool = False
+    input_hash_valid: bool = False
+    reasoning_hash_valid: bool = False
+    action_hash_valid: bool = False
+    gateway_boundary_consistent: bool = False
+    input_recomputed: Optional[str] = None
+    input_hash_match: Optional[bool] = None
+    context_limitation: str = ""
+    errors: list = _field(default_factory=list)
+    warnings: list = _field(default_factory=list)
+
+
+def verify_receipt_triad(receipt: dict) -> TriadVerification:
+    """Re-compute and verify Receipt Triad hashes from receipt content.
+
+    Checks performed:
+
+    1. **Format** — all three hashes have ``sha256:`` prefix + 64 hex chars.
+    2. **Gateway boundary** — ``input_hash == action_hash`` when
+       ``context_limitation`` is ``"gateway_boundary"`` (the gateway can
+       only observe what it forwarded, not downstream execution).
+    3. **Input hash re-computation** — if the original tool name and
+       arguments are recoverable from the receipt extensions and
+       ``inputs.context``, re-compute the input hash and compare.
+
+    The reasoning hash cannot be re-computed because the justification
+    is hashed and stripped before storage.  Only format validation is
+    applied to the reasoning hash.
+
+    Args:
+        receipt: A Sanna receipt dict.
+
+    Returns:
+        A ``TriadVerification`` with match results and any errors.
+    """
+    result = TriadVerification()
+
+    extensions = receipt.get("extensions") or {}
+    gw_v2 = extensions.get("gateway_v2") or {}
+    triad = gw_v2.get("receipt_triad")
+
+    if not triad or not isinstance(triad, dict):
+        return result  # No triad — v1 receipt, nothing to verify
+
+    result.present = True
+    result.context_limitation = triad.get("context_limitation", "")
+
+    input_hash = triad.get("input_hash", "")
+    reasoning_hash = triad.get("reasoning_hash", "")
+    action_hash = triad.get("action_hash", "")
+
+    # 1. Format validation
+    result.input_hash_valid = bool(_TRIAD_HASH_PATTERN.match(input_hash))
+    result.reasoning_hash_valid = bool(_TRIAD_HASH_PATTERN.match(reasoning_hash))
+    result.action_hash_valid = bool(_TRIAD_HASH_PATTERN.match(action_hash))
+
+    if not result.input_hash_valid:
+        result.errors.append(
+            f"input_hash has invalid format: '{input_hash}'"
+        )
+    if not result.reasoning_hash_valid:
+        result.errors.append(
+            f"reasoning_hash has invalid format: '{reasoning_hash}'"
+        )
+    if not result.action_hash_valid:
+        result.errors.append(
+            f"action_hash has invalid format: '{action_hash}'"
+        )
+
+    # 2. Gateway boundary constraint
+    if result.context_limitation == "gateway_boundary":
+        result.gateway_boundary_consistent = (input_hash == action_hash)
+        if not result.gateway_boundary_consistent:
+            result.errors.append(
+                "Gateway boundary violation: input_hash != action_hash "
+                "(at gateway boundary these must be equal)"
+            )
+
+    # 3. Input hash re-computation (best-effort)
+    action_record = gw_v2.get("action") or {}
+    tool_name = action_record.get("tool")
+    context_raw = (receipt.get("inputs") or {}).get("context", "")
+
+    if tool_name and context_raw:
+        # Check for truncation markers
+        truncated = (
+            "[TRUNCATED" in context_raw
+            or "[REDACTED" in context_raw
+        )
+        if truncated:
+            result.warnings.append(
+                "Cannot re-compute input_hash: stored arguments "
+                "are truncated or redacted"
+            )
+        else:
+            try:
+                args = json.loads(context_raw)
+                if isinstance(args, dict):
+                    args_clean = {
+                        k: v for k, v in args.items()
+                        if k != "_justification"
+                    }
+                    from .gateway.receipt_v2 import (
+                        _canonical_json_for_triad,
+                        _sha256_prefixed,
+                    )
+                    input_obj = {"tool": tool_name, "args": args_clean}
+                    canonical = _canonical_json_for_triad(input_obj)
+                    result.input_recomputed = _sha256_prefixed(
+                        canonical.encode("utf-8"),
+                    )
+                    result.input_hash_match = (
+                        result.input_recomputed == input_hash
+                    )
+                    if not result.input_hash_match:
+                        result.errors.append(
+                            f"input_hash mismatch: stored {input_hash}, "
+                            f"recomputed {result.input_recomputed}"
+                        )
+            except (json.JSONDecodeError, TypeError):
+                result.warnings.append(
+                    "Cannot re-compute input_hash: inputs.context "
+                    "is not valid JSON"
+                )
+            except ImportError:
+                result.warnings.append(
+                    "Cannot re-compute input_hash: gateway module "
+                    "not available"
+                )
+
+    return result
 
 
 # =============================================================================
@@ -561,7 +719,13 @@ def verify_receipt(
         errors.extend(chain_errors)
         warnings.extend(chain_warnings)
 
-    # 9. Identity verification reporting (point-in-time, no re-verification)
+    # 9. Receipt Triad verification (Block I — v2 gateway receipts)
+    triad_result = verify_receipt_triad(receipt)
+    if triad_result.present:
+        errors.extend(triad_result.errors)
+        warnings.extend(triad_result.warnings)
+
+    # 10. Identity verification reporting (point-in-time, no re-verification)
     iv = receipt.get("identity_verification")
     if iv and isinstance(iv, dict):
         total = iv.get("total_claims", 0)

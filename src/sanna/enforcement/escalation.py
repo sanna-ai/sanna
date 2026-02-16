@@ -198,3 +198,132 @@ def _execute_callback(
             target_type="callback",
             details={"error": str(e), "event": event_details},
         )
+
+
+# =============================================================================
+# ASYNC EXECUTION (Block G)
+# =============================================================================
+
+async def async_execute_escalation(
+    target: EscalationTarget,
+    event_details: dict,
+) -> EscalationResult:
+    """Execute an escalation action asynchronously.
+
+    For ``"webhook"`` targets, uses ``httpx.AsyncClient`` when available,
+    falling back to a background thread with ``urllib.request`` if httpx
+    is not installed.  Log and callback targets delegate to their
+    synchronous implementations (already non-blocking).
+    """
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    if target.type == "webhook":
+        return await _execute_webhook_async(target, event_details, timestamp)
+    elif target.type == "callback":
+        return _execute_callback(target, event_details, timestamp)
+    else:
+        return _execute_log(event_details, timestamp)
+
+
+async def _execute_webhook_async(
+    target: EscalationTarget,
+    event_details: dict,
+    timestamp: str,
+    timeout: float = 5.0,
+) -> EscalationResult:
+    """Async webhook escalation — POST JSON via httpx.AsyncClient.
+
+    Falls back to a background thread with ``urllib.request`` when
+    httpx is not available.
+    """
+    if not target.url:
+        logger.warning(
+            "Webhook escalation target has no URL, falling back to log",
+        )
+        return _execute_log(event_details, timestamp)
+
+    payload = {
+        "timestamp": timestamp,
+        "type": "escalation",
+        **event_details,
+    }
+
+    try:
+        import httpx
+    except ImportError:
+        # Fallback: fire-and-forget via background thread
+        return _webhook_threaded_fallback(target.url, payload, timeout)
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(target.url, json=payload)
+            resp.raise_for_status()
+        return EscalationResult(
+            success=True,
+            target_type="webhook",
+            details={
+                "url": target.url,
+                "status_code": resp.status_code,
+                "payload": payload,
+                "async": True,
+            },
+        )
+    except Exception as e:
+        if "Timeout" in type(e).__name__:
+            logger.warning("Escalation webhook timed out: %s", target.url)
+        else:
+            logger.warning(
+                "Escalation webhook failed: %s — %s", target.url, e,
+            )
+        return EscalationResult(
+            success=False,
+            target_type="webhook",
+            details={
+                "url": target.url,
+                "error": str(e),
+                "payload": payload,
+                "async": True,
+            },
+        )
+
+
+def _webhook_threaded_fallback(
+    url: str,
+    payload: dict,
+    timeout: float = 5.0,
+) -> EscalationResult:
+    """Send webhook via a background daemon thread when httpx is unavailable.
+
+    Uses ``urllib.request`` from the standard library.  The thread is
+    daemonic so it won't block process exit.
+    """
+    import json as _json
+    import threading
+    import urllib.request
+
+    def _send() -> None:
+        try:
+            data = _json.dumps(payload).encode()
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=timeout)
+        except Exception as exc:
+            logger.warning(
+                "Threaded webhook fallback failed: %s — %s", url, exc,
+            )
+
+    threading.Thread(target=_send, daemon=True).start()
+    return EscalationResult(
+        success=True,
+        target_type="webhook",
+        details={
+            "url": url,
+            "payload": payload,
+            "async": True,
+            "method": "threaded_fallback",
+        },
+    )

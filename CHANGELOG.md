@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.12.0] - 2026-02-16
+
+### Added
+- **Receipt Triad verification in `sanna-verify`** — offline re-computation and comparison of input/reasoning/action hashes from gateway v2 receipts. Integrated as step 9 of `verify_receipt()`. `TriadVerification` dataclass with hash format validation, gateway boundary constraint check, and best-effort input hash re-computation.
+- **Receipt Triad section in CLI output** — `sanna-verify` now displays a "RECEIPT TRIAD" section showing input/reasoning/action hashes, match indicators, binding status, and `gateway_boundary` context note.
+- **PII redaction controls** — `RedactionConfig` in gateway config. Hash computed on full content before redaction; stored receipt is redacted with `[REDACTED — SHA-256: <hash>]`. Modes: `hash_only` (default).
+- **MCP import check** — `check_mcp_available()` in gateway startup. Prints clear error message with install instructions when `mcp` package is missing.
+- **Async webhook escalation** — `async_execute_escalation()` with `httpx.AsyncClient` primary path and `urllib.request` daemon-thread fallback.
+- **`_justification` naming warning** — gateway logs a warning when a tool call includes `justification` but not `_justification` (the required leading-underscore form).
+- **Vertical constitution templates** — `financial_analyst.yaml` (financial services with trade/PII/regulatory controls) and `healthcare_triage.yaml` (healthcare with prescription/PHI/patient communication controls) in `src/sanna/templates/`.
+- **Documentation**:
+  - `docs/drift-reports.md` — CLI/API examples, JSON/CSV exports, Splunk/Datadog/Grafana/Tableau integration
+  - `docs/receipt-queries.md` — SQL queries, MCP query tool, Grafana dashboard examples
+  - `docs/key-management.md` — key generation, storage, roles, rotation, multi-key environments
+  - `docs/deployment-tiers.md` — Gateway Only, Gateway + Reasoning, Full Library tiers
+  - Rewrote `README.md` for external developers
+- 1912 tests (10 xfailed), 11 pre-existing MCP compat failures
+
+### Changed
+- **Downstream name validation relaxed** — gateway config now allows underscores in downstream server names (regex `^[a-zA-Z0-9_-]+$`), previously rejected.
+- **Receipt store mode config** — `receipt_store_mode` field in gateway config supports `"filesystem"`, `"sqlite"`, or `"both"`.
+
+## [0.11.1] - 2026-02-15
+
+### Fixed
+- 4 critical reasoning receipt fixes and 3 hardening passes
+- 2 integration test suites added
+- 1710 tests (10 xfailed), 0 failures
+
+## [0.10.2] - 2026-02-15
+
+### Added
+- **Escalation store hardening** — TTL-based `purge_expired()`, `max_pending` capacity limit, full `uuid4().hex` escalation IDs, lifecycle status tracking
+- **Receipt fidelity** — `arguments_hash`, `arguments_hash_method`, `tool_output_hash`, `downstream_is_error` in gateway receipt extensions
+- **HMAC-SHA256 approval tokens** — escalation tokens bound via HMAC instead of plain UUID matching
+- **Constitution Ed25519 verification on startup** — gateway verifies constitution signature when public key is available
+- **Half-open circuit breaker** — probe-based recovery for downstream connections
+- **Multi-downstream runtime** — gateway connects to multiple downstream MCP servers concurrently
+- **`sanna-gateway migrate` CLI** — one-command migration from existing MCP client configs to governed gateway setup
+- **Public API promotion** — `build_trace_data` and `generate_constitution_receipt` promoted to public API
+
+### Fixed
+- **Float arguments hash crash** — RFC 8785 canonical JSON rejects floats; gateway falls back to `json.dumps(sort_keys=True)` with `arguments_hash_method: "json_dumps_fallback"` indicator
+- **Tool output content safety** — `_extract_result_text()` handles empty content, multiple items, non-text content types
+- 1584 tests (10 xfailed), 11 pre-existing MCP compat failures
+
 ## [0.11.0] - 2026-02-15
 
 ### Breaking Changes

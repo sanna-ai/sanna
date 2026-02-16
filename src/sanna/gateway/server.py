@@ -27,6 +27,7 @@ import hashlib
 import hmac
 import json
 import logging
+import asyncio as _asyncio
 import os
 import sys
 import uuid
@@ -62,6 +63,30 @@ _CIRCUIT_BREAKER_THRESHOLD = 3
 # before transitioning to HALF_OPEN for a probe call
 _DEFAULT_CIRCUIT_BREAKER_COOLDOWN = 60.0
 
+# Valid redaction modes
+_VALID_REDACTION_MODES = frozenset({"hash_only", "pattern_redact"})
+
+
+# ---------------------------------------------------------------------------
+# PII redaction for receipt storage (Block G)
+# ---------------------------------------------------------------------------
+
+def _redact_for_storage(content: str, mode: str = "hash_only") -> str:
+    """Replace content with a redacted placeholder for receipt storage.
+
+    Args:
+        content: The original content to redact.
+        mode: Redaction mode — ``"hash_only"`` replaces with SHA-256 hash.
+
+    Returns:
+        Redacted string with hash reference for auditability.
+    """
+    if mode == "hash_only":
+        digest = hashlib.sha256(content.encode()).hexdigest()
+        return f"[REDACTED \u2014 SHA-256: {digest}]"
+    # "pattern_redact" reserved for future regex-based PII detection
+    return content
+
 
 # ---------------------------------------------------------------------------
 # Utility: safe text extraction from MCP tool results
@@ -84,6 +109,10 @@ def _extract_result_text(tool_result: types.CallToolResult | None) -> str:
         else:
             parts.append("[unknown content]")
     return "\n".join(parts)
+
+
+class DuplicateToolError(Exception):
+    """Raised when two downstream servers register the same prefixed tool name."""
 
 
 class CircuitState(enum.Enum):
@@ -147,25 +176,73 @@ class PendingEscalation:
     escalation_receipt_id: str = ""
     token_hash: str = ""  # SHA-256 of the HMAC approval token
     status: str = "pending"  # pending | approved | failed
+    override_reason: str = ""
+    override_detail: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-safe dict for disk persistence."""
+        return {
+            "escalation_id": self.escalation_id,
+            "prefixed_name": self.prefixed_name,
+            "original_name": self.original_name,
+            "arguments": self.arguments,
+            "server_name": self.server_name,
+            "reason": self.reason,
+            "created_at": self.created_at,
+            "escalation_receipt_id": self.escalation_receipt_id,
+            "token_hash": self.token_hash,
+            "status": self.status,
+            "override_reason": self.override_reason,
+            "override_detail": self.override_detail,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PendingEscalation:
+        """Deserialize from a dict (loaded from disk)."""
+        return cls(
+            escalation_id=data["escalation_id"],
+            prefixed_name=data["prefixed_name"],
+            original_name=data["original_name"],
+            arguments=data.get("arguments", {}),
+            server_name=data["server_name"],
+            reason=data.get("reason", ""),
+            created_at=data["created_at"],
+            escalation_receipt_id=data.get("escalation_receipt_id", ""),
+            token_hash=data.get("token_hash", ""),
+            status=data.get("status", "pending"),
+            override_reason=data.get("override_reason", ""),
+            override_detail=data.get("override_detail", ""),
+        )
 
 
 _DEFAULT_MAX_PENDING_ESCALATIONS = 100
 
 
 class EscalationStore:
-    """In-memory store for pending escalations with expiry.
+    """Store for pending escalations with expiry, background purge, and
+    optional disk persistence.
 
-    Not persistent — pending escalations are lost on gateway restart.
+    When ``persist_path`` is provided, pending escalations are saved to
+    disk atomically (write-to-tmp then ``os.replace``) and reloaded on
+    startup.  A background asyncio task purges expired entries
+    periodically.
     """
 
     def __init__(
         self,
         timeout: float = _DEFAULT_ESCALATION_TIMEOUT,
         max_pending: int = _DEFAULT_MAX_PENDING_ESCALATIONS,
+        persist_path: str | None = None,
     ) -> None:
         self._pending: dict[str, PendingEscalation] = {}
         self._timeout = timeout
         self._max_pending = max_pending
+        self._persist_path = persist_path
+        self._purge_task: _asyncio.Task | None = None
+
+        # Load any persisted escalations from disk
+        if self._persist_path:
+            self._load_from_disk()
 
     @property
     def timeout(self) -> float:
@@ -174,6 +251,81 @@ class EscalationStore:
     @property
     def max_pending(self) -> int:
         return self._max_pending
+
+    @property
+    def persist_path(self) -> str | None:
+        return self._persist_path
+
+    # -- Background purge timer -----------------------------------------------
+
+    async def start_purge_timer(
+        self, interval_seconds: int = 60,
+    ) -> None:
+        """Start a background task to purge expired escalations."""
+        async def _purge_loop() -> None:
+            while True:
+                await _asyncio.sleep(interval_seconds)
+                purged = self.purge_expired()
+                if purged:
+                    logger.info(
+                        "Purged %d expired escalation(s)", purged,
+                    )
+                if self._persist_path:
+                    self._save_to_disk()
+
+        self._purge_task = _asyncio.create_task(_purge_loop())
+
+    async def stop_purge_timer(self) -> None:
+        """Cancel the background purge task."""
+        if self._purge_task is not None:
+            self._purge_task.cancel()
+            try:
+                await self._purge_task
+            except _asyncio.CancelledError:
+                pass
+            self._purge_task = None
+
+    # -- Disk persistence -----------------------------------------------------
+
+    def _save_to_disk(self) -> None:
+        """Persist non-expired pending escalations to JSON file."""
+        if not self._persist_path:
+            return
+        data = {
+            eid: record.to_dict()
+            for eid, record in self._pending.items()
+            if not self.is_expired(record)
+        }
+        os.makedirs(os.path.dirname(self._persist_path), exist_ok=True)
+        tmp_path = self._persist_path + ".tmp"
+        with open(tmp_path, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp_path, self._persist_path)
+
+    def _load_from_disk(self) -> None:
+        """Load pending escalations from disk, skipping expired."""
+        if not self._persist_path or not os.path.exists(self._persist_path):
+            return
+        try:
+            with open(self._persist_path) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "Failed to load escalation store from %s: %s",
+                self._persist_path, exc,
+            )
+            return
+        for eid, record_data in data.items():
+            try:
+                record = PendingEscalation.from_dict(record_data)
+                if not self.is_expired(record):
+                    self._pending[eid] = record
+            except (KeyError, TypeError) as exc:
+                logger.warning(
+                    "Skipping malformed escalation %s: %s", eid, exc,
+                )
+
+    # -- Core operations ------------------------------------------------------
 
     def purge_expired(self) -> int:
         """Remove all expired entries. Returns count purged."""
@@ -220,6 +372,8 @@ class EscalationStore:
             created_at=datetime.now(timezone.utc).isoformat(),
         )
         self._pending[esc_id] = entry
+        if self._persist_path:
+            self._save_to_disk()
         return entry
 
     def get(self, escalation_id: str) -> PendingEscalation | None:
@@ -238,7 +392,10 @@ class EscalationStore:
 
     def remove(self, escalation_id: str) -> PendingEscalation | None:
         """Remove and return a pending escalation."""
-        return self._pending.pop(escalation_id, None)
+        entry = self._pending.pop(escalation_id, None)
+        if entry is not None and self._persist_path:
+            self._save_to_disk()
+        return entry
 
     def mark_status(
         self, escalation_id: str, status: str,
@@ -247,6 +404,8 @@ class EscalationStore:
         entry = self._pending.get(escalation_id)
         if entry is not None:
             entry.status = status
+            if self._persist_path:
+                self._save_to_disk()
         return entry
 
     def __len__(self) -> int:
@@ -254,6 +413,8 @@ class EscalationStore:
 
     def clear(self) -> None:
         self._pending.clear()
+        if self._persist_path:
+            self._save_to_disk()
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +482,13 @@ class SannaGateway:
         circuit_breaker_cooldown: float = _DEFAULT_CIRCUIT_BREAKER_COOLDOWN,
         # Approval token enforcement
         require_approval_token: bool = True,
+        # Block E v2: escalation hardening
+        gateway_secret_path: str | None = None,
+        escalation_persist_path: str | None = None,
+        approval_requires_reason: bool = False,
+        token_delivery: list[str] | None = None,
+        # Block G: PII redaction
+        redaction_config: Any = None,
     ) -> None:
         # Build downstream specs — either from explicit list or legacy params
         if downstreams is not None:
@@ -329,13 +497,13 @@ class SannaGateway:
                     "downstreams list must contain at least one entry"
                 )
             self._downstream_states: dict[str, _DownstreamState] = {}
+            import re as _re
             for spec in downstreams:
-                if "_" in spec.name:
+                if not _re.match(r'^[a-zA-Z0-9_-]+$', spec.name):
                     raise ValueError(
-                        f"Downstream name '{spec.name}' must not contain "
-                        f"underscores (reserved for tool namespace "
-                        f"separator). Use hyphens instead: "
-                        f"'{spec.name.replace('_', '-')}'"
+                        f"Downstream name '{spec.name}' contains invalid "
+                        f"characters. Use alphanumeric, hyphens, and "
+                        f"underscores only."
                     )
                 if spec.name in self._downstream_states:
                     raise ValueError(
@@ -346,12 +514,12 @@ class SannaGateway:
                 )
         elif server_name is not None and command is not None:
             # Legacy single-downstream constructor
-            if "_" in server_name:
+            import re as _re
+            if not _re.match(r'^[a-zA-Z0-9_-]+$', server_name):
                 raise ValueError(
-                    f"server_name '{server_name}' must not contain "
-                    f"underscores (reserved for tool namespace "
-                    f"separator). Use hyphens instead: "
-                    f"'{server_name.replace('_', '-')}'"
+                    f"server_name '{server_name}' contains invalid "
+                    f"characters. Use alphanumeric, hyphens, and "
+                    f"underscores only."
                 )
             spec = DownstreamSpec(
                 name=server_name,
@@ -396,16 +564,64 @@ class SannaGateway:
         self._escalation_store = EscalationStore(
             timeout=escalation_timeout,
             max_pending=max_pending_escalations,
+            persist_path=escalation_persist_path,
         )
 
         # Approval token: HMAC-bound human verification
         self._require_approval_token = require_approval_token
-        self._gateway_secret = os.urandom(32)
+        self._gateway_secret = self._load_or_create_secret(gateway_secret_path)
+        self._approval_requires_reason = approval_requires_reason
+        self._token_delivery = token_delivery or ["file", "stderr"]
 
         # Block F: hardening state
         self._receipt_store_path = receipt_store_path
 
+        # Block G: PII redaction
+        from sanna.gateway.config import RedactionConfig
+        self._redaction_config = redaction_config or RedactionConfig()
+
         self._setup_handlers()
+
+    # -- Secret management ----------------------------------------------------
+
+    @staticmethod
+    def _load_or_create_secret(
+        secret_path: str | None = None,
+    ) -> bytes:
+        """Load gateway HMAC secret from file, or create and persist one.
+
+        Resolution order:
+        1. ``SANNA_GATEWAY_SECRET`` env var (hex-encoded) — for containers
+        2. File at ``secret_path`` (or ``~/.sanna/gateway_secret``)
+        3. Generate new random secret and persist to file
+        """
+        # 1. Env var override (hex-encoded)
+        env_secret = os.environ.get("SANNA_GATEWAY_SECRET")
+        if env_secret:
+            try:
+                return bytes.fromhex(env_secret)
+            except ValueError:
+                logger.warning(
+                    "SANNA_GATEWAY_SECRET is not valid hex, ignoring",
+                )
+
+        # 2. Load from file
+        path = secret_path or os.path.expanduser("~/.sanna/gateway_secret")
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                return f.read()
+
+        # 3. Create new secret and persist
+        secret = os.urandom(32)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(secret)
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass  # Windows doesn't support chmod
+        logger.info("Created gateway secret at %s", path)
+        return secret
 
     # -- backward-compat helpers for single-downstream tests -----------------
 
@@ -544,6 +760,79 @@ class SannaGateway:
         """SHA-256 hash of a token for storage and receipts."""
         return hashlib.sha256(token.encode()).hexdigest()
 
+    def _deliver_token(
+        self,
+        entry: PendingEscalation,
+        token: str,
+    ) -> None:
+        """Deliver an approval token via configured delivery mechanisms."""
+        token_info = {
+            "escalation_id": entry.escalation_id,
+            "token": token,
+            "tool_name": entry.prefixed_name,
+            "timestamp": entry.created_at,
+            "ttl_remaining": int(
+                self._escalation_store.timeout
+            ),
+        }
+        for method in self._token_delivery:
+            if method == "stderr":
+                print(
+                    f"[SANNA] Approval token for escalation "
+                    f"{entry.escalation_id}: {token}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                print(
+                    "[SANNA] Provide this token to approve the "
+                    "action.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            elif method == "file":
+                self._deliver_token_to_file(token_info)
+            elif method == "log":
+                logger.info(
+                    "Escalation %s requires approval. Token: %s",
+                    entry.escalation_id,
+                    token,
+                )
+            elif method == "callback":
+                # Reserved for user-registered callbacks
+                logger.debug(
+                    "Callback token delivery not yet configured "
+                    "for %s",
+                    entry.escalation_id,
+                )
+
+    def _deliver_token_to_file(
+        self, token_info: dict[str, Any],
+    ) -> None:
+        """Write token info to ~/.sanna/pending_tokens.json."""
+        tokens_path = os.path.expanduser(
+            "~/.sanna/pending_tokens.json",
+        )
+        os.makedirs(os.path.dirname(tokens_path), exist_ok=True)
+
+        # Load existing tokens
+        existing: list[dict] = []
+        if os.path.exists(tokens_path):
+            try:
+                with open(tokens_path) as f:
+                    existing = json.load(f)
+                if not isinstance(existing, list):
+                    existing = []
+            except (json.JSONDecodeError, OSError):
+                existing = []
+
+        existing.append(token_info)
+
+        # Atomic write
+        tmp_path = tokens_path + ".tmp"
+        with open(tmp_path, "w") as f:
+            json.dump(existing, f, indent=2)
+        os.replace(tmp_path, tokens_path)
+
     # -- handler registration ------------------------------------------------
 
     def _setup_handlers(self) -> None:
@@ -595,20 +884,23 @@ class SannaGateway:
             for tool in ds_state.connection.tools:
                 prefixed = f"{spec.name}_{tool['name']}"
                 if prefixed in self._tool_to_downstream:
-                    logger.warning(
-                        "Tool name collision: %s (already registered "
-                        "by '%s')",
-                        prefixed,
-                        self._tool_to_downstream[prefixed],
+                    existing_ds = self._tool_to_downstream[prefixed]
+                    raise DuplicateToolError(
+                        f"Tool '{prefixed}' already registered by "
+                        f"downstream '{existing_ds}'. Cannot register "
+                        f"duplicate from '{spec.name}'. Use distinct "
+                        f"tool names or configure tool name prefixing."
                     )
                 ds_state.tool_map[prefixed] = tool["name"]
                 self._tool_map[prefixed] = tool["name"]
                 self._tool_to_downstream[prefixed] = spec.name
 
+            tool_names = sorted(ds_state.tool_map.keys())
             logger.info(
-                "Downstream '%s' connected: %d tools",
+                "Downstream '%s' connected: %d tools (%s)",
                 spec.name,
-                len(ds_state.tool_map),
+                len(tool_names),
+                ", ".join(tool_names[:10]) + ("..." if len(tool_names) > 10 else ""),
             )
 
         # Block C: load constitution if configured
@@ -660,6 +952,9 @@ class SannaGateway:
                 )
                 logger.info("Reasoning evaluator initialized")
 
+        # Start escalation purge timer
+        await self._escalation_store.start_purge_timer()
+
         logger.info(
             "Gateway started: %d tools from %d downstream(s)",
             len(self._tool_map),
@@ -702,6 +997,7 @@ class SannaGateway:
 
     async def shutdown(self) -> None:
         """Disconnect from all downstream servers and clean up."""
+        await self._escalation_store.stop_purge_timer()
         for ds_state in self._downstream_states.values():
             if ds_state.connection is not None:
                 await ds_state.connection.close()
@@ -993,9 +1289,38 @@ class SannaGateway:
 
         Filename: ``{timestamp}_{receipt_id}.json`` where timestamp
         uses underscores instead of colons for filesystem safety.
+
+        When PII redaction is enabled, a deep copy of the receipt is
+        made, specified fields are replaced with ``[REDACTED ...]``
+        placeholders, and the redacted copy is stored.  The in-memory
+        ``_last_receipt`` retains full content.  Hashes and signatures
+        are always computed on the original (unredacted) content by
+        ``_generate_receipt()``, so the stored receipt's integrity
+        fields refer to the real data.
         """
         if not self._receipt_store_path:
             return
+
+        # Block G: apply redaction before writing to disk
+        stored = receipt
+        if self._redaction_config.enabled:
+            import copy
+            stored = copy.deepcopy(receipt)
+            mode = self._redaction_config.mode
+            fields = self._redaction_config.fields
+
+            if "arguments" in fields:
+                ctx = stored.get("inputs", {}).get("context", "")
+                if ctx:
+                    stored["inputs"]["context"] = _redact_for_storage(
+                        ctx, mode,
+                    )
+            if "result_text" in fields:
+                out = stored.get("outputs", {}).get("output", "")
+                if out:
+                    stored["outputs"]["output"] = _redact_for_storage(
+                        out, mode,
+                    )
 
         store_dir = Path(self._receipt_store_path)
         store_dir.mkdir(parents=True, exist_ok=True)
@@ -1011,7 +1336,7 @@ class SannaGateway:
         filepath = store_dir / filename
         try:
             tmp_path = filepath.with_suffix(".tmp")
-            tmp_path.write_text(json.dumps(receipt, indent=2))
+            tmp_path.write_text(json.dumps(stored, indent=2))
             os.replace(str(tmp_path), str(filepath))
             if sys.platform != "win32":
                 os.chmod(filepath, 0o600)
@@ -1058,6 +1383,16 @@ class SannaGateway:
 
         arguments = arguments or {}
 
+        # Block G: warn on "justification" without "_justification"
+        if "justification" in arguments and "_justification" not in arguments:
+            logger.warning(
+                "Tool call to '%s' includes 'justification' but not "
+                "'_justification'. Sanna requires '_justification' "
+                "(with leading underscore). The 'justification' field "
+                "will be ignored for governance evaluation.",
+                name,
+            )
+
         # Block F: circuit breaker — per-downstream state check
         if ds_state.circuit_state == CircuitState.OPEN:
             # Check if cooldown has elapsed → transition to HALF_OPEN
@@ -1088,6 +1423,7 @@ class SannaGateway:
                                     probe_result,
                                 ),
                                 server_name=ds_state.spec.name,
+                                boundary_type="downstream_unhealthy",
                             )
                             self._last_receipt = receipt
                             self._persist_receipt(receipt)
@@ -1104,6 +1440,7 @@ class SannaGateway:
                         arguments=arguments,
                         error_text=_extract_result_text(error_result),
                         server_name=ds_state.spec.name,
+                        boundary_type="downstream_unhealthy",
                     )
                     self._last_receipt = receipt
                     self._persist_receipt(receipt)
@@ -1119,6 +1456,7 @@ class SannaGateway:
                     arguments=arguments,
                     error_text=_extract_result_text(error_result),
                     server_name=ds_state.spec.name,
+                    boundary_type="downstream_unhealthy",
                 )
                 self._last_receipt = receipt
                 self._persist_receipt(receipt)
@@ -1452,17 +1790,7 @@ class SannaGateway:
         if self._require_approval_token:
             token = self._compute_approval_token(entry)
             entry.token_hash = self._hash_token(token)
-            print(
-                f"[SANNA] Approval token for escalation "
-                f"{entry.escalation_id}: {token}",
-                file=sys.stderr,
-                flush=True,
-            )
-            print(
-                "[SANNA] Provide this token to approve the action.",
-                file=sys.stderr,
-                flush=True,
-            )
+            self._deliver_token(entry, token)
             instruction = (
                 "Approval token required. The user must provide "
                 "the approval token displayed in the gateway terminal."
@@ -1525,6 +1853,8 @@ class SannaGateway:
         """Handle sanna_approve_escalation meta-tool call."""
         escalation_id = arguments.get("escalation_id", "")
         approval_token = arguments.get("approval_token", "")
+        override_reason = arguments.get("override_reason", "")
+        override_detail = arguments.get("override_detail", "")
         if not escalation_id:
             return types.CallToolResult(
                 content=[types.TextContent(
@@ -1646,6 +1976,27 @@ class SannaGateway:
             )
             approval_method = "unverified"
             token_hash_for_receipt = None
+
+        # Validate override_reason when constitution requires it
+        if self._approval_requires_reason and not override_reason:
+            return types.CallToolResult(
+                content=[types.TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "error": "MISSING_OVERRIDE_REASON",
+                        "escalation_id": escalation_id,
+                        "detail": (
+                            "override_reason is required by the "
+                            "constitution for escalation approvals."
+                        ),
+                    }),
+                )],
+                isError=True,
+            )
+
+        # Store override reason/detail on entry for receipt
+        entry.override_reason = override_reason
+        entry.override_detail = override_detail
 
         # Mark as approved (keep in store until execution completes)
         self._escalation_store.mark_status(escalation_id, "approved")
@@ -1804,6 +2155,8 @@ class SannaGateway:
             escalation_resolution="approved",
             approval_method=approval_method,
             token_hash=token_hash_for_receipt,
+            override_reason=entry.override_reason or None,
+            override_detail=entry.override_detail or None,
             server_name=entry.server_name,
             reasoning_evaluation=reasoning_evaluation,
             downstream_is_error=tool_result.isError is True,
@@ -1929,11 +2282,19 @@ class SannaGateway:
         arguments: dict[str, Any],
         error_text: str,
         server_name: str | None = None,
+        boundary_type: str = "execution_failed",
     ) -> dict:
         """Generate an error receipt for downstream failures.
 
         Used when the circuit breaker blocks a call or an unrecoverable
         error occurs.
+
+        Args:
+            boundary_type: The failure classification.  Use
+                ``"downstream_unhealthy"`` for connection/circuit-breaker
+                failures and ``"execution_failed"`` for downstream
+                runtime errors.  Policy blocks use ``"cannot_execute"``
+                (set elsewhere, not here).
         """
         from sanna.enforcement import AuthorityDecision
         from sanna.receipt import HaltEvent
@@ -1941,13 +2302,13 @@ class SannaGateway:
         decision = AuthorityDecision(
             decision="halt",
             reason=f"Downstream error: {error_text}",
-            boundary_type="cannot_execute",
+            boundary_type=boundary_type,
         )
         authority_decisions = [{
             "action": original_name,
             "decision": "halt",
             "reason": decision.reason,
-            "boundary_type": "cannot_execute",
+            "boundary_type": boundary_type,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }]
         halt_event = HaltEvent(
@@ -1986,6 +2347,8 @@ class SannaGateway:
         escalation_resolution: str | None = None,
         approval_method: str | None = None,
         token_hash: str | None = None,
+        override_reason: str | None = None,
+        override_detail: str | None = None,
         server_name: str | None = None,
         downstream_is_error: bool = False,
         reasoning_evaluation: Any = None,
@@ -2003,10 +2366,11 @@ class SannaGateway:
             generate_constitution_receipt,
             build_trace_data,
         )
-        from sanna.hashing import hash_text, hash_obj
+        from sanna.hashing import hash_text, hash_obj, normalize_floats
         from sanna.gateway.receipt_v2 import (
             compute_receipt_triad,
             receipt_triad_to_dict,
+            truncate_for_storage,
             RECEIPT_VERSION_2,
         )
 
@@ -2020,31 +2384,23 @@ class SannaGateway:
             arguments, sort_keys=True,
         ) if arguments else ""
 
-        trace_data = build_trace_data(
-            trace_id=trace_id,
-            query=original_name,
-            context=context_str,
-            output=result_text,
-        )
-
-        # Compute fidelity hashes for auditing
-        # hash_obj() uses RFC 8785 canonical JSON which rejects floats.
-        # MCP tool arguments commonly contain floats, so fall back to
-        # json.dumps for those cases.
-        arguments_hash_method = "jcs"
+        # Compute fidelity hashes from FULL content before truncation
         if arguments:
-            try:
-                arguments_hash = hash_obj(arguments)
-            except TypeError:
-                arguments_hash = hashlib.sha256(
-                    json.dumps(
-                        arguments, sort_keys=True, separators=(",", ":"),
-                    ).encode()
-                ).hexdigest()[:16]
-                arguments_hash_method = "json_dumps_fallback"
+            arguments_hash = hash_obj(normalize_floats(arguments))
         else:
             arguments_hash = hash_text("")
         tool_output_hash = hash_text(result_text) if result_text else hash_text("")
+
+        # Truncate large payloads for storage (hashes computed above)
+        stored_context = truncate_for_storage(context_str)
+        stored_output = truncate_for_storage(result_text)
+
+        trace_data = build_trace_data(
+            trace_id=trace_id,
+            query=original_name,
+            context=stored_context or "",
+            output=stored_output or "",
+        )
 
         # v2.0: Extract justification and compute Receipt Triad
         # justification_stripped is True if _justification was present (any type)
@@ -2063,16 +2419,14 @@ class SannaGateway:
                 "decision": decision.decision,
                 "boundary_type": decision.boundary_type,
                 "arguments_hash": arguments_hash,
-                "arguments_hash_method": arguments_hash_method,
+                "arguments_hash_method": "jcs",
                 "tool_output_hash": tool_output_hash,
                 "downstream_is_error": downstream_is_error,
             },
             # v2.0: Receipt Triad and structured records
             # NOTE: action.args stores only the arguments_hash (not raw
-            # args) because MCP tool arguments may contain floats which
-            # are incompatible with RFC 8785 canonical JSON used for
-            # fingerprint computation.  Raw args are recoverable from
-            # the receipt's inputs.context field.
+            # args) because raw args may be large.  Raw args are
+            # recoverable from the receipt's inputs.context field.
             "gateway_v2": {
                 "receipt_version": RECEIPT_VERSION_2,
                 "receipt_triad": receipt_triad_to_dict(triad),
@@ -2126,6 +2480,10 @@ class SannaGateway:
             extensions["gateway"]["approval_method"] = approval_method
         if token_hash is not None:
             extensions["gateway"]["token_hash"] = token_hash
+        if override_reason:
+            extensions["gateway"]["override_reason"] = override_reason
+        if override_detail:
+            extensions["gateway"]["override_detail"] = override_detail
 
         receipt = generate_constitution_receipt(
             trace_data,
@@ -2180,6 +2538,20 @@ def _build_meta_tools() -> list[types.Tool]:
                             "The HMAC approval token displayed in "
                             "the gateway terminal. Required for "
                             "human-bound approval verification."
+                        ),
+                    },
+                    "override_reason": {
+                        "type": "string",
+                        "description": (
+                            "Reason for approving this escalated "
+                            "action."
+                        ),
+                    },
+                    "override_detail": {
+                        "type": "string",
+                        "description": (
+                            "Additional context for the approval "
+                            "decision."
                         ),
                     },
                 },
@@ -2323,6 +2695,11 @@ def run_gateway() -> None:
         max_pending_escalations=config.max_pending_escalations,
         receipt_store_path=config.receipt_store or None,
         require_approval_token=require_approval_token,
+        gateway_secret_path=config.gateway_secret_path or None,
+        escalation_persist_path=config.escalation_persist_path or None,
+        approval_requires_reason=config.approval_requires_reason,
+        token_delivery=config.token_delivery,
+        redaction_config=config.redaction,
     )
 
     import asyncio

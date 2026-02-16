@@ -1131,23 +1131,44 @@ class TestMultiDownstream:
 # =============================================================================
 
 class TestNamespaceCollision:
-    def test_underscore_in_downstreams_list_rejected(self):
-        """Underscore in downstream name rejected in downstreams list."""
-        with pytest.raises(ValueError, match="underscore"):
+    def test_underscore_in_downstreams_list_accepted(self):
+        """Underscore in downstream name is now accepted (Block G)."""
+        # No exception — underscores allowed since Block G
+        gw = SannaGateway(
+            downstreams=[
+                DownstreamSpec(
+                    name="my_server",
+                    command="echo",
+                ),
+            ],
+        )
+        assert "my_server" in gw._downstream_states
+
+    def test_underscore_in_server_name_accepted(self):
+        """Underscore in legacy server_name is now accepted (Block G)."""
+        gw = SannaGateway(
+            server_name="my_server",
+            command="echo",
+        )
+        assert "my_server" in gw._downstream_states
+
+    def test_special_chars_in_downstreams_rejected(self):
+        """Special characters in downstream name still rejected."""
+        with pytest.raises(ValueError, match="invalid.*characters"):
             SannaGateway(
                 downstreams=[
                     DownstreamSpec(
-                        name="my_server",
+                        name="my server!",
                         command="echo",
                     ),
                 ],
             )
 
-    def test_underscore_in_server_name_rejected(self):
-        """Underscore in legacy server_name rejected."""
-        with pytest.raises(ValueError, match="underscore"):
+    def test_special_chars_in_server_name_rejected(self):
+        """Special characters in legacy server_name rejected."""
+        with pytest.raises(ValueError, match="invalid.*characters"):
             SannaGateway(
-                server_name="my_server",
+                server_name="my server!",
                 command="echo",
             )
 

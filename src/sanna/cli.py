@@ -169,6 +169,49 @@ def format_verify_summary(result: VerificationResult, receipt: dict) -> str:
         for warn in result.warnings[:3]:
             lines.append(f"  • {warn}")
 
+    # Receipt Triad section (Block I — v2 gateway receipts)
+    extensions = receipt.get("extensions") or {}
+    gw_v2 = extensions.get("gateway_v2") or {}
+    triad = gw_v2.get("receipt_triad")
+    if triad and isinstance(triad, dict):
+        from sanna.verify import verify_receipt_triad
+        tv = verify_receipt_triad(receipt)
+        lines.extend([
+            "",
+            "-" * 50,
+            "RECEIPT TRIAD",
+            "-" * 50,
+        ])
+        ih = triad.get("input_hash", "")
+        rh = triad.get("reasoning_hash", "")
+        ah = triad.get("action_hash", "")
+
+        ih_icon = "✓" if tv.input_hash_valid else "✗"
+        rh_icon = "✓" if tv.reasoning_hash_valid else "✗"
+        ah_icon = "✓" if tv.action_hash_valid else "✗"
+
+        lines.append(f"  Input     (Hash A): {ih[:24]}... {ih_icon}")
+        lines.append(f"  Reasoning (Hash B): {rh[:24]}... {rh_icon}")
+        lines.append(f"  Action    (Hash C): {ah[:24]}... {ah_icon}")
+
+        if tv.input_hash_match is True:
+            lines.append(f"  Input hash: ✓ matches content")
+        elif tv.input_hash_match is False:
+            lines.append(f"  Input hash: ✗ MISMATCH (stored vs recomputed)")
+
+        if tv.gateway_boundary_consistent:
+            lines.append(f"  Binding:  Input → Reasoning → Action [VERIFIED]")
+        elif tv.context_limitation == "gateway_boundary":
+            lines.append(f"  Binding:  ✗ FAILED (input_hash != action_hash)")
+
+        ctx = triad.get("context_limitation", "")
+        if ctx:
+            lines.append(f"  Context:  {ctx}")
+            lines.append(
+                f"  Note:     Action hash reflects what the gateway "
+                f"forwarded, not what the downstream executed."
+            )
+
     # Identity verification section
     iv = receipt.get("identity_verification")
     if iv and isinstance(iv, dict):

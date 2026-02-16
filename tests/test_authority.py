@@ -168,7 +168,7 @@ class TestCannotExecute:
 class TestMustEscalate:
     def test_condition_matches_action_name(self):
         ab = _make_ab(must_escalate=[
-            EscalationRule(condition="decisions involving PII"),
+            EscalationRule(condition="pii data"),
         ])
         const = _make_constitution(ab)
         decision = evaluate_authority("process_pii_data", {}, const)
@@ -178,7 +178,7 @@ class TestMustEscalate:
 
     def test_condition_matches_param_value(self):
         ab = _make_ab(must_escalate=[
-            EscalationRule(condition="decisions involving PII"),
+            EscalationRule(condition="pii records"),
         ])
         const = _make_constitution(ab)
         decision = evaluate_authority("process_data", {"data_type": "PII records"}, const)
@@ -187,7 +187,7 @@ class TestMustEscalate:
 
     def test_condition_matches_param_key(self):
         ab = _make_ab(must_escalate=[
-            EscalationRule(condition="confidence below threshold"),
+            EscalationRule(condition="confidence threshold"),
         ])
         const = _make_constitution(ab)
         decision = evaluate_authority("generate_response", {"confidence": 0.3, "threshold": 0.5}, const)
@@ -197,7 +197,7 @@ class TestMustEscalate:
     def test_webhook_target_returned(self):
         ab = _make_ab(must_escalate=[
             EscalationRule(
-                condition="involving PII",
+                condition="pii",
                 target=EscalationTargetConfig(type="webhook", url="https://hooks.example.com/alert"),
             ),
         ])
@@ -215,7 +215,7 @@ class TestMustEscalate:
         try:
             ab = _make_ab(must_escalate=[
                 EscalationRule(
-                    condition="involving PII",
+                    condition="pii",
                     target=EscalationTargetConfig(type="callback", handler="my_handler"),
                 ),
             ])
@@ -231,7 +231,7 @@ class TestMustEscalate:
     def test_log_target_returned(self):
         ab = _make_ab(must_escalate=[
             EscalationRule(
-                condition="involving PII",
+                condition="pii",
                 target=EscalationTargetConfig(type="log"),
             ),
         ])
@@ -242,7 +242,7 @@ class TestMustEscalate:
 
     def test_missing_target_uses_default(self):
         ab = _make_ab(
-            must_escalate=[EscalationRule(condition="involving PII")],
+            must_escalate=[EscalationRule(condition="pii")],
             default_escalation="log",
         )
         const = _make_constitution(ab)
@@ -253,7 +253,7 @@ class TestMustEscalate:
 
     def test_missing_target_uses_custom_default(self):
         ab = _make_ab(
-            must_escalate=[EscalationRule(condition="involving PII")],
+            must_escalate=[EscalationRule(condition="pii")],
             default_escalation="webhook",
         )
         const = _make_constitution(ab)
@@ -264,11 +264,11 @@ class TestMustEscalate:
     def test_first_matching_condition_wins(self):
         ab = _make_ab(must_escalate=[
             EscalationRule(
-                condition="involving PII",
+                condition="pii",
                 target=EscalationTargetConfig(type="webhook", url="https://first.example.com"),
             ),
             EscalationRule(
-                condition="PII data",
+                condition="pii data",
                 target=EscalationTargetConfig(type="log"),
             ),
         ])
@@ -276,11 +276,11 @@ class TestMustEscalate:
         decision = evaluate_authority("process_pii_data", {}, const)
 
         assert decision.escalation_target.type == "webhook"
-        assert "involving PII" in decision.reason
+        assert "pii" in decision.reason
 
     def test_no_condition_match(self):
         ab = _make_ab(must_escalate=[
-            EscalationRule(condition="involving PII"),
+            EscalationRule(condition="pii"),
         ])
         const = _make_constitution(ab)
         decision = evaluate_authority("query_public_database", {}, const)
@@ -641,10 +641,10 @@ class TestMatchingHelpers:
         assert _matches_action("delete records", "query database") is False
 
     def test_matches_condition_keyword_in_context(self):
-        assert _matches_condition("involving PII", "process_pii_data data_type PII") is True
+        assert _matches_condition("pii data", "process_pii_data data_type PII") is True
 
     def test_matches_condition_no_match(self):
-        assert _matches_condition("involving PII", "query public database") is False
+        assert _matches_condition("pii data", "query public database") is False
 
     def test_build_action_context_includes_keys_and_values(self):
         ctx = _build_action_context("process_data", {"type": "user", "count": 5})
@@ -677,7 +677,7 @@ class TestEdgeCases:
         assert decision.decision == "halt"
 
     def test_empty_params(self):
-        ab = _make_ab(must_escalate=[EscalationRule(condition="involving PII")])
+        ab = _make_ab(must_escalate=[EscalationRule(condition="pii")])
         const = _make_constitution(ab)
         decision = evaluate_authority("process_pii_data", {}, const)
 
@@ -692,7 +692,7 @@ class TestEdgeCases:
 
     def test_numeric_param_values_in_condition_matching(self):
         ab = _make_ab(must_escalate=[
-            EscalationRule(condition="confidence below threshold"),
+            EscalationRule(condition="confidence threshold"),
         ])
         const = _make_constitution(ab)
         decision = evaluate_authority(
