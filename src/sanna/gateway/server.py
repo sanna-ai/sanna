@@ -75,22 +75,28 @@ def _redact_for_storage(
     content: str,
     mode: str = "hash_only",
     salt: str = "",
+    secret: bytes | None = None,
 ) -> str:
     """Replace content with a redacted placeholder for receipt storage.
 
     Args:
         content: The original content to redact.
-        mode: Redaction mode — ``"hash_only"`` replaces with SHA-256 hash.
+        mode: Redaction mode — ``"hash_only"`` replaces with HMAC-SHA256.
         salt: Per-receipt salt (e.g. receipt_id) appended before hashing.
             Prevents rainbow-table reversal of low-entropy inputs.
+        secret: Gateway HMAC secret. When provided, uses HMAC-SHA256
+            instead of plain SHA-256 (prevents offline brute-force).
 
     Returns:
-        Redacted string with salted hash reference for auditability.
+        Redacted string with HMAC hash reference for auditability.
     """
     if mode == "hash_only":
-        digest = hashlib.sha256(
-            (content + salt).encode(),
-        ).hexdigest()
+        payload = (content + salt).encode()
+        if secret:
+            digest = hmac.new(secret, payload, hashlib.sha256).hexdigest()
+            return f"[REDACTED \u2014 HMAC-SHA256: {digest}]"
+        # Fallback for callers without a secret (shouldn't happen in practice)
+        digest = hashlib.sha256(payload).hexdigest()
         return f"[REDACTED \u2014 SHA-256-SALTED: {digest}]"
     # "pattern_redact" reserved for future regex-based PII detection
     return content
@@ -236,15 +242,20 @@ class EscalationStore:
     periodically.
     """
 
+    # Default per-tool escalation limit
+    _DEFAULT_MAX_PER_TOOL = 10
+
     def __init__(
         self,
         timeout: float = _DEFAULT_ESCALATION_TIMEOUT,
         max_pending: int = _DEFAULT_MAX_PENDING_ESCALATIONS,
         persist_path: str | None = None,
+        max_per_tool: int = _DEFAULT_MAX_PER_TOOL,
     ) -> None:
         self._pending: dict[str, PendingEscalation] = {}
         self._timeout = timeout
         self._max_pending = max_pending
+        self._max_per_tool = max_per_tool
         self._persist_path = persist_path
         self._purge_task: _asyncio.Task | None = None
 
@@ -311,7 +322,11 @@ class EscalationStore:
             if not self.is_expired(record)
         }
         from sanna.utils.safe_io import atomic_write_sync, ensure_secure_dir
-        ensure_secure_dir(Path(os.path.dirname(self._persist_path)))
+        persist_dir = Path(self._persist_path).resolve().parent
+        # Guard against empty/cwd dirname when persist_path is just a filename
+        if str(persist_dir) == "." or persist_dir == Path(".").resolve():
+            persist_dir = Path.home() / ".sanna" / "escalations"
+        ensure_secure_dir(persist_dir)
         atomic_write_sync(
             self._persist_path,
             json.dumps(data),
@@ -369,7 +384,19 @@ class EscalationStore:
         # Housekeeping: purge expired entries on every create
         self.purge_expired()
 
-        # Enforce capacity limit
+        # Enforce per-tool limit to prevent single-tool DoS
+        tool_pending = sum(
+            1 for e in self._pending.values()
+            if e.prefixed_name == prefixed_name and e.status == "pending"
+        )
+        if tool_pending >= self._max_per_tool:
+            raise RuntimeError(
+                f"Too many pending escalations for tool "
+                f"'{prefixed_name}' ({tool_pending}). "
+                f"Approve or deny existing escalations first."
+            )
+
+        # Enforce global capacity limit
         if len(self._pending) >= self._max_pending:
             raise RuntimeError(
                 f"Escalation store at capacity "
@@ -529,7 +556,15 @@ class SannaGateway:
                     spec=spec,
                 )
         elif server_name is not None and command is not None:
-            # Legacy single-downstream constructor
+            # Legacy single-downstream constructor — use downstreams= or for_single_server()
+            import warnings as _warnings
+            _warnings.warn(
+                "Passing server_name/command directly to SannaGateway() is deprecated. "
+                "Use SannaGateway(downstreams=[DownstreamSpec(...)]) or "
+                "SannaGateway.for_single_server() instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
             import re as _re
             if not _re.match(r'^[a-zA-Z0-9_-]+$', server_name):
                 raise ValueError(
@@ -603,6 +638,49 @@ class SannaGateway:
             )
 
         self._setup_handlers()
+
+    # -- Factory methods -------------------------------------------------------
+
+    @classmethod
+    def for_single_server(
+        cls,
+        name: str,
+        command: str,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+        timeout: float = 30.0,
+        **kwargs,
+    ) -> "SannaGateway":
+        """Create a gateway with a single downstream server.
+
+        Preferred over passing ``server_name``/``command`` directly, which
+        emits a :class:`DeprecationWarning`.
+
+        Parameters
+        ----------
+        name:
+            Human-readable identifier for the downstream server.
+        command:
+            Executable to launch.
+        args:
+            Additional CLI args for the command.
+        env:
+            Extra environment variables for the child process.
+        timeout:
+            Per-call timeout in seconds.
+        **kwargs:
+            All remaining keyword arguments are forwarded to
+            :class:`SannaGateway.__init__` (constitution_path, signing_key_path,
+            etc.).
+        """
+        spec = DownstreamSpec(
+            name=name,
+            command=command,
+            args=args or [],
+            env=env,
+            timeout=timeout,
+        )
+        return cls(downstreams=[spec], **kwargs)
 
     # -- Secret management ----------------------------------------------------
 
@@ -996,8 +1074,17 @@ class SannaGateway:
             self._constitution = load_constitution(self._constitution_path)
             if not self._constitution.policy_hash:
                 raise SannaConstitutionError(
-                    f"Constitution is not signed: {self._constitution_path}. "
+                    f"Constitution has no policy hash (not hashed or signed): "
+                    f"{self._constitution_path}. "
                     f"Run: sanna-sign-constitution {self._constitution_path}"
+                )
+            # Require Ed25519 signature, not just a policy_hash from hashing
+            _sig = self._constitution.provenance.signature if self._constitution.provenance else None
+            if not (_sig and getattr(_sig, 'value', None)):
+                raise SannaConstitutionError(
+                    f"Constitution is hashed but not signed (no cryptographic signature): "
+                    f"{self._constitution_path}. "
+                    f"Run: sanna-sign-constitution {self._constitution_path} --private-key <key>"
                 )
 
             # Verify constitution Ed25519 signature if public key configured
@@ -1416,12 +1503,14 @@ class SannaGateway:
                 if ctx:
                     redacted["inputs"]["context"] = _redact_for_storage(
                         ctx, mode, salt=receipt_id,
+                        secret=self._gateway_secret,
                     )
             if "result_text" in fields:
                 out = redacted.get("outputs", {}).get("output", "")
                 if out:
                     redacted["outputs"]["output"] = _redact_for_storage(
                         out, mode, salt=receipt_id,
+                        secret=self._gateway_secret,
                     )
 
             redacted["_redaction_notice"] = (

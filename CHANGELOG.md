@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.12.3] - 2026-02-17
+
+### Security
+- **Zip slip path traversal blocked** — `verify_bundle()` rejects archive entries containing `..` or absolute paths.
+- **Atomic file writes with symlink protection** — All file write operations use `O_NOFOLLOW`/`O_EXCL` flags, randomized temp names, `fsync`, and `os.replace()`.
+- **`~/.sanna` directory hardened to 0700** — Directory and file permissions enforced at creation for keys, secrets, and receipt stores.
+- **SQLite receipt store permissions** — Database directory set to `0700`, database file set to `0600` on creation.
+- **Escalation store path resolution** — Filename-only paths resolve to `~/.sanna/` instead of current directory, preventing chmod on cwd.
+- **Per-tool escalation limits** — Per-tool caps prevent a single tool from exhausting the global escalation budget.
+- **HMAC-SHA256 PII redaction** — Redaction hashes now use HMAC with gateway secret, replacing plain SHA-256.
+- **Audit tag injection sanitized** — Angle brackets in untrusted content are escaped before LLM judge evaluation.
+- **Constitution write-site hardening** — `save_constitution()` and `scaffold_constitution()` use safe atomic writes.
+
+### Reliability
+- **Async-safe `@sanna_observe`** — Detects `async def` functions and wraps them correctly, including `ThreadPoolExecutor` fallback for nested event loops.
+- **Unused gateway config fields warn** — Unknown config fields like `transport` produce a log warning instead of being silently ignored.
+- **OTel test guard fixed** — `importorskip("opentelemetry.sdk")` correctly skips when SDK is not installed.
+
+### Correctness
+- **`verify_constitution_chain` return type** — Return type annotation corrected to `tuple[list[str], list[str]]` matching actual `(errors, warnings)` return.
+- **Float sanitization at signing boundary** — `sanitize_for_signing()` converts lossless floats (71.0 → 71) and rejects lossy floats with JSON path in error message.
+- **sanna-verify --json output** — Verification results now available as structured JSON via `--format json`.
+
+### Public API
+- **Top-level exports trimmed to 10** — `sanna.__init__` exports only `sanna_observe`, `SannaResult`, `SannaHaltError`, `generate_receipt`, `SannaReceipt`, `verify_receipt`, `VerificationResult`, `ReceiptStore`, `DriftAnalyzer`, `__version__`. All other names import from submodules with helpful `AttributeError` migration messages.
+- **Check functions made private** — `check_c1_*` through `check_c5_*` renamed to `_check_c1_*` through `_check_c5_*`. Backward-compatible aliases preserved.
+- **`C3MReceipt` alias removed** — Use `SannaReceipt` from `sanna.receipt`.
+- **`SannaGateway.for_single_server()` factory** — Preferred over deprecated `server_name`/`command` constructor args. Legacy path emits `DeprecationWarning`.
+- **MCP tool renamed** — `check_constitution_approval` → `sanna_check_constitution_approval` for consistent `sanna_*` prefix.
+
+### CLI
+- **`sanna` unified CLI** — Top-level dispatcher for all subcommands: `sanna init`, `sanna verify`, `sanna demo`, etc.
+- **`sanna demo`** — Self-contained governance demo: generates keys, constitution, receipt, and verifies — no external dependencies.
+- **`sanna inspect`** — Pretty-prints receipt contents: checks, authority decisions, escalation events, signature status.
+- **`sanna check-config`** — Dry-run gateway configuration validation: YAML syntax, constitution exists, keys exist with correct permissions, downstream commands specified.
+- **`sanna keygen` default location** — Default output directory changed from `.` to `~/.sanna/keys/`.
+- **`sanna init` gateway config** — After constitution generation, prompts to generate a `gateway.yaml` with sensible defaults.
+- **Legacy CLI aliases removed** — `c3m-receipt`, `c3m-verify`, `sanna-init-constitution`, `sanna-hash-constitution` removed from entry points.
+- **All existing `sanna-*` entry points preserved** — `sanna-verify`, `sanna-sign-constitution`, `sanna-keygen`, etc. remain as aliases.
+- **CLI entry point count** — 16 registered commands in pyproject.toml.
+
+### Documentation
+- **README restructured** — `@sanna_observe` as first code example, Library + Gateway quick starts, Demo section, Custom Evaluators, Receipt Querying, 10-name API Reference, unified CLI table.
+- **Production deployment guide** — `docs/production.md`: env vars, Docker, logging, retention, failure modes, upgrade steps.
+- **Gateway config reference** — `docs/gateway-config.md`: every field documented with types, defaults, and examples.
+- **Receipt format reference** — `docs/receipt-format.md`: complete JSON example, integer basis-points note, field reference tables, fingerprint construction.
+
+### Tests
+- 2076+ tests, 10 xfailed, 11 pre-existing MCP compat failures, 0 regressions
+
 ## [0.12.2] - 2026-02-16
 
 Resolved 15 issues identified by two independent external code reviews before public launch.

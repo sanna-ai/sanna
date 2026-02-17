@@ -1688,8 +1688,8 @@ class TestPublicAPIPromotion:
     """Tests that promoted middleware functions are accessible."""
 
     def test_build_trace_data_importable_from_sanna(self):
-        """build_trace_data is importable from sanna top-level."""
-        from sanna import build_trace_data
+        """build_trace_data is importable from sanna.middleware."""
+        from sanna.middleware import build_trace_data
         td = build_trace_data(
             trace_id="test-123",
             query="what is X?",
@@ -1701,8 +1701,8 @@ class TestPublicAPIPromotion:
         assert td["output"]["final_answer"] == "X is Y."
 
     def test_generate_constitution_receipt_importable_from_sanna(self):
-        """generate_constitution_receipt is importable from sanna."""
-        from sanna import generate_constitution_receipt, build_trace_data
+        """generate_constitution_receipt is importable from sanna.middleware."""
+        from sanna.middleware import generate_constitution_receipt, build_trace_data
         td = build_trace_data(
             trace_id="test-456",
             query="q",

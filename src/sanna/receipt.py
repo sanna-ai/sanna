@@ -86,8 +86,7 @@ class SannaReceipt:
     halt_event: Optional[dict] = None
 
 
-# Legacy alias
-C3MReceipt = SannaReceipt
+# C3MReceipt alias removed in v0.12.3 — use SannaReceipt
 
 
 # =============================================================================
@@ -234,7 +233,7 @@ def find_snippet(text: str, keywords: list, max_len: int = 80) -> str:
 # C1-C5 HEURISTIC CHECKS
 # =============================================================================
 
-def check_c1_context_contradiction(
+def _check_c1_context_contradiction(
     context: str,
     output: str,
     enforcement: str = "halt",
@@ -381,7 +380,7 @@ def _c1_source_aware(structured_context: List[dict], output: str) -> CheckResult
     )
 
 
-def check_c2_unmarked_inference(context: str, output: str, enforcement: str = "warn") -> CheckResult:
+def _check_c2_unmarked_inference(context: str, output: str, enforcement: str = "warn") -> CheckResult:
     """
     C2: Mark Inferences
     Check if speculative/inferential statements are properly hedged.
@@ -419,7 +418,7 @@ def check_c2_unmarked_inference(context: str, output: str, enforcement: str = "w
     )
 
 
-def check_c3_false_certainty(context: str, output: str, enforcement: str = "warn") -> CheckResult:
+def _check_c3_false_certainty(context: str, output: str, enforcement: str = "warn") -> CheckResult:
     """
     C3: No False Certainty
     Check if confidence level matches evidence strength.
@@ -459,7 +458,7 @@ def check_c3_false_certainty(context: str, output: str, enforcement: str = "warn
     )
 
 
-def check_c4_conflict_collapse(context: str, output: str, enforcement: str = "warn") -> CheckResult:
+def _check_c4_conflict_collapse(context: str, output: str, enforcement: str = "warn") -> CheckResult:
     """
     C4: Preserve Tensions
     Check if conflicting information is preserved rather than collapsed.
@@ -504,7 +503,7 @@ def check_c4_conflict_collapse(context: str, output: str, enforcement: str = "wa
     )
 
 
-def check_c5_premature_compression(context: str, output: str, enforcement: str = "warn") -> CheckResult:
+def _check_c5_premature_compression(context: str, output: str, enforcement: str = "warn") -> CheckResult:
     """
     C5: No Premature Compression
     Check if output appropriately represents complexity of input.
@@ -681,3 +680,13 @@ def extract_trace_data(trace) -> dict:
             data["observations"].append(obs_data)
 
     return data
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat aliases (internal use only — do not add to public API)
+# ---------------------------------------------------------------------------
+check_c1_context_contradiction = _check_c1_context_contradiction
+check_c2_unmarked_inference = _check_c2_unmarked_inference
+check_c3_false_certainty = _check_c3_false_certainty
+check_c4_conflict_collapse = _check_c4_conflict_collapse
+check_c5_premature_compression = _check_c5_premature_compression

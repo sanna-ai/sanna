@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sanna"
-version = "0.12.2"
+version = "0.12.3"
 description = "Coherence checks for AI agents — portable, offline-verifiable reasoning receipts"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -37,10 +37,8 @@ dev = ["pytest>=7.0", "jsonschema>=4.17", "pyyaml>=6.0"]
 [project.scripts]
 sanna-generate = "sanna.cli:main_generate"
 sanna-verify = "sanna.cli:main_verify"
-sanna-init-constitution = "sanna.cli:main_init_constitution"
 sanna-sign-constitution = "sanna.cli:main_sign_constitution"
 sanna-keygen = "sanna.cli:main_keygen"
-sanna-hash-constitution = "sanna.cli:main_hash_constitution"
 sanna-verify-constitution = "sanna.cli:main_verify_constitution"
 sanna-mcp = "sanna.mcp.__main__:main"
 sanna-create-bundle = "sanna.cli:main_create_bundle"
@@ -50,9 +48,10 @@ sanna-approve-constitution = "sanna.cli:approve_constitution_cmd"
 sanna-diff = "sanna.cli:diff_cmd"
 sanna-init = "sanna.init_constitution:main"
 sanna-gateway = "sanna.gateway:main"
-# Legacy aliases
-c3m-receipt = "sanna.cli:main_generate"
-c3m-verify = "sanna.cli:main_verify"
+sanna-demo = "sanna.cli:main_demo"
+sanna-inspect = "sanna.cli:main_inspect"
+sanna-check-config = "sanna.cli:main_check_config"
+sanna = "sanna.cli:main_sanna"
 
 [project.urls]
 Homepage = "https://github.com/nicallen-exd/sanna"

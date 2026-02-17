@@ -30,6 +30,7 @@ Config shape::
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -37,6 +38,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger("sanna.gateway.config")
+
+# Config fields that are parsed but not yet used by the gateway runtime.
+# Their presence in YAML is accepted but produces a WARNING.
+_UNUSED_CONFIG_FIELDS = frozenset({"transport", "receipt_store_mode"})
 
 # Valid policy values for default_policy and per-tool overrides
 _VALID_POLICIES = frozenset({"can_execute", "must_escalate", "cannot_execute"})
@@ -173,6 +180,14 @@ def load_gateway_config(config_path: str) -> GatewayConfig:
     gw_raw = raw.get("gateway")
     if not isinstance(gw_raw, dict):
         gw_raw = {}
+
+    # Warn about unused config fields
+    for field_name in _UNUSED_CONFIG_FIELDS:
+        if field_name in gw_raw:
+            logger.warning(
+                "Config field '%s' is not yet supported and will be ignored.",
+                field_name,
+            )
 
     constitution_raw = gw_raw.get("constitution")
     if not constitution_raw:

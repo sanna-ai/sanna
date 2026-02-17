@@ -442,7 +442,7 @@ def verify_constitution_chain(
     constitution_path: str,
     constitution_public_key_path: str | None = None,
     approver_public_key_path: str | None = None,
-) -> list:
+) -> tuple[list[str], list[str]]:
     """Verify the receipt-constitution chain.
 
     Checks:
@@ -452,7 +452,8 @@ def verify_constitution_chain(
     4. If constitution_ref.key_id exists, matches constitution's key_id.
     5. If constitution has approval, verifies content_hash and (optionally) approval signature.
 
-    Returns list of error strings.
+    Returns:
+        ``(errors, warnings)`` — two lists of strings.
     """
     errors = []
 
@@ -471,8 +472,17 @@ def verify_constitution_chain(
         return errors, []
 
     if not constitution.policy_hash:
-        errors.append("Constitution is not signed (no policy_hash)")
+        errors.append("Constitution has no policy hash (not hashed or signed)")
         return errors, []
+
+    # Warn if constitution is hashed but not Ed25519-signed
+    warnings = []
+    _sig = constitution.provenance.signature if constitution.provenance else None
+    if not (_sig and getattr(_sig, 'value', None)):
+        warnings.append(
+            "Constitution is hashed but not signed (no cryptographic signature). "
+            "Run: sanna-sign-constitution <path> --private-key <key>"
+        )
 
     # Verify policy_hash matches
     computed = compute_constitution_hash(constitution)
@@ -533,8 +543,9 @@ def verify_constitution_chain(
         receipt, constitution, approver_public_key_path,
     )
     errors.extend(approval_errors)
+    warnings.extend(approval_warnings)
 
-    return errors, approval_warnings
+    return errors, warnings
 
 
 def _verify_approval_chain(
@@ -682,7 +693,7 @@ def verify_receipt(
     except TypeError as e:
         return VerificationResult(
             valid=False, exit_code=3,
-            errors=[f"Fingerprint computation failed (float in receipt data): {e}"],
+            errors=[f"Fingerprint computation failed ({type(e).__name__}: {e}). Non-JSON-serializable data?"],
             warnings=warnings,
         )
 

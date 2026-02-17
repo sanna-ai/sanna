@@ -175,6 +175,52 @@ class TestZipBombSlipProtection:
         assert result.valid is False
         assert "too large" in result.checks[0].detail
 
+    def test_zip_slip_absolute_path_rejected(self, tmp_path):
+        """Bundle with absolute path member is rejected (#1)."""
+        bundle_path = tmp_path / "abs_path.zip"
+        with zipfile.ZipFile(bundle_path, "w") as zf:
+            zf.writestr("receipt.json", '{}')
+            zf.writestr("constitution.yaml", "test")
+            zf.writestr("/tmp/pwned", "malicious")
+            zf.writestr("public_keys/a.pub", "key")
+            zf.writestr("metadata.json", '{}')
+
+        result = verify_bundle(bundle_path)
+        assert result.valid is False
+        assert "absolute path" in result.checks[0].detail.lower() or "Unexpected member" in result.checks[0].detail
+
+    def test_zip_slip_backslash_path_rejected(self, tmp_path):
+        """Bundle with backslash path is rejected (#1)."""
+        bundle_path = tmp_path / "backslash.zip"
+        with zipfile.ZipFile(bundle_path, "w") as zf:
+            zf.writestr("receipt.json", '{}')
+            zf.writestr("constitution.yaml", "test")
+            zf.writestr("public_keys\\..\\pwned", "malicious")
+            zf.writestr("public_keys/a.pub", "key")
+            zf.writestr("metadata.json", '{}')
+
+        result = verify_bundle(bundle_path)
+        assert result.valid is False
+        assert "backslash" in result.checks[0].detail.lower() or "Unsafe" in result.checks[0].detail
+
+    def test_zip_slip_parent_traversal_rejected(self, tmp_path):
+        """Bundle with a/../../pwned path is rejected (#1)."""
+        bundle_path = tmp_path / "traversal.zip"
+        with zipfile.ZipFile(bundle_path, "w") as zf:
+            zf.writestr("receipt.json", '{}')
+            zf.writestr("constitution.yaml", "test")
+            zf.writestr("public_keys/a.pub", "key")
+            zf.writestr("a/../../pwned", "malicious")
+            zf.writestr("metadata.json", '{}')
+
+        result = verify_bundle(bundle_path)
+        assert result.valid is False
+
+    def test_zip_slip_normal_path_allowed(self, valid_bundle):
+        """Normal member paths like receipts/receipt-001.json should work."""
+        result = verify_bundle(valid_bundle)
+        assert result.valid is True
+
     def test_valid_bundle_passes_all_guards(self, valid_bundle):
         """A properly constructed bundle passes all safety checks."""
         result = verify_bundle(valid_bundle)
@@ -318,6 +364,21 @@ class TestFloatCrashProtection:
         receipt, _ = signed_receipt_and_path
         match, computed, expected = verify_fingerprint(receipt)
         assert match is True
+
+    def test_fingerprint_error_message_generic(self, signed_receipt_and_path):
+        """Non-finite float error message should be generic (#14)."""
+        receipt, _ = signed_receipt_and_path
+        # Use non-finite float (NaN) — canonical JSON rejects these
+        receipt["extensions"] = {"score": float("nan")}
+        schema = load_schema()
+        result = verify_receipt(receipt, schema)
+        assert not result.valid
+        # Find the fingerprint error
+        fp_errors = [e for e in result.errors if "Fingerprint" in e]
+        assert len(fp_errors) > 0, f"Expected fingerprint error, got: {result.errors}"
+        error_msg = fp_errors[0]
+        assert "Non-JSON-serializable data?" in error_msg
+        assert "float in receipt data" not in error_msg
 
 
 # =============================================================================

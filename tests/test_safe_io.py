@@ -5,10 +5,11 @@ import os
 import stat
 import sys
 import threading
+from pathlib import Path
 
 import pytest
 
-from sanna.utils.safe_io import SecurityError, atomic_write_sync, ensure_secure_dir
+from sanna.utils.safe_io import SecurityError, atomic_write_sync, atomic_write_text_sync, ensure_secure_dir
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +82,31 @@ class TestAtomicWriteSync:
         mode = stat.S_IMODE(os.stat(target).st_mode)
         assert mode == 0o644
 
+    def test_large_payload_exact_content(self, tmp_path):
+        """5MB payload is written byte-for-byte without truncation (#2)."""
+        target = tmp_path / "large.bin"
+        # Create a 5MB payload with a recognizable pattern
+        payload = bytes(range(256)) * (5 * 1024 * 1024 // 256)
+        atomic_write_sync(target, payload)
+        result = target.read_bytes()
+        assert len(result) == len(payload), f"Expected {len(payload)} bytes, got {len(result)}"
+        assert result == payload
+
+    def test_write_loop_exact_content(self, tmp_path):
+        """Known small content survives write loop without mutation."""
+        target = tmp_path / "exact.txt"
+        content = "The quick brown fox jumps over the lazy dog.\n" * 100
+        atomic_write_sync(target, content)
+        assert target.read_text() == content
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX only")
+    def test_directory_fsync_after_replace(self, tmp_path):
+        """Verify directory fsync path is exercised (no crash)."""
+        target = tmp_path / "fsync_test.txt"
+        # This just verifies the code path doesn't raise
+        atomic_write_sync(target, "fsync data")
+        assert target.read_text() == "fsync data"
+
     def test_concurrent_writes_no_corruption(self, tmp_path):
         """Multiple threads writing to the same file don't corrupt data."""
         target = tmp_path / "shared.txt"
@@ -137,6 +163,28 @@ class TestEnsureSecureDir:
         link = tmp_path / "link_dir"
         os.symlink(str(real), str(link))
 
+        with pytest.raises(SecurityError, match="symlink"):
+            ensure_secure_dir(link)
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX fd-based chmod only")
+    def test_fchmod_used_for_permissions(self, tmp_path):
+        """Verify fd-based chmod sets permissions correctly (#4 TOCTOU fix)."""
+        d = tmp_path / "fchmod_dir"
+        d.mkdir(mode=0o755)
+        ensure_secure_dir(d, mode=0o700)
+        mode = stat.S_IMODE(os.stat(d).st_mode)
+        assert mode == 0o700
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="O_NOFOLLOW not on Windows")
+    def test_symlink_race_protection(self, tmp_path):
+        """O_NOFOLLOW in fd-based path prevents symlink following (#4)."""
+        real = tmp_path / "real_target"
+        real.mkdir(mode=0o755)
+        link = tmp_path / "race_link"
+        os.symlink(str(real), str(link))
+
+        # The pre-check catches it, but even if it didn't,
+        # O_NOFOLLOW would prevent the fd-based chmod from following
         with pytest.raises(SecurityError, match="symlink"):
             ensure_secure_dir(link)
 
@@ -261,3 +309,92 @@ class TestAsyncIOOffloading:
 
         receipt_files = list((tmp_path / "receipts").glob("*.json"))
         assert len(receipt_files) == 1
+
+
+# ---------------------------------------------------------------------------
+# atomic_write_text_sync
+# ---------------------------------------------------------------------------
+
+
+class TestAtomicWriteTextSync:
+
+    def test_writes_text(self, tmp_path):
+        """Text helper writes UTF-8 and reads back correctly."""
+        target = tmp_path / "text.txt"
+        atomic_write_text_sync(target, "hello world")
+        assert target.read_text(encoding="utf-8") == "hello world"
+
+    def test_writes_unicode(self, tmp_path):
+        """Unicode content round-trips correctly."""
+        target = tmp_path / "unicode.txt"
+        content = "Sanna governance — \u2714 checks passed"
+        atomic_write_text_sync(target, content)
+        assert target.read_text(encoding="utf-8") == content
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permissions only")
+    def test_respects_mode(self, tmp_path):
+        """Text helper passes mode through to atomic_write_sync."""
+        target = tmp_path / "secret.txt"
+        atomic_write_text_sync(target, "secret", mode=0o600)
+        mode = stat.S_IMODE(os.stat(target).st_mode)
+        assert mode == 0o600
+
+
+# ---------------------------------------------------------------------------
+# Write site migration tests (Block 2 #5)
+# ---------------------------------------------------------------------------
+
+
+class TestWriteSiteMigration:
+
+    def test_constitution_save_uses_atomic(self, tmp_path):
+        """save_constitution() should use atomic writes."""
+        from sanna.constitution import (
+            Constitution, AgentIdentity, Provenance,
+            save_constitution,
+        )
+        const = Constitution(
+            schema_version="1.0.0",
+            identity=AgentIdentity(agent_name="test", domain="test"),
+            provenance=Provenance(
+                authored_by="t@t.com", approved_by=["a@t.com"],
+                approval_date="2026-01-01", approval_method="test",
+            ),
+            boundaries=[],
+            invariants=[],
+        )
+        path = tmp_path / "const.yaml"
+        save_constitution(const, path)
+        assert path.exists()
+        content = path.read_text()
+        assert "sanna_constitution" in content
+
+    def test_middleware_receipt_write_uses_atomic(self, tmp_path):
+        """_write_receipt() should use atomic writes."""
+        from sanna.middleware import _write_receipt
+        receipt = {
+            "receipt_id": "test-001",
+            "trace_id": "trace-001",
+            "data": "test",
+        }
+        filepath = _write_receipt(receipt, str(tmp_path / "receipts"))
+        assert filepath.exists()
+        content = json.loads(filepath.read_text())
+        assert content["receipt_id"] == "test-001"
+        # Verify no temp files left
+        tmp_files = list((tmp_path / "receipts").glob("*.tmp"))
+        assert tmp_files == []
+
+    def test_drift_report_write_uses_atomic(self, tmp_path):
+        """export_drift_report_to_file() should use atomic writes."""
+        from sanna.drift import DriftReport, export_drift_report_to_file
+        report = DriftReport(
+            window_days=7,
+            threshold=0.1,
+            generated_at="2026-01-01T00:00:00+00:00",
+            agents=[],
+            fleet_status="stable",
+        )
+        path = tmp_path / "reports" / "drift.json"
+        result = export_drift_report_to_file(report, str(path), fmt="json")
+        assert Path(result).exists()

@@ -541,10 +541,12 @@ def export_drift_report_to_file(
 
     Returns the absolute path written.
     """
+    from .utils.safe_io import atomic_write_text_sync
+
     content = export_drift_report(report, fmt=fmt)
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8")
+    atomic_write_text_sync(p, content)
     return str(p.resolve())
 
 

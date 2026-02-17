@@ -1,4 +1,4 @@
-"""Sanna gateway — MCP enforcement proxy (v0.12.2)."""
+"""Sanna gateway — MCP enforcement proxy (v0.12.3)."""
 
 
 def check_mcp_available() -> None:

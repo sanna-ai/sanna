@@ -13,7 +13,7 @@ import hashlib
 
 import pytest
 
-pytest.importorskip("opentelemetry", reason="opentelemetry not installed")
+pytest.importorskip("opentelemetry.sdk", reason="opentelemetry-sdk not installed")
 
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider

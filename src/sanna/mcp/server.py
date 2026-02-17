@@ -617,7 +617,7 @@ def _query_drift(
 
 
 # =============================================================================
-# TOOL: check_constitution_approval
+# TOOL: sanna_check_constitution_approval
 # =============================================================================
 
 @mcp.tool(
@@ -627,7 +627,7 @@ def _query_drift(
         idempotentHint=True,
     ),
 )
-def check_constitution_approval(
+def sanna_check_constitution_approval(
     constitution_path: str,
     author_public_key_path: str = "",
     approver_public_key_path: str = "",
@@ -823,7 +823,7 @@ def check_constitution_approval(
         })
 
     except Exception as e:
-        logger.exception("check_constitution_approval failed")
+        logger.exception("sanna_check_constitution_approval failed")
         return json.dumps({
             "approved": False,
             "reason": f"Internal error: {e}",

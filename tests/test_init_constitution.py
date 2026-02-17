@@ -231,7 +231,7 @@ class TestCLI:
     def test_cli_enterprise_it(self, tmp_path, monkeypatch):
         """CLI generates valid file for enterprise-it template."""
         out = str(tmp_path / "out.yaml")
-        inputs = iter(["1", "my-it-agent", "IT helper", "", out])
+        inputs = iter(["1", "my-it-agent", "IT helper", "", out, "n"])
         monkeypatch.setattr("builtins.input", lambda _="": next(inputs))
 
         rc = run_interactive()
@@ -243,7 +243,7 @@ class TestCLI:
 
     def test_cli_customer_facing(self, tmp_path, monkeypatch):
         out = str(tmp_path / "out.yaml")
-        inputs = iter(["2", "cx-bot", "", "", out])
+        inputs = iter(["2", "cx-bot", "", "", out, "n"])
         monkeypatch.setattr("builtins.input", lambda _="": next(inputs))
 
         rc = run_interactive()
@@ -253,7 +253,7 @@ class TestCLI:
 
     def test_cli_general_purpose(self, tmp_path, monkeypatch):
         out = str(tmp_path / "out.yaml")
-        inputs = iter(["3", "gp-agent", "General helper", "", out])
+        inputs = iter(["3", "gp-agent", "General helper", "", out, "n"])
         monkeypatch.setattr("builtins.input", lambda _="": next(inputs))
 
         rc = run_interactive()
@@ -261,7 +261,7 @@ class TestCLI:
 
     def test_cli_blank(self, tmp_path, monkeypatch):
         out = str(tmp_path / "out.yaml")
-        inputs = iter(["4", "blank-agent", "", "", out])
+        inputs = iter(["4", "blank-agent", "", "", out, "n"])
         monkeypatch.setattr("builtins.input", lambda _="": next(inputs))
 
         rc = run_interactive()
@@ -272,7 +272,7 @@ class TestCLI:
     def test_cli_enforcement_override(self, tmp_path, monkeypatch):
         """User overrides template's default enforcement."""
         out = str(tmp_path / "out.yaml")
-        inputs = iter(["1", "my-agent", "", "advisory", out])
+        inputs = iter(["1", "my-agent", "", "advisory", out, "n"])
         monkeypatch.setattr("builtins.input", lambda _="": next(inputs))
 
         rc = run_interactive()
@@ -286,7 +286,7 @@ class TestCLI:
     def test_cli_default_output_path(self, tmp_path, monkeypatch):
         """Empty output path defaults to ./constitution.yaml."""
         monkeypatch.chdir(tmp_path)
-        inputs = iter(["3", "agent", "", "", ""])
+        inputs = iter(["3", "agent", "", "", "", "n"])
         monkeypatch.setattr("builtins.input", lambda _="": next(inputs))
 
         rc = run_interactive()
@@ -319,7 +319,7 @@ class TestCLI:
 class TestCommentsPreserved:
     def test_enterprise_it_has_comments(self, tmp_path, monkeypatch):
         out = str(tmp_path / "out.yaml")
-        inputs = iter(["1", "agent", "", "", out])
+        inputs = iter(["1", "agent", "", "", out, "n"])
         monkeypatch.setattr("builtins.input", lambda _="": next(inputs))
         run_interactive()
         content = Path(out).read_text()
@@ -328,7 +328,7 @@ class TestCommentsPreserved:
 
     def test_blank_has_comments(self, tmp_path, monkeypatch):
         out = str(tmp_path / "out.yaml")
-        inputs = iter(["4", "agent", "", "", out])
+        inputs = iter(["4", "agent", "", "", out, "n"])
         monkeypatch.setattr("builtins.input", lambda _="": next(inputs))
         run_interactive()
         content = Path(out).read_text()

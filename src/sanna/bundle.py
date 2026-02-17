@@ -22,7 +22,7 @@ import tempfile
 import zipfile
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Optional
 
 logger = logging.getLogger("sanna.bundle")
@@ -296,8 +296,29 @@ def verify_bundle(
                 errors=[f"Bundle structure invalid: {detail}"],
             )
 
-        # Guard: reject ".." in paths (zip slip) and unexpected members
+        # Guard: reject unsafe paths (zip slip) and unexpected members
         for name in members:
+            # Reject absolute paths
+            if PurePosixPath(name).is_absolute() or (len(name) > 0 and name[0] == '/'):
+                zf.close()
+                detail = f"Zip member has absolute path: '{name}'"
+                checks.append(BundleCheck("Bundle structure", False, detail))
+                return BundleVerificationResult(
+                    valid=False, checks=checks,
+                    receipt_summary=None,
+                    errors=[f"Bundle structure invalid: {detail}"],
+                )
+            # Reject backslashes (Windows path separator abuse)
+            if '\\' in name:
+                zf.close()
+                detail = f"Zip member contains backslash: '{name}'"
+                checks.append(BundleCheck("Bundle structure", False, detail))
+                return BundleVerificationResult(
+                    valid=False, checks=checks,
+                    receipt_summary=None,
+                    errors=[f"Bundle structure invalid: {detail}"],
+                )
+            # Reject parent-directory traversal (belt-and-suspenders)
             if ".." in name:
                 zf.close()
                 detail = f"Unsafe path in bundle: '{name}'"
@@ -331,7 +352,17 @@ def verify_bundle(
                     receipt_summary=None,
                     errors=[f"Bundle structure invalid: {detail}"],
                 )
-            dest = tmp / name
+            dest = (tmp / name).resolve()
+            # Final defense: resolved path must stay within temp dir
+            if not dest.is_relative_to(tmp.resolve()):
+                zf.close()
+                detail = f"Zip member escapes temp directory: '{name}'"
+                checks.append(BundleCheck("Bundle structure", False, detail))
+                return BundleVerificationResult(
+                    valid=False, checks=checks,
+                    receipt_summary=None,
+                    errors=[f"Bundle structure invalid: {detail}"],
+                )
             dest.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(name) as src:
                 data = src.read(MAX_BUNDLE_FILE_SIZE + 1)

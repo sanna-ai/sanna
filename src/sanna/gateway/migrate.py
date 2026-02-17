@@ -89,8 +89,9 @@ def _append_reasoning_comment(constitution_path: Path) -> None:
     text = constitution_path.read_text(encoding="utf-8")
     if "Reasoning governance" in text:
         return
-    with open(constitution_path, "a", encoding="utf-8") as f:
-        f.write(_REASONING_COMMENT)
+    # Atomic rewrite instead of append to avoid partial writes
+    from ..utils.safe_io import atomic_write_text_sync
+    atomic_write_text_sync(constitution_path, text + _REASONING_COMMENT)
 
 
 # ---------------------------------------------------------------------------

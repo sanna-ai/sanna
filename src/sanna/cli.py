@@ -111,8 +111,8 @@ def main_generate():
 
     # Write output
     if args.output:
-        with open(args.output, "w") as f:
-            f.write(output)
+        from .utils.safe_io import atomic_write_text_sync
+        atomic_write_text_sync(Path(args.output), output)
         print(f"Receipt written to {args.output}", file=sys.stderr)
     else:
         print(output)
@@ -523,8 +523,8 @@ def main_keygen():
     parser = argparse.ArgumentParser(
         description="Generate Ed25519 keypair for Sanna constitution and receipt signing"
     )
-    parser.add_argument("--output-dir", "-o", default=".",
-                       help="Directory for key files (default: current directory)")
+    parser.add_argument("--output-dir", "-o", default=None,
+                       help="Directory for key files (default: ~/.sanna/keys)")
     parser.add_argument("--label", help="Human-friendly label for the keypair (e.g. 'author', 'approver')")
     parser.add_argument("--signed-by", help="Human-readable signer identity (stored in meta.json)")
     parser.add_argument("--version", action="version", version=f"sanna-keygen {TOOL_VERSION}")
@@ -533,8 +533,14 @@ def main_keygen():
 
     from .crypto import generate_keypair, load_key_metadata
 
+    output_dir = args.output_dir
+    if output_dir is None:
+        output_dir = str(Path.home() / ".sanna" / "keys")
+        from .utils.safe_io import ensure_secure_dir
+        ensure_secure_dir(Path(output_dir))
+
     private_path, public_path = generate_keypair(
-        args.output_dir,
+        output_dir,
         signed_by=args.signed_by,
         label=args.label,
     )
@@ -842,9 +848,10 @@ def main_drift_report():
                         csv_text = lines[1] if len(lines) > 1 else ""
                     parts.append(csv_text)
                 combined = "".join(parts)
+            from .utils.safe_io import atomic_write_text_sync
             p = Path(args.output)
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(combined, encoding="utf-8")
+            atomic_write_text_sync(p, combined)
             print(f"Exported {len(reports)} report(s) to {args.output}")
         else:
             for report in reports:
@@ -967,6 +974,435 @@ def approve_constitution_cmd():
         print(f"  Previous:    {record.previous_version_hash[:16]}...")
 
     return 0
+
+
+# =============================================================================
+# DEMO CLI
+# =============================================================================
+
+def main_demo():
+    """Self-contained demo: generate keys, sign constitution, run agent, verify.
+
+    No external dependencies required — everything runs in memory / tmp dir.
+    """
+    import os
+    import tempfile
+    import uuid
+
+    from .constitution import (
+        Constitution, AgentIdentity, Boundary, Invariant, Provenance,
+        sign_constitution, save_constitution,
+    )
+    from .crypto import generate_keypair
+    from .middleware import sanna_observe
+    from .verify import verify_receipt
+
+    parser = argparse.ArgumentParser(
+        description="Run a self-contained Sanna governance demo"
+    )
+    parser.add_argument("--output-dir", "-o", default="./sanna-demo",
+                       help="Directory for demo artifacts (default: ./sanna-demo)")
+    parser.add_argument("--version", action="version", version=f"sanna-demo {TOOL_VERSION}")
+    args = parser.parse_args()
+
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    print("=== Sanna Demo ===")
+    print()
+
+    # 1. Generate signing keys (in temp dir)
+    with tempfile.TemporaryDirectory() as key_dir:
+        priv_path, pub_path = generate_keypair(key_dir)
+        print("1. Generated signing keys")
+
+        # 2. Create minimal constitution
+        const = Constitution(
+            schema_version="0.1.0",
+            identity=AgentIdentity(agent_name="demo-agent", domain="demo"),
+            provenance=Provenance(
+                authored_by="demo@sanna.dev",
+                approved_by=["reviewer@sanna.dev"],
+                approval_date="2026-01-01",
+                approval_method="automated-demo",
+            ),
+            boundaries=[
+                Boundary(id="B001", description="Operate within demo scope",
+                        category="scope", severity="medium"),
+            ],
+            invariants=[
+                Invariant(id="INV_NO_FABRICATION",
+                         rule="Do not claim facts absent from sources.",
+                         enforcement="halt"),
+                Invariant(id="INV_MARK_INFERENCE",
+                         rule="Clearly mark inferences.",
+                         enforcement="warn"),
+            ],
+        )
+        signed = sign_constitution(const, private_key_path=str(priv_path),
+                                   signed_by="demo-signer")
+        const_path = out_dir / "constitution.yaml"
+        save_constitution(signed, const_path)
+        print(f"2. Created constitution with {len(const.invariants)} invariants")
+
+        # 3. Simulate governed action
+        @sanna_observe(
+            constitution_path=str(const_path),
+            private_key_path=str(priv_path),
+        )
+        def demo_agent(query, context):
+            return f"Based on the context, the answer is: {context}"
+
+        result = demo_agent(
+            query="What is the project status?",
+            context="The project is on track for Q1 delivery.",
+        )
+        print("3. Simulated governed tool call")
+
+        # 4. Show receipt summary
+        receipt = result.receipt
+        status = receipt.get("coherence_status", "UNKNOWN")
+        checks = receipt.get("checks", [])
+        passed = sum(1 for c in checks if c.get("passed"))
+        total = len(checks)
+        print(f"4. Generated receipt: {receipt.get('receipt_id', 'N/A')[:24]}...")
+        print(f"   Status: {status} ({passed}/{total} checks passed)")
+
+        # 5. Write receipt to disk
+        receipt_path = out_dir / f"receipt-demo-{uuid.uuid4().hex[:8]}.json"
+        from .utils.safe_io import atomic_write_text_sync
+        atomic_write_text_sync(receipt_path, json.dumps(receipt, indent=2))
+
+        # 6. Verify receipt
+        from .verify import load_schema
+        schema = load_schema()
+        vr = verify_receipt(receipt, schema, public_key_path=str(pub_path),
+                           constitution_path=str(const_path))
+        icon = "VALID" if vr.valid else "INVALID"
+        print(f"5. Verified receipt: {icon}")
+
+    print()
+    print(f"Receipt saved to: {receipt_path}")
+    print()
+    print("Next steps:")
+    print(f"  sanna-inspect {receipt_path}")
+    print(f"  sanna-verify {receipt_path}")
+    return 0
+
+
+# =============================================================================
+# INSPECT CLI
+# =============================================================================
+
+def main_inspect():
+    """Pretty-print the contents of a Sanna receipt JSON file."""
+    parser = argparse.ArgumentParser(
+        description="Pretty-print a Sanna receipt"
+    )
+    parser.add_argument("receipt", help="Path to receipt JSON file")
+    parser.add_argument("--json", action="store_true",
+                       help="Output raw JSON (formatted)")
+    parser.add_argument("--version", action="version", version=f"sanna-inspect {TOOL_VERSION}")
+    args = parser.parse_args()
+
+    try:
+        with open(args.receipt) as f:
+            receipt = json.load(f)
+    except FileNotFoundError:
+        print(f"Error: File not found: {args.receipt}", file=sys.stderr)
+        return 1
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON: {e}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(receipt, indent=2))
+        return 0
+
+    # Header
+    print("=" * 60)
+    print("SANNA RECEIPT")
+    print("=" * 60)
+    print(f"  Receipt ID:    {receipt.get('receipt_id', 'N/A')}")
+    print(f"  Trace ID:      {receipt.get('trace_id', 'N/A')}")
+    print(f"  Timestamp:     {receipt.get('timestamp', 'N/A')}")
+    print(f"  Tool Version:  {receipt.get('tool_version', 'N/A')}")
+    print(f"  Schema:        {receipt.get('schema_version', 'N/A')}")
+    print(f"  Fingerprint:   {receipt.get('receipt_fingerprint', 'N/A')[:32]}...")
+    print()
+
+    # Status
+    status = receipt.get("coherence_status", "UNKNOWN")
+    checks = receipt.get("checks", [])
+    passed = sum(1 for c in checks if c.get("passed"))
+    failed = sum(1 for c in checks if not c.get("passed"))
+    print(f"  Status:        {status}")
+    print(f"  Checks:        {passed} passed, {failed} failed")
+    print()
+
+    # Checks detail
+    if checks:
+        print("-" * 60)
+        print("CHECKS")
+        print("-" * 60)
+        for check in checks:
+            icon = "PASS" if check.get("passed") else "FAIL"
+            check_id = check.get("check_id", "?")
+            name = check.get("name", "")
+            severity = check.get("severity", "")
+            print(f"  [{icon}] {check_id}: {name}")
+            if severity:
+                print(f"         severity: {severity}")
+            evidence = check.get("evidence")
+            if evidence and not check.get("passed"):
+                print(f"         evidence: {evidence}")
+        print()
+
+    # Authority decisions
+    auth = receipt.get("authority_decisions")
+    if auth and isinstance(auth, list) and len(auth) > 0:
+        print("-" * 60)
+        print("AUTHORITY DECISIONS")
+        print("-" * 60)
+        for decision in auth:
+            d_type = decision.get("decision", "?")
+            tool = decision.get("tool_name", decision.get("action", "?"))
+            print(f"  {d_type}: {tool}")
+        print()
+
+    # Escalation events
+    esc = receipt.get("escalation_events")
+    if esc and isinstance(esc, list) and len(esc) > 0:
+        print("-" * 60)
+        print("ESCALATION EVENTS")
+        print("-" * 60)
+        for event in esc:
+            print(f"  {event.get('type', '?')}: {event.get('target', '?')}")
+        print()
+
+    # Constitution reference
+    const_ref = receipt.get("constitution_ref")
+    if const_ref and isinstance(const_ref, dict):
+        print("-" * 60)
+        print("CONSTITUTION")
+        print("-" * 60)
+        print(f"  Document ID:   {const_ref.get('document_id', 'N/A')}")
+        print(f"  Policy Hash:   {const_ref.get('policy_hash', 'N/A')[:32]}...")
+        print(f"  Version:       {const_ref.get('version', 'N/A')}")
+        print()
+
+    # Signature
+    sig = receipt.get("receipt_signature")
+    if sig and isinstance(sig, dict):
+        print("-" * 60)
+        print("SIGNATURE")
+        print("-" * 60)
+        print(f"  Key ID:        {sig.get('key_id', 'N/A')}")
+        print(f"  Scheme:        {sig.get('scheme', 'N/A')}")
+        has_sig = bool(sig.get("value"))
+        print(f"  Signed:        {'Yes' if has_sig else 'No'}")
+        print()
+
+    # Halt event
+    halt = receipt.get("halt_event")
+    if halt and isinstance(halt, dict) and halt.get("halted"):
+        print("-" * 60)
+        print("HALT EVENT")
+        print("-" * 60)
+        print(f"  Reason:        {halt.get('reason', 'N/A')}")
+        print(f"  Failed Checks: {halt.get('failed_checks', [])}")
+        print()
+
+    print("=" * 60)
+    return 0
+
+
+# =============================================================================
+# CHECK-CONFIG CLI
+# =============================================================================
+
+def main_check_config():
+    """Dry-run validation of a gateway configuration file."""
+    parser = argparse.ArgumentParser(
+        description="Validate a Sanna gateway configuration (dry-run)"
+    )
+    parser.add_argument("config", help="Path to gateway YAML config file")
+    parser.add_argument("--version", action="version", version=f"sanna-check-config {TOOL_VERSION}")
+    args = parser.parse_args()
+
+    import os
+    import stat
+    import yaml
+
+    errors = []
+    warnings_list = []
+
+    # 1. YAML syntax
+    config_path = Path(args.config)
+    if not config_path.exists():
+        print(f"Error: Config file not found: {config_path}", file=sys.stderr)
+        return 1
+
+    try:
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        print(f"Error: Invalid YAML syntax: {e}", file=sys.stderr)
+        return 1
+
+    if not isinstance(data, dict):
+        print("Error: Config must be a YAML mapping.", file=sys.stderr)
+        return 1
+
+    print(f"Config: {config_path}")
+    print()
+    print("  [PASS] YAML syntax valid")
+
+    # 2. Required fields
+    gw = data.get("gateway", {})
+    if not gw:
+        errors.append("Missing 'gateway' section")
+    else:
+        const_path = gw.get("constitution")
+        if not const_path:
+            errors.append("Missing gateway.constitution")
+        else:
+            # 3. Constitution file exists
+            resolved = Path(const_path).expanduser()
+            if not resolved.is_absolute():
+                resolved = config_path.parent / resolved
+            if resolved.exists():
+                print(f"  [PASS] Constitution file exists: {resolved}")
+
+                # Check if signed
+                try:
+                    from .constitution import load_constitution
+                    c = load_constitution(str(resolved))
+                    if c.policy_hash:
+                        sig = c.provenance.signature
+                        if sig and sig.value:
+                            print(f"  [PASS] Constitution is signed (key_id={sig.key_id})")
+                        else:
+                            warnings_list.append("Constitution is hashed but NOT Ed25519 signed")
+                    else:
+                        warnings_list.append("Constitution has no policy_hash (unsigned)")
+                except Exception as e:
+                    errors.append(f"Constitution load error: {e}")
+            else:
+                errors.append(f"Constitution file not found: {resolved}")
+
+        # 4. Signing key
+        key_path = gw.get("signing_key")
+        if key_path:
+            resolved_key = Path(key_path).expanduser()
+            if not resolved_key.is_absolute():
+                resolved_key = config_path.parent / resolved_key
+            if resolved_key.exists():
+                print(f"  [PASS] Signing key exists: {resolved_key}")
+                # Check permissions
+                if os.name != "nt":
+                    mode = stat.S_IMODE(os.stat(resolved_key).st_mode)
+                    if mode == 0o600:
+                        print("  [PASS] Key permissions: 0o600")
+                    else:
+                        warnings_list.append(f"Key permissions are {oct(mode)}, expected 0o600")
+            else:
+                errors.append(f"Signing key not found: {resolved_key}")
+        else:
+            warnings_list.append("No signing_key configured (receipts will be unsigned)")
+
+    # 5. Downstream servers
+    downstreams = data.get("downstream", [])
+    if not downstreams:
+        errors.append("No 'downstream' servers configured")
+    else:
+        for i, ds in enumerate(downstreams):
+            name = ds.get("name", f"server-{i}")
+            cmd = ds.get("command")
+            if not cmd:
+                errors.append(f"Downstream '{name}' has no command")
+            else:
+                print(f"  [PASS] Downstream '{name}': {cmd}")
+
+    # Summary
+    print()
+    if warnings_list:
+        print("Warnings:")
+        for w in warnings_list:
+            print(f"  [WARN] {w}")
+
+    if errors:
+        print("Errors:")
+        for e in errors:
+            print(f"  [FAIL] {e}")
+        print()
+        print(f"Result: INVALID ({len(errors)} errors)")
+        return 1
+
+    print(f"Result: VALID")
+    return 0
+
+
+# =============================================================================
+# UNIFIED CLI
+# =============================================================================
+
+def main_sanna():
+    """Unified entry point: ``sanna <subcommand> [args]``."""
+    subcommands = {
+        "init": ("sanna.init_constitution:main", "Interactive constitution generator"),
+        "keygen": ("sanna.cli:main_keygen", "Generate Ed25519 keypair"),
+        "sign": ("sanna.cli:main_sign_constitution", "Sign a constitution"),
+        "verify": ("sanna.cli:main_verify", "Verify a receipt"),
+        "verify-constitution": ("sanna.cli:main_verify_constitution", "Verify a constitution"),
+        "approve": ("sanna.cli:approve_constitution_cmd", "Approve a constitution"),
+        "diff": ("sanna.cli:diff_cmd", "Diff two constitutions"),
+        "demo": ("sanna.cli:main_demo", "Run self-contained governance demo"),
+        "inspect": ("sanna.cli:main_inspect", "Pretty-print a receipt"),
+        "check-config": ("sanna.cli:main_check_config", "Validate gateway config (dry-run)"),
+        "gateway": ("sanna.gateway:main", "Start MCP enforcement proxy"),
+        "mcp": ("sanna.mcp.__main__:main", "Start MCP server"),
+        "drift-report": ("sanna.cli:main_drift_report", "Fleet governance drift report"),
+        "bundle-create": ("sanna.cli:main_create_bundle", "Create evidence bundle"),
+        "bundle-verify": ("sanna.cli:main_verify_bundle", "Verify evidence bundle"),
+        "generate": ("sanna.cli:main_generate", "Generate receipt from Langfuse trace"),
+    }
+
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print(f"sanna v{TOOL_VERSION} — Trust infrastructure for AI agents")
+        print()
+        print("Usage: sanna <command> [options]")
+        print()
+        print("Commands:")
+        max_name = max(len(n) for n in subcommands)
+        for name, (_, desc) in subcommands.items():
+            print(f"  {name:<{max_name + 2}} {desc}")
+        print()
+        print("Run 'sanna <command> --help' for command-specific options.")
+        return 0
+
+    if sys.argv[1] == "--version":
+        print(f"sanna {TOOL_VERSION}")
+        return 0
+
+    cmd = sys.argv[1]
+    if cmd not in subcommands:
+        print(f"Error: Unknown command '{cmd}'.", file=sys.stderr)
+        print(f"Run 'sanna --help' for available commands.", file=sys.stderr)
+        return 1
+
+    # Rewrite sys.argv so the subcommand sees itself as the program
+    sys.argv = [f"sanna {cmd}"] + sys.argv[2:]
+
+    # Dispatch to the subcommand function
+    module_path, _ = subcommands[cmd]
+    mod_name, func_name = module_path.rsplit(":", 1)
+
+    import importlib
+    mod = importlib.import_module(mod_name)
+    func = getattr(mod, func_name)
+    result = func()
+    return result if result is not None else 0
 
 
 # Legacy aliases

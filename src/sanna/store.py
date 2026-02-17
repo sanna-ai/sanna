@@ -126,6 +126,11 @@ class ReceiptStore:
         db_dir = os.path.dirname(db_path)
         if db_dir:
             os.makedirs(db_dir, exist_ok=True)
+            # Harden directory permissions (owner-only access)
+            try:
+                os.chmod(db_dir, 0o700)
+            except OSError:
+                pass
 
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -136,6 +141,12 @@ class ReceiptStore:
             self._conn.close()
             raise
         self._has_json1 = self._detect_json1()
+
+        # Harden DB file permissions (owner-only read/write)
+        try:
+            os.chmod(db_path, 0o600)
+        except OSError:
+            pass
 
     def _detect_json1(self) -> bool:
         """Detect whether the SQLite build has JSON1 extension support."""

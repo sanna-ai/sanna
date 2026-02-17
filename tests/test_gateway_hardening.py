@@ -1529,3 +1529,76 @@ class TestReceiptPermissions:
                 await gw.shutdown()
 
         asyncio.run(_test())
+
+
+# =============================================================================
+# Block 3 — PII redaction HMAC hardening tests (#10)
+# =============================================================================
+
+
+class TestRedactionHMAC:
+    """_redact_for_storage uses HMAC-SHA256 when secret is provided (#10)."""
+
+    def test_redaction_uses_hmac_label(self):
+        """Redacted output contains 'HMAC-SHA256' when secret is given."""
+        from sanna.gateway.server import _redact_for_storage
+
+        result = _redact_for_storage(
+            "sensitive data", mode="hash_only",
+            salt="receipt-123", secret=b"gateway-secret",
+        )
+        assert "HMAC-SHA256" in result
+        assert "SHA-256-SALTED" not in result
+
+    def test_redaction_without_secret_uses_sha256(self):
+        """Without a secret, falls back to plain SHA-256-SALTED."""
+        from sanna.gateway.server import _redact_for_storage
+
+        result = _redact_for_storage(
+            "sensitive data", mode="hash_only",
+            salt="receipt-123", secret=None,
+        )
+        assert "SHA-256-SALTED" in result
+        assert "HMAC-SHA256" not in result
+
+    def test_hmac_different_secrets_different_digests(self):
+        """Different secrets produce different HMAC digests."""
+        from sanna.gateway.server import _redact_for_storage
+
+        r1 = _redact_for_storage(
+            "same content", salt="salt1", secret=b"secret-A",
+        )
+        r2 = _redact_for_storage(
+            "same content", salt="salt1", secret=b"secret-B",
+        )
+        assert r1 != r2
+
+    def test_hmac_deterministic(self):
+        """Same input + secret = same HMAC digest (deterministic)."""
+        from sanna.gateway.server import _redact_for_storage
+
+        r1 = _redact_for_storage(
+            "same content", salt="salt1", secret=b"same-secret",
+        )
+        r2 = _redact_for_storage(
+            "same content", salt="salt1", secret=b"same-secret",
+        )
+        assert r1 == r2
+
+    def test_hmac_empty_secret_uses_fallback(self):
+        """Empty bytes secret is falsy — should fall back to SHA-256."""
+        from sanna.gateway.server import _redact_for_storage
+
+        result = _redact_for_storage(
+            "data", salt="s", secret=b"",
+        )
+        assert "SHA-256-SALTED" in result
+
+    def test_pattern_redact_mode_passthrough(self):
+        """pattern_redact mode passes content through unchanged."""
+        from sanna.gateway.server import _redact_for_storage
+
+        result = _redact_for_storage(
+            "keep this", mode="pattern_redact", salt="s",
+        )
+        assert result == "keep this"

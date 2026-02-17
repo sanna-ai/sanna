@@ -596,15 +596,16 @@ def _generate_no_invariants_receipt(
 # =============================================================================
 
 def _write_receipt(receipt: dict, receipt_dir: str) -> Path:
-    """Write receipt JSON to the configured directory."""
+    """Write receipt JSON to the configured directory (atomic)."""
+    from .utils.safe_io import atomic_write_text_sync, ensure_secure_dir
+
     dir_path = Path(receipt_dir)
-    dir_path.mkdir(parents=True, exist_ok=True)
+    ensure_secure_dir(dir_path)
 
     filename = f"{receipt['receipt_id']}_{receipt['trace_id']}.json"
     filepath = dir_path / filename
 
-    with open(filepath, "w") as f:
-        json.dump(receipt, f, indent=2)
+    atomic_write_text_sync(filepath, json.dumps(receipt, indent=2))
 
     logger.debug("Receipt written to %s", filepath)
     return filepath
@@ -639,12 +640,25 @@ def _run_reasoning_gate(
         if not pipeline.enabled:
             return None
 
-        # Run the async pipeline in a sync context
-        evaluation = asyncio.run(pipeline.evaluate(
+        # Run the async pipeline in a sync context.
+        # Detect whether we're already inside an event loop to avoid
+        # "cannot call asyncio.run() while another loop is running".
+        coro = pipeline.evaluate(
             tool_name=func_name,
             args=kwargs,
             enforcement_level="must_escalate",
-        ))
+        )
+        try:
+            loop = asyncio.get_running_loop()
+            # Already inside an event loop — schedule as a task.
+            # This happens when sanna_observe wraps an async function
+            # called from within an existing event loop.
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                evaluation = pool.submit(asyncio.run, coro).result(timeout=30)
+        except RuntimeError:
+            # No running loop — safe to use asyncio.run()
+            evaluation = asyncio.run(coro)
 
         return {
             "passed": evaluation.passed,
@@ -736,8 +750,16 @@ def sanna_observe(
         loaded_constitution = _load_constitution(constitution_path, validate=strict)
         if not loaded_constitution.policy_hash:
             raise SannaConstitutionError(
-                f"Constitution is not signed: {constitution_path}. "
+                f"Constitution is not signed (no policy hash): {constitution_path}. "
                 f"Run: sanna-sign-constitution {constitution_path}"
+            )
+        # Warn if constitution is hashed but not Ed25519-signed
+        _sig = loaded_constitution.provenance.signature if loaded_constitution.provenance else None
+        if not (_sig and getattr(_sig, 'value', None)):
+            logger.warning(
+                "Constitution is hashed but not Ed25519-signed: %s. "
+                "Run: sanna-sign-constitution %s --private-key <key>",
+                constitution_path, constitution_path,
             )
         constitution_ref_override = constitution_to_receipt_ref(loaded_constitution)
 
@@ -753,17 +775,8 @@ def sanna_observe(
         )
 
     def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            trace_id = f"sanna-{uuid.uuid4().hex[:12]}"
-
-            # 1. Capture inputs
-            resolved = _resolve_inputs(func, args, kwargs, context_param, query_param)
-
-            # 2. Pre-execution reasoning gate
-            #    If constitution has reasoning config and _justification is
-            #    present in kwargs, evaluate reasoning BEFORE calling func.
-            #    Halt enforcement → raise SannaHaltError without executing.
+        def _pre_execution_check(kwargs):
+            """Run pre-execution reasoning gate. Returns (reasoning_result, should_halt, halt_msg)."""
             reasoning_pre_result = None
             if loaded_constitution and loaded_constitution.reasoning:
                 justification = kwargs.get("_justification", "")
@@ -776,11 +789,23 @@ def sanna_observe(
                         enforcement = loaded_constitution.reasoning.on_missing_justification
                         auto_deny = loaded_constitution.reasoning.auto_deny_on_reasoning_failure
                         if enforcement == "block" or auto_deny:
-                            raise SannaHaltError(
+                            return reasoning_pre_result, True, (
                                 f"Reasoning checks failed before execution: "
-                                f"{reasoning_pre_result.get('failure_reason', 'unknown')}",
-                                receipt=reasoning_pre_result,
+                                f"{reasoning_pre_result.get('failure_reason', 'unknown')}"
                             )
+            return reasoning_pre_result, False, ""
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            trace_id = f"sanna-{uuid.uuid4().hex[:12]}"
+
+            # 1. Capture inputs
+            resolved = _resolve_inputs(func, args, kwargs, context_param, query_param)
+
+            # 2. Pre-execution reasoning gate
+            reasoning_pre_result, should_halt, halt_msg = _pre_execution_check(kwargs)
+            if should_halt:
+                raise SannaHaltError(halt_msg, receipt=reasoning_pre_result)
 
             # 3. Execute the wrapped function
             start_ms = time.monotonic_ns() // 1_000_000
@@ -788,59 +813,136 @@ def sanna_observe(
             end_ms = time.monotonic_ns() // 1_000_000
             execution_time_ms = end_ms - start_ms
 
-            # 4. Capture output
-            output_str = _to_str(result)
-
-            # 4. Build trace
-            trace_data = _build_trace_data(
-                trace_id=trace_id,
-                query=resolved["query"],
-                context=resolved["context"],
-                output=output_str,
+            # Post-execution governance (shared with async path)
+            return _post_execution_governance(
+                result, resolved, trace_id, execution_time_ms, func,
             )
 
-            enforcement_decision = "PASSED"
+        if inspect.iscoroutinefunction(func):
+            @functools.wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                trace_id = f"sanna-{uuid.uuid4().hex[:12]}"
 
-            # NOTE: Extensions include middleware runtime metadata (execution_time_ms,
-            # decorator name, etc.) which makes fingerprints execution-specific.
-            # This is intentional: the fingerprint captures the complete execution
-            # artifact, not just reasoning content. For content-only fingerprinting,
-            # see receipt modes planned for v0.8.0.
-            extensions = {
-                "middleware": {
-                    "decorator": "@sanna_observe",
-                    "on_violation": on_violation,
-                    "enforcement_decision": enforcement_decision,
-                    "function_name": func.__name__,
-                    "execution_time_ms": execution_time_ms,
-                }
-            }
+                # 1. Capture inputs
+                resolved = _resolve_inputs(func, args, kwargs, context_param, query_param)
 
-            # 4b. Resolve structured context and source tiers
-            raw_structured = resolved.get("structured_context")
-            resolved_structured = None
-            source_trust_evals = None
-            if raw_structured and loaded_constitution:
-                resolved_structured = _resolve_source_tiers(
-                    raw_structured,
-                    loaded_constitution.trusted_sources,
+                # 2. Pre-execution reasoning gate
+                reasoning_pre_result, should_halt, halt_msg = _pre_execution_check(kwargs)
+                if should_halt:
+                    raise SannaHaltError(halt_msg, receipt=reasoning_pre_result)
+
+                # 3. Execute the wrapped async function
+                start_ms = time.monotonic_ns() // 1_000_000
+                result = await func(*args, **kwargs)
+                end_ms = time.monotonic_ns() // 1_000_000
+                execution_time_ms = end_ms - start_ms
+
+                # Post-execution governance (same as sync)
+                return _post_execution_governance(
+                    result, resolved, trace_id, execution_time_ms, func,
                 )
-                source_trust_evals = _build_source_trust_evaluations(resolved_structured)
 
-            # 5. Generate receipt — constitution-driven or legacy
-            if check_configs is not None:
-                # Constitution-driven: invariants control everything
-                constitution_version = loaded_constitution.schema_version if loaded_constitution else ""
+            return async_wrapper
 
-                if not check_configs and not custom_records:
-                    # No invariants defined — no checks run
-                    receipt = _generate_no_invariants_receipt(
-                        trace_data,
-                        constitution_ref=constitution_ref_override,
-                        extensions=extensions,
-                    )
+        return wrapper
+
+    def _post_execution_governance(result, resolved, trace_id, execution_time_ms, func):
+        """Post-execution governance logic shared by sync and async wrappers."""
+        # 4. Capture output
+        output_str = _to_str(result)
+
+        # 4. Build trace
+        trace_data = _build_trace_data(
+            trace_id=trace_id,
+            query=resolved["query"],
+            context=resolved["context"],
+            output=output_str,
+        )
+
+        enforcement_decision = "PASSED"
+
+        extensions = {
+            "middleware": {
+                "decorator": "@sanna_observe",
+                "on_violation": on_violation,
+                "enforcement_decision": enforcement_decision,
+                "function_name": func.__name__,
+                "execution_time_ms": execution_time_ms,
+            }
+        }
+
+        # 4b. Resolve structured context and source tiers
+        raw_structured = resolved.get("structured_context")
+        resolved_structured = None
+        source_trust_evals = None
+        if raw_structured and loaded_constitution:
+            resolved_structured = _resolve_source_tiers(
+                raw_structured,
+                loaded_constitution.trusted_sources,
+            )
+            source_trust_evals = _build_source_trust_evaluations(resolved_structured)
+
+        # 5. Generate receipt — constitution-driven or legacy
+        if check_configs is not None:
+            constitution_version = loaded_constitution.schema_version if loaded_constitution else ""
+
+            if not check_configs and not custom_records:
+                receipt = _generate_no_invariants_receipt(
+                    trace_data,
+                    constitution_ref=constitution_ref_override,
+                    extensions=extensions,
+                )
+            else:
+                receipt = _generate_constitution_receipt(
+                    trace_data,
+                    check_configs=check_configs,
+                    custom_records=custom_records,
+                    constitution_ref=constitution_ref_override,
+                    constitution_version=constitution_version,
+                    extensions=extensions,
+                    source_trust_evaluations=source_trust_evals,
+                    structured_context=resolved_structured,
+                )
+
+                halt_checks = []
+                warn_checks = []
+                log_checks = []
+
+                for check in receipt.get("checks", []):
+                    if check.get("status") == "NOT_CHECKED":
+                        continue
+                    if not check.get("passed"):
+                        level = check.get("enforcement_level", "log")
+                        if level == "halt":
+                            halt_checks.append(check)
+                        elif level == "warn":
+                            warn_checks.append(check)
+                        else:
+                            log_checks.append(check)
+
+                if halt_checks:
+                    enforcement_decision = "HALTED"
+                elif warn_checks:
+                    enforcement_decision = "WARNED"
+                elif log_checks:
+                    enforcement_decision = "LOGGED"
                 else:
-                    # First pass: generate with tentative "PASSED" to analyze checks
+                    enforcement_decision = "PASSED"
+
+                if enforcement_decision != "PASSED":
+                    extensions["middleware"]["enforcement_decision"] = enforcement_decision
+
+                    halt_event_obj = None
+                    if enforcement_decision == "HALTED":
+                        failed_ids = [c["check_id"] for c in halt_checks]
+                        halt_event_obj = HaltEvent(
+                            halted=True,
+                            reason=f"Coherence check failed: {', '.join(failed_ids)}",
+                            failed_checks=failed_ids,
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            enforcement_mode="halt",
+                        )
+
                     receipt = _generate_constitution_receipt(
                         trace_data,
                         check_configs=check_configs,
@@ -848,133 +950,77 @@ def sanna_observe(
                         constitution_ref=constitution_ref_override,
                         constitution_version=constitution_version,
                         extensions=extensions,
+                        halt_event=halt_event_obj,
                         source_trust_evaluations=source_trust_evals,
                         structured_context=resolved_structured,
                     )
 
-                    # Per-check enforcement: determine what to do
-                    halt_checks = []
-                    warn_checks = []
-                    log_checks = []
+        else:
+            receipt = _generate_no_invariants_receipt(
+                trace_data,
+                constitution_ref=asdict(constitution) if constitution else None,
+                extensions=extensions,
+            )
+            enforcement_decision = "PASSED"
 
-                    for check in receipt.get("checks", []):
-                        if check.get("status") == "NOT_CHECKED":
-                            continue
-                        if not check.get("passed"):
-                            level = check.get("enforcement_level", "log")
-                            if level == "halt":
-                                halt_checks.append(check)
-                            elif level == "warn":
-                                warn_checks.append(check)
-                            else:
-                                log_checks.append(check)
+        # 5a. Identity verification (NOT in fingerprint — added post-hash)
+        if loaded_constitution and loaded_constitution.identity.identity_claims:
+            from .constitution import verify_identity_claims as _verify_claims
+            iv_summary = _verify_claims(
+                loaded_constitution.identity,
+                provider_keys=identity_provider_keys,
+            )
+            receipt["identity_verification"] = {
+                "total_claims": iv_summary.total_claims,
+                "verified": iv_summary.verified_count,
+                "failed": iv_summary.failed_count,
+                "unverified": iv_summary.unverified_count,
+                "all_verified": iv_summary.all_verified,
+                "claims": [
+                    {
+                        "provider": r.claim.provider,
+                        "claim_type": r.claim.claim_type,
+                        "credential_id": r.claim.credential_id,
+                        "status": r.status,
+                    }
+                    for r in iv_summary.results
+                ],
+            }
 
-                    if halt_checks:
-                        enforcement_decision = "HALTED"
-                    elif warn_checks:
-                        enforcement_decision = "WARNED"
-                    elif log_checks:
-                        enforcement_decision = "LOGGED"
-                    else:
-                        enforcement_decision = "PASSED"
+        # 5b. Sign receipt if private key provided
+        if private_key_path is not None:
+            from .crypto import sign_receipt as _sign_receipt
+            receipt = _sign_receipt(receipt, private_key_path)
 
-                    # Regenerate with final enforcement_decision in extensions
-                    # (extensions are fingerprinted, so they must be final before generation)
-                    if enforcement_decision != "PASSED":
-                        extensions["middleware"]["enforcement_decision"] = enforcement_decision
+        # 6. Write receipt to disk if configured
+        if receipt_dir is not None:
+            _write_receipt(receipt, receipt_dir)
 
-                        halt_event_obj = None
-                        if enforcement_decision == "HALTED":
-                            failed_ids = [c["check_id"] for c in halt_checks]
-                            halt_event_obj = HaltEvent(
-                                halted=True,
-                                reason=f"Coherence check failed: {', '.join(failed_ids)}",
-                                failed_checks=failed_ids,
-                                timestamp=datetime.now(timezone.utc).isoformat(),
-                                enforcement_mode="halt",
-                            )
+        # 6b. Save to store if configured
+        if _store_instance is not None:
+            try:
+                _store_instance.save(receipt)
+            except Exception:
+                logger.warning("Failed to save receipt to store", exc_info=True)
 
-                        receipt = _generate_constitution_receipt(
-                            trace_data,
-                            check_configs=check_configs,
-                            custom_records=custom_records,
-                            constitution_ref=constitution_ref_override,
-                            constitution_version=constitution_version,
-                            extensions=extensions,
-                            halt_event=halt_event_obj,
-                            source_trust_evaluations=source_trust_evals,
-                            structured_context=resolved_structured,
-                        )
+        # 7. Apply enforcement
+        if enforcement_decision == "HALTED":
+            failed = [c for c in receipt["checks"] if not c.get("passed") and c.get("enforcement_level") == "halt"]
+            names = ", ".join(f"{c['check_id']} ({c['name']})" for c in failed)
+            raise SannaHaltError(
+                f"Sanna coherence check failed: {names}",
+                receipt=receipt,
+            )
 
-            else:
-                # No constitution path — run with no checks, document in receipt
-                receipt = _generate_no_invariants_receipt(
-                    trace_data,
-                    constitution_ref=asdict(constitution) if constitution else None,
-                    extensions=extensions,
-                )
-                enforcement_decision = "PASSED"
+        if enforcement_decision == "WARNED":
+            warned = [c for c in receipt["checks"] if not c.get("passed") and c.get("enforcement_level") == "warn"]
+            names = ", ".join(f"{c['check_id']} ({c['name']})" for c in warned)
+            warnings.warn(
+                f"Sanna coherence warning: {names} — status={receipt['coherence_status']}",
+                stacklevel=2,
+            )
 
-            # 5a. Identity verification (NOT in fingerprint — added post-hash)
-            if loaded_constitution and loaded_constitution.identity.identity_claims:
-                from .constitution import verify_identity_claims as _verify_claims
-                iv_summary = _verify_claims(
-                    loaded_constitution.identity,
-                    provider_keys=identity_provider_keys,
-                )
-                receipt["identity_verification"] = {
-                    "total_claims": iv_summary.total_claims,
-                    "verified": iv_summary.verified_count,
-                    "failed": iv_summary.failed_count,
-                    "unverified": iv_summary.unverified_count,
-                    "all_verified": iv_summary.all_verified,
-                    "claims": [
-                        {
-                            "provider": r.claim.provider,
-                            "claim_type": r.claim.claim_type,
-                            "credential_id": r.claim.credential_id,
-                            "status": r.status,
-                        }
-                        for r in iv_summary.results
-                    ],
-                }
-
-            # 5b. Sign receipt if private key provided
-            if private_key_path is not None:
-                from .crypto import sign_receipt as _sign_receipt
-                receipt = _sign_receipt(receipt, private_key_path)
-
-            # 6. Write receipt to disk if configured
-            if receipt_dir is not None:
-                _write_receipt(receipt, receipt_dir)
-
-            # 6b. Save to store if configured
-            if _store_instance is not None:
-                try:
-                    _store_instance.save(receipt)
-                except Exception:
-                    logger.warning("Failed to save receipt to store", exc_info=True)
-
-            # 7. Apply enforcement
-            if enforcement_decision == "HALTED":
-                failed = [c for c in receipt["checks"] if not c.get("passed") and c.get("enforcement_level") == "halt"]
-                names = ", ".join(f"{c['check_id']} ({c['name']})" for c in failed)
-                raise SannaHaltError(
-                    f"Sanna coherence check failed: {names}",
-                    receipt=receipt,
-                )
-
-            if enforcement_decision == "WARNED":
-                warned = [c for c in receipt["checks"] if not c.get("passed") and c.get("enforcement_level") == "warn"]
-                names = ", ".join(f"{c['check_id']} ({c['name']})" for c in warned)
-                warnings.warn(
-                    f"Sanna coherence warning: {names} — status={receipt['coherence_status']}",
-                    stacklevel=2,
-                )
-
-            return SannaResult(output=result, receipt=receipt)
-
-        return wrapper
+        return SannaResult(output=result, receipt=receipt)
 
     # Support both @sanna_observe and @sanna_observe(...)
     if _func is not None:

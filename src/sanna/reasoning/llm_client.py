@@ -177,7 +177,16 @@ def _sanitize_args(arguments: dict) -> str:
     """Serialize arguments for prompt, stripping _justification to avoid duplication."""
     clean = {k: v for k, v in arguments.items() if k != "_justification"}
     serialized = json.dumps(clean, indent=2, default=str)
-    return serialized[:2000]
+    return _escape_audit_content(serialized[:2000])
+
+
+def _escape_audit_content(text: str) -> str:
+    """Escape XML-like tags in untrusted content to prevent audit tag injection.
+
+    Prevents injection via ``</audit>`` in untrusted content that would
+    break out of the ``<audit>`` wrapper in LLM prompts.
+    """
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 
 # ---------------------------------------------------------------------------
@@ -229,11 +238,16 @@ def _build_prompts(
         system_prompt = _SYSTEM_PROMPT_STANDARD
         max_tokens = 16
 
+    # Escape untrusted content to prevent audit tag injection
+    safe_tool = _escape_audit_content(tool_name)
+    safe_args = _sanitize_args(arguments)  # already escaped
+    safe_justification = _escape_audit_content(justification)
+
     user_message = (
-        f"Tool being called: {tool_name}\n"
-        f"Arguments: {_sanitize_args(arguments)}\n\n"
+        f"Tool being called: {safe_tool}\n"
+        f"Arguments: {safe_args}\n\n"
         "Agent's stated reasoning:\n"
-        f"<audit>\n{justification}\n</audit>\n\n"
+        f"<audit>\n{safe_justification}\n</audit>\n\n"
         "Score this justification."
     )
 

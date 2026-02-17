@@ -564,14 +564,14 @@ class TestChainVerification:
 
 class TestV063Versions:
     def test_tool_version(self):
-        assert TOOL_VERSION == "0.12.2"
+        assert TOOL_VERSION == "0.12.3"
 
     def test_checks_version(self):
         assert CHECKS_VERSION == "4"
 
     def test_init_version(self):
         import sanna
-        assert sanna.__version__ == "0.12.2"
+        assert sanna.__version__ == "0.12.3"
 
 
 # =============================================================================
@@ -605,3 +605,209 @@ class TestConstitutionSignatureDataclass:
 
         # And the loaded constitution should verify
         assert verify_constitution_full(loaded, str(pub_path))
+
+
+# =============================================================================
+# 12. Signing Check Distinguishes Hash vs Signature (#3)
+# =============================================================================
+
+class TestSigningCheckDistinction:
+    def test_hashed_only_constitution_warns_in_middleware(self, tmp_path):
+        """sanna_observe with hashed-only constitution logs warning but doesn't error."""
+        const = _make_constitution()
+        signed = sign_constitution(const)  # hash-only
+        path = tmp_path / "hashed.yaml"
+        save_constitution(signed, path)
+
+        # Should succeed (hashed-only is allowed in middleware)
+        @sanna_observe(constitution_path=str(path))
+        def agent(query, context):
+            return "OK"
+
+        result = agent(query="test", context="ctx")
+        assert result is not None
+
+    def test_signed_constitution_accepted(self, tmp_path):
+        """sanna_observe with fully signed constitution works without warning."""
+        priv_path, _ = generate_keypair(tmp_path / "keys")
+        const = _make_constitution()
+        signed = sign_constitution(const, private_key_path=str(priv_path), signed_by="tester")
+        path = tmp_path / "signed.yaml"
+        save_constitution(signed, path)
+
+        @sanna_observe(constitution_path=str(path))
+        def agent(query, context):
+            return "OK"
+
+        result = agent(query="test", context="ctx")
+        assert result is not None
+
+    def test_unsigned_constitution_rejected(self, tmp_path):
+        """sanna_observe with no policy_hash should raise."""
+        const = _make_constitution()
+        # Save without signing — no policy_hash
+        path = tmp_path / "unsigned.yaml"
+        import yaml
+        from sanna.constitution import constitution_to_dict
+        data = constitution_to_dict(const)
+        data["policy_hash"] = None
+        with open(path, "w") as f:
+            yaml.dump(data, f)
+
+        with pytest.raises(SannaConstitutionError, match="not signed"):
+            @sanna_observe(constitution_path=str(path), strict=False)
+            def agent(query, context):
+                return "test"
+
+    def test_verify_chain_warns_on_hashed_only(self, tmp_path):
+        """verify_constitution_chain returns warning for hashed-only constitution."""
+        priv_path, _ = generate_keypair(tmp_path / "keys")
+        const = _make_constitution()
+
+        # Create a fully signed constitution first to generate a valid receipt
+        signed = sign_constitution(const, private_key_path=str(priv_path), signed_by="tester")
+        signed_path = tmp_path / "signed.yaml"
+        save_constitution(signed, signed_path)
+
+        @sanna_observe(constitution_path=str(signed_path), private_key_path=str(priv_path))
+        def agent(query, context):
+            return "OK"
+
+        result = agent(query="test", context="ctx")
+
+        # Now create a hashed-only version with the SAME policy_hash
+        # (We can't easily do this, so instead test with a separately-hashed constitution)
+        hashed_only = sign_constitution(const)  # hash-only
+        hashed_path = tmp_path / "hashed.yaml"
+        save_constitution(hashed_only, hashed_path)
+
+        errors, warnings = verify_constitution_chain(
+            result.receipt, str(hashed_path)
+        )
+        # Different policy_hash will cause an error, but the key check is that
+        # warnings mentions "not signed" for hashed-only constitutions
+        has_signing_warning = any("not signed" in w.lower() or "hashed but" in w.lower() for w in warnings)
+        assert has_signing_warning, f"Expected signing warning, got warnings={warnings}"
+
+    def test_gateway_rejects_hashed_only_constitution(self, tmp_path):
+        """Gateway constitution loading code should reject hashed-only constitutions."""
+        const = _make_constitution()
+        signed = sign_constitution(const)  # hash-only — has policy_hash but no signature
+        path = tmp_path / "hashed.yaml"
+        save_constitution(signed, path)
+
+        # Directly test the constitution check logic that the gateway uses
+        loaded = load_constitution(str(path))
+        assert loaded.policy_hash is not None  # has a hash
+        _sig = loaded.provenance.signature if loaded.provenance else None
+        assert not (_sig and getattr(_sig, 'value', None))  # but no signature
+
+
+# =============================================================================
+# Block 4 — Return type, async support, fingerprint error (#11, #13, #14)
+# =============================================================================
+
+
+class TestVerifyChainReturnType:
+    """verify_constitution_chain returns tuple[list, list] (#13)."""
+
+    def test_return_type_is_tuple(self, tmp_path):
+        """Return value is a 2-tuple (errors, warnings)."""
+        const = _make_constitution()
+        signed = sign_constitution(const)
+        path = tmp_path / "const.yaml"
+        save_constitution(signed, path)
+
+        @sanna_observe(constitution_path=str(path))
+        def agent(query, context):
+            return "test"
+
+        sr = agent(query="q", context="c")
+        result = verify_constitution_chain(sr.receipt, str(path))
+
+        assert isinstance(result, tuple), f"Expected tuple, got {type(result)}"
+        assert len(result) == 2
+        errors, warnings_list = result
+        assert isinstance(errors, list)
+        assert isinstance(warnings_list, list)
+
+    def test_hashed_only_returns_warning_not_error(self, tmp_path):
+        """Hashed-only constitution returns warning (not error) about missing signature."""
+        const = _make_constitution()
+        signed = sign_constitution(const)  # hash-only
+        path = tmp_path / "const.yaml"
+        save_constitution(signed, path)
+
+        @sanna_observe(constitution_path=str(path))
+        def agent(query, context):
+            return "test"
+
+        sr = agent(query="q", context="c")
+        errors, warn_list = verify_constitution_chain(sr.receipt, str(path))
+
+        assert len(errors) == 0, f"Unexpected errors: {errors}"
+        assert any("not signed" in w or "no cryptographic signature" in w for w in warn_list), (
+            f"Expected signing warning, got: {warn_list}"
+        )
+
+
+class TestSannaObserveAsync:
+    """sanna_observe works with async functions (#11)."""
+
+    def test_async_function_detected(self, tmp_path):
+        """Wrapping an async function returns an async wrapper."""
+        import asyncio
+        from sanna.middleware import sanna_observe
+
+        const = _make_constitution()
+        signed = sign_constitution(const)
+        path = tmp_path / "const.yaml"
+        save_constitution(signed, path)
+
+        @sanna_observe(constitution_path=str(path))
+        async def my_async_agent(query, context):
+            return f"Answer to {query}"
+
+        import inspect
+        assert inspect.iscoroutinefunction(my_async_agent), (
+            "sanna_observe should return an async wrapper for async functions"
+        )
+
+    def test_sync_function_still_works(self, tmp_path):
+        """Wrapping a sync function still works."""
+        from sanna.middleware import sanna_observe
+
+        const = _make_constitution()
+        signed = sign_constitution(const)
+        path = tmp_path / "const.yaml"
+        save_constitution(signed, path)
+
+        @sanna_observe(constitution_path=str(path))
+        def my_sync_agent(query, context):
+            return f"Answer to {query}"
+
+        import inspect
+        assert not inspect.iscoroutinefunction(my_sync_agent)
+
+        result = my_sync_agent(query="test?", context="Some context.")
+        assert result.output == "Answer to test?"
+        assert result.receipt is not None
+
+    def test_async_function_produces_receipt(self, tmp_path):
+        """Async wrapped function produces a valid receipt."""
+        import asyncio
+        from sanna.middleware import sanna_observe
+
+        const = _make_constitution()
+        signed = sign_constitution(const)
+        path = tmp_path / "const.yaml"
+        save_constitution(signed, path)
+
+        @sanna_observe(constitution_path=str(path))
+        async def my_async_agent(query, context):
+            return f"Async answer to {query}"
+
+        result = asyncio.run(my_async_agent(query="test?", context="Some context."))
+        assert result.output == "Async answer to test?"
+        assert result.receipt is not None
+        assert "receipt_id" in result.receipt

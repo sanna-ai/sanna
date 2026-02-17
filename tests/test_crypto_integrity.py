@@ -73,6 +73,7 @@ class TestRedactionDualFile:
 
         gw = object.__new__(SannaGateway)
         gw._receipt_store_path = str(tmp_path / "receipts")
+        gw._gateway_secret = b"test-secret"
         gw._redaction_config = RedactionConfig(
             enabled=True,
             mode="hash_only",
@@ -105,6 +106,7 @@ class TestRedactionDualFile:
 
         gw = object.__new__(SannaGateway)
         gw._receipt_store_path = str(tmp_path / "receipts")
+        gw._gateway_secret = b"test-secret"
         gw._redaction_config = RedactionConfig(
             enabled=True,
             mode="hash_only",
@@ -137,6 +139,7 @@ class TestRedactionDualFile:
 
         gw = object.__new__(SannaGateway)
         gw._receipt_store_path = str(tmp_path / "receipts")
+        gw._gateway_secret = b"test-secret"
         gw._redaction_config = RedactionConfig(
             enabled=True, mode="hash_only",
             fields=["arguments", "result_text"],
@@ -166,6 +169,7 @@ class TestRedactionDualFile:
 
         gw = object.__new__(SannaGateway)
         gw._receipt_store_path = str(tmp_path / "receipts")
+        gw._gateway_secret = b"test-secret"
         gw._redaction_config = RedactionConfig(
             enabled=True, mode="hash_only",
             fields=["arguments", "result_text"],
@@ -197,6 +201,7 @@ class TestRedactionDualFile:
 
         gw = object.__new__(SannaGateway)
         gw._receipt_store_path = str(tmp_path / "receipts")
+        gw._gateway_secret = b"test-secret"
         gw._redaction_config = RedactionConfig(enabled=False)
 
         gw._persist_receipt(receipt)

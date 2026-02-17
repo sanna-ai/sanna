@@ -1478,7 +1478,7 @@ class TestEscalationStoreHardening:
 
     def test_no_id_collisions_across_1000(self):
         """1000 IDs are all unique (full UUID prevents collisions)."""
-        store = EscalationStore(timeout=300, max_pending=2000)
+        store = EscalationStore(timeout=300, max_pending=2000, max_per_tool=2000)
         ids = set()
         for _ in range(1000):
             entry = store.create(
@@ -1927,3 +1927,187 @@ class TestApprovalIdempotency:
                 await gw.shutdown()
 
         asyncio.run(_test())
+
+
+# =============================================================================
+# Block 3 — EscalationStore hardening tests (#7 chmod guard, #8 per-tool limit)
+# =============================================================================
+
+
+class TestEscalationStoreNoChmodCwd:
+    """EscalationStore with filename-only persist_path doesn't chmod cwd (#7)."""
+
+    def test_persist_path_filename_only_resolves_to_home(self, tmp_path, monkeypatch):
+        """When persist_path is just a filename, _save_to_disk should NOT
+        ensure_secure_dir on '.' — it should resolve to a safe fallback."""
+        from unittest.mock import patch
+
+        # Use a filename-only persist_path (no directory component)
+        store = EscalationStore(persist_path="escalations.json", max_pending=10)
+
+        calls: list[str] = []
+
+        def tracking_ensure(d, *a, **kw):
+            calls.append(str(d))
+            # Don't actually create dirs during test
+            return
+
+        def noop_write(*a, **kw):
+            return
+
+        with patch("sanna.utils.safe_io.ensure_secure_dir", side_effect=tracking_ensure), \
+             patch("sanna.utils.safe_io.atomic_write_sync", side_effect=noop_write):
+            store.create(
+                prefixed_name="mock_update",
+                original_name="update",
+                arguments={"id": "1"},
+                server_name="mock",
+                reason="test",
+            )
+
+        # Should NOT have called ensure_secure_dir on "." or cwd
+        assert len(calls) == 1
+        called_dir = calls[0]
+        assert called_dir != "."
+        assert ".sanna" in called_dir, (
+            f"Expected fallback to ~/.sanna path, got: {called_dir}"
+        )
+
+    def test_persist_path_with_directory_uses_that_directory(self, tmp_path):
+        """When persist_path includes a directory, use it as-is."""
+        from unittest.mock import patch
+
+        persist = str(tmp_path / "subdir" / "store.json")
+        store = EscalationStore(persist_path=persist, max_pending=10)
+
+        calls: list[str] = []
+
+        def tracking_ensure(d, *a, **kw):
+            calls.append(str(d))
+
+        def noop_write(*a, **kw):
+            return
+
+        with patch("sanna.utils.safe_io.ensure_secure_dir", side_effect=tracking_ensure), \
+             patch("sanna.utils.safe_io.atomic_write_sync", side_effect=noop_write):
+            store.create(
+                prefixed_name="mock_update",
+                original_name="update",
+                arguments={"id": "1"},
+                server_name="mock",
+                reason="test",
+            )
+
+        assert len(calls) == 1
+        assert str(tmp_path / "subdir") in calls[0]
+
+
+class TestEscalationPerToolLimit:
+    """Per-tool escalation limit prevents single-tool DoS (#8)."""
+
+    def test_per_tool_limit_blocks_flood(self):
+        """Flooding one tool hits the per-tool cap."""
+        store = EscalationStore(max_pending=100, max_per_tool=3)
+
+        for i in range(3):
+            store.create(
+                prefixed_name="mock_delete",
+                original_name="delete",
+                arguments={"id": str(i)},
+                server_name="mock",
+                reason="test",
+            )
+
+        with pytest.raises(RuntimeError, match="Too many pending.*mock_delete"):
+            store.create(
+                prefixed_name="mock_delete",
+                original_name="delete",
+                arguments={"id": "overflow"},
+                server_name="mock",
+                reason="test",
+            )
+
+    def test_per_tool_limit_other_tools_still_work(self):
+        """Flooding tool A does NOT block tool B."""
+        store = EscalationStore(max_pending=100, max_per_tool=2)
+
+        # Saturate tool A
+        for i in range(2):
+            store.create(
+                prefixed_name="mock_delete",
+                original_name="delete",
+                arguments={"id": str(i)},
+                server_name="mock",
+                reason="test",
+            )
+
+        # Tool B should still work
+        entry = store.create(
+            prefixed_name="mock_update",
+            original_name="update",
+            arguments={"id": "1"},
+            server_name="mock",
+            reason="test",
+        )
+        assert entry.prefixed_name == "mock_update"
+
+    def test_global_cap_still_works(self):
+        """Global capacity limit still applies as a safety net."""
+        store = EscalationStore(max_pending=5, max_per_tool=100)
+
+        for i in range(5):
+            store.create(
+                prefixed_name=f"tool_{i}",
+                original_name=f"tool_{i}",
+                arguments={},
+                server_name="mock",
+                reason="test",
+            )
+
+        with pytest.raises(RuntimeError, match="at capacity"):
+            store.create(
+                prefixed_name="tool_overflow",
+                original_name="tool_overflow",
+                arguments={},
+                server_name="mock",
+                reason="test",
+            )
+
+    def test_per_tool_limit_approving_frees_slot(self):
+        """Approving an escalation (changing status from 'pending') frees
+        the per-tool slot for new requests."""
+        store = EscalationStore(max_pending=100, max_per_tool=2)
+
+        entries = []
+        for i in range(2):
+            e = store.create(
+                prefixed_name="mock_delete",
+                original_name="delete",
+                arguments={"id": str(i)},
+                server_name="mock",
+                reason="test",
+            )
+            entries.append(e)
+
+        # At limit — should fail
+        with pytest.raises(RuntimeError, match="Too many pending"):
+            store.create(
+                prefixed_name="mock_delete",
+                original_name="delete",
+                arguments={"id": "blocked"},
+                server_name="mock",
+                reason="test",
+            )
+
+        # Mark first as approved — frees a slot
+        store.mark_status(entries[0].escalation_id, "approved")
+
+        # Now it should work
+        new_entry = store.create(
+            prefixed_name="mock_delete",
+            original_name="delete",
+            arguments={"id": "unblocked"},
+            server_name="mock",
+            reason="test",
+        )
+        assert new_entry.prefixed_name == "mock_delete"

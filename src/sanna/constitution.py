@@ -1773,19 +1773,21 @@ def constitution_to_dict(constitution: Constitution) -> dict:
 
 
 def save_constitution(constitution: Constitution, path: str | Path) -> Path:
-    """Save to .yaml/.yml/.json file."""
+    """Save to .yaml/.yml/.json file (atomic write)."""
+    from .utils.safe_io import atomic_write_text_sync
+
     path = Path(path)
     data = constitution_to_dict(constitution)
 
-    with open(path, "w") as f:
-        if path.suffix in (".yaml", ".yml"):
-            import yaml
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-        elif path.suffix == ".json":
-            json.dump(data, f, indent=2)
-        else:
-            raise ValueError(f"Unsupported file format: {path.suffix}")
+    if path.suffix in (".yaml", ".yml"):
+        import yaml
+        text = yaml.dump(data, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    elif path.suffix == ".json":
+        text = json.dumps(data, indent=2)
+    else:
+        raise ValueError(f"Unsupported file format: {path.suffix}")
 
+    atomic_write_text_sync(path, text)
     return path
 
 
@@ -1874,8 +1876,7 @@ def scaffold_constitution(output_path: str | Path | None = None) -> str:
     content = _SCAFFOLD_TEMPLATE.replace("{today}", today)
 
     if output_path is not None:
-        path = Path(output_path)
-        with open(path, "w") as f:
-            f.write(content)
+        from .utils.safe_io import atomic_write_text_sync
+        atomic_write_text_sync(Path(output_path), content)
 
     return content

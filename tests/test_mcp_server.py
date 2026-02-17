@@ -19,7 +19,7 @@ from sanna.mcp.server import (
     sanna_generate_receipt,
     sanna_list_checks,
     sanna_evaluate_action,
-    check_constitution_approval,
+    sanna_check_constitution_approval,
     mcp,
 )
 
@@ -483,7 +483,7 @@ class TestQueryReceipts:
 
 
 # =============================================================================
-# 9. check_constitution_approval
+# 9. sanna_check_constitution_approval
 # =============================================================================
 
 from sanna.constitution import (
@@ -558,7 +558,7 @@ def unapproved_constitution(tmp_path):
 class TestCheckConstitutionApproval:
     def test_approved_constitution_returns_approved_true(self, approved_constitution):
         """Tool returns approved=true for valid approved constitution."""
-        result = json.loads(check_constitution_approval(
+        result = json.loads(sanna_check_constitution_approval(
             constitution_path=approved_constitution["const_path"],
         ))
         assert result["approved"] is True
@@ -568,7 +568,7 @@ class TestCheckConstitutionApproval:
 
     def test_unapproved_constitution_returns_approved_false(self, unapproved_constitution):
         """Tool returns approved=false for unapproved constitution."""
-        result = json.loads(check_constitution_approval(
+        result = json.loads(sanna_check_constitution_approval(
             constitution_path=unapproved_constitution["const_path"],
         ))
         assert result["approved"] is False
@@ -576,7 +576,7 @@ class TestCheckConstitutionApproval:
 
     def test_content_hash_valid_when_untampered(self, approved_constitution):
         """Tool returns content_hash_valid=true when content matches."""
-        result = json.loads(check_constitution_approval(
+        result = json.loads(sanna_check_constitution_approval(
             constitution_path=approved_constitution["const_path"],
         ))
         assert result["content_hash_valid"] is True
@@ -590,7 +590,7 @@ class TestCheckConstitutionApproval:
         data["identity"]["agent_name"] = "tampered-agent"
         const_path.write_text(yaml.dump(data, default_flow_style=False))
 
-        result = json.loads(check_constitution_approval(
+        result = json.loads(sanna_check_constitution_approval(
             constitution_path=str(const_path),
         ))
         assert result["approved"] is False
@@ -598,7 +598,7 @@ class TestCheckConstitutionApproval:
 
     def test_missing_constitution_returns_error(self):
         """Tool handles missing constitution gracefully."""
-        result = json.loads(check_constitution_approval(
+        result = json.loads(sanna_check_constitution_approval(
             constitution_path="/nonexistent/constitution.yaml",
         ))
         assert result["approved"] is False
@@ -606,7 +606,7 @@ class TestCheckConstitutionApproval:
 
     def test_author_signature_present(self, approved_constitution):
         """Tool reports author signature present/verified structure."""
-        result = json.loads(check_constitution_approval(
+        result = json.loads(sanna_check_constitution_approval(
             constitution_path=approved_constitution["const_path"],
         ))
         assert result["author_signature"]["present"] is True
@@ -615,7 +615,7 @@ class TestCheckConstitutionApproval:
 
     def test_approved_at_is_iso8601(self, approved_constitution):
         """Approval timestamp is a valid ISO 8601 string."""
-        result = json.loads(check_constitution_approval(
+        result = json.loads(sanna_check_constitution_approval(
             constitution_path=approved_constitution["const_path"],
         ))
         assert result["approved"] is True
@@ -624,7 +624,7 @@ class TestCheckConstitutionApproval:
 
     def test_tool_output_is_valid_json(self, approved_constitution):
         """Tool output is valid JSON with expected keys."""
-        raw = check_constitution_approval(
+        raw = sanna_check_constitution_approval(
             constitution_path=approved_constitution["const_path"],
         )
         result = json.loads(raw)
@@ -635,11 +635,11 @@ class TestCheckConstitutionApproval:
 
     def test_tool_registered_in_server(self):
         """Tool is registered in the MCP server tool list."""
-        assert callable(check_constitution_approval)
+        assert callable(sanna_check_constitution_approval)
 
     def test_unapproved_still_reports_author_signature(self, unapproved_constitution):
         """Unapproved constitution still reports author signature status."""
-        result = json.loads(check_constitution_approval(
+        result = json.loads(sanna_check_constitution_approval(
             constitution_path=unapproved_constitution["const_path"],
         ))
         assert result["approved"] is False
@@ -650,7 +650,7 @@ class TestCheckConstitutionApproval:
 
     def test_no_keys_verified_is_null(self, approved_constitution):
         """With no keys provided, verified fields are null."""
-        result = json.loads(check_constitution_approval(
+        result = json.loads(sanna_check_constitution_approval(
             constitution_path=approved_constitution["const_path"],
         ))
         assert result["approved"] is True
@@ -659,7 +659,7 @@ class TestCheckConstitutionApproval:
 
     def test_author_key_verifies_author_signature(self, approved_constitution):
         """With author key, author signature is verified."""
-        result = json.loads(check_constitution_approval(
+        result = json.loads(sanna_check_constitution_approval(
             constitution_path=approved_constitution["const_path"],
             author_public_key_path=str(approved_constitution["author_pub"]),
         ))
@@ -668,7 +668,7 @@ class TestCheckConstitutionApproval:
 
     def test_approver_key_verifies_approval_signature(self, approved_constitution):
         """With approver key, approval signature is verified."""
-        result = json.loads(check_constitution_approval(
+        result = json.loads(sanna_check_constitution_approval(
             constitution_path=approved_constitution["const_path"],
             approver_public_key_path=str(approved_constitution["approver_pub"]),
         ))
@@ -677,7 +677,7 @@ class TestCheckConstitutionApproval:
 
     def test_both_keys_full_verification(self, approved_constitution):
         """With both keys, full verification."""
-        result = json.loads(check_constitution_approval(
+        result = json.loads(sanna_check_constitution_approval(
             constitution_path=approved_constitution["const_path"],
             author_public_key_path=str(approved_constitution["author_pub"]),
             approver_public_key_path=str(approved_constitution["approver_pub"]),
@@ -694,7 +694,7 @@ class TestCheckConstitutionApproval:
         data["approval"]["records"][0]["approval_signature"] = ""
         const_path.write_text(yaml.dump(data, default_flow_style=False))
 
-        result = json.loads(check_constitution_approval(
+        result = json.loads(sanna_check_constitution_approval(
             constitution_path=str(const_path),
         ))
         assert result["approved"] is False
@@ -703,7 +703,7 @@ class TestCheckConstitutionApproval:
     def test_wrong_approver_key_fails_verification(self, approved_constitution):
         """Wrong approver key fails approval signature verification."""
         # Use author key as approver key (wrong key)
-        result = json.loads(check_constitution_approval(
+        result = json.loads(sanna_check_constitution_approval(
             constitution_path=approved_constitution["const_path"],
             approver_public_key_path=str(approved_constitution["author_pub"]),
         ))

@@ -702,3 +702,32 @@ class TestWALMode:
         row = store._conn.execute("PRAGMA journal_mode").fetchone()
         assert row[0] == "wal"
         store.close()
+
+
+# =============================================================================
+# Block 4 — SQLite permissions hardening (#9)
+# =============================================================================
+
+
+class TestSQLitePermissions:
+    """ReceiptStore hardens directory and file permissions (#9)."""
+
+    def test_receipt_store_dir_permissions(self, tmp_path):
+        """Parent directory has 0o700 permissions."""
+        import stat
+        db_dir = tmp_path / "secure_store"
+        db_path = str(db_dir / "receipts.db")
+        store = ReceiptStore(db_path)
+        mode = db_dir.stat().st_mode & 0o777
+        assert mode == 0o700, f"Expected 0o700, got {oct(mode)}"
+        store.close()
+
+    def test_receipt_store_file_permissions(self, tmp_path):
+        """DB file has 0o600 permissions."""
+        import stat
+        db_path = str(tmp_path / "secure.db")
+        store = ReceiptStore(db_path)
+        from pathlib import Path
+        mode = Path(db_path).stat().st_mode & 0o777
+        assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+        store.close()

@@ -727,3 +727,58 @@ class TestOptionalDownstreamConfig:
         cfg_path = _write_config(tmp_path, content)
         cfg = load_gateway_config(cfg_path)
         assert cfg.downstreams[0].optional is False
+
+
+# =============================================================================
+# Block 4 — Unused config field warnings (#12)
+# =============================================================================
+
+
+class TestUnusedConfigWarning:
+    """Unused config fields log a WARNING (#12)."""
+
+    def test_transport_field_warns(self, tmp_path, caplog):
+        """Setting 'transport' in gateway config logs a warning."""
+        import logging
+
+        const_path, key_path = _create_signed_constitution(tmp_path)
+        content = f"""
+        gateway:
+          transport: stdio
+          constitution: {const_path}
+          signing_key: {key_path}
+
+        downstream:
+          - name: test-srv
+            command: echo
+        """
+        cfg_path = _write_config(tmp_path, content)
+        with caplog.at_level(logging.WARNING, logger="sanna.gateway.config"):
+            load_gateway_config(cfg_path)
+
+        warning_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("transport" in m and "not yet supported" in m for m in warning_msgs), (
+            f"Expected warning about 'transport', got: {warning_msgs}"
+        )
+
+    def test_receipt_store_mode_field_warns(self, tmp_path, caplog):
+        """Setting 'receipt_store_mode' in gateway config logs a warning."""
+        import logging
+
+        const_path, key_path = _create_signed_constitution(tmp_path)
+        content = f"""
+        gateway:
+          receipt_store_mode: sqlite
+          constitution: {const_path}
+          signing_key: {key_path}
+
+        downstream:
+          - name: test-srv
+            command: echo
+        """
+        cfg_path = _write_config(tmp_path, content)
+        with caplog.at_level(logging.WARNING, logger="sanna.gateway.config"):
+            load_gateway_config(cfg_path)
+
+        warning_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("receipt_store_mode" in m and "not yet supported" in m for m in warning_msgs)
