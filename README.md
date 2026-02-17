@@ -8,6 +8,16 @@ Sanna checks reasoning during execution, halts when constraints are violated, an
 pip install sanna
 ```
 
+Set up governance (one-time):
+
+```bash
+sanna init         # Choose template, set agent name, enforcement level
+sanna keygen       # Generate Ed25519 keypair (~/.sanna/keys/)
+sanna sign constitution.yaml --private-key ~/.sanna/keys/<key-id>.key
+```
+
+Now wrap the functions you want to govern. `@sanna_observe` decorates the functions you choose — internal reasoning, prompt construction, and non-governed function calls produce no receipts.
+
 ```python
 from sanna import sanna_observe, SannaHaltError
 
@@ -26,14 +36,6 @@ except SannaHaltError as e:
     print(f"HALTED: {e}")  # Constitution violation detected
 ```
 
-Generate a constitution interactively:
-
-```bash
-sanna init         # Choose template, set agent name, enforcement level
-sanna keygen       # Generate Ed25519 keypair (~/.sanna/keys/)
-sanna sign constitution.yaml --private-key ~/.sanna/keys/<key-id>.key
-```
-
 ## Quick Start — Gateway Mode
 
 No code changes to your agent. The gateway sits between your MCP client and downstream servers.
@@ -47,7 +49,7 @@ sanna sign constitution.yaml --private-key ~/.sanna/keys/<key-id>.key
 sanna gateway --config gateway.yaml
 ```
 
-Point your MCP client (Claude Desktop, Claude Code, Cursor) at the gateway instead of directly at your downstream servers. Every tool call is now governed.
+Point your MCP client (Claude Desktop, Claude Code, Cursor) at the gateway instead of directly at your downstream servers. Every tool call is now governed. The gateway governs tool calls that pass through it — internal LLM reasoning generates zero receipts, only actions that cross the governance boundary are documented.
 
 ```
 MCP Client (Claude Desktop / Claude Code / Cursor)
@@ -77,7 +79,7 @@ This generates keys, creates a constitution, simulates a governed tool call, gen
 
 **Constitution** — YAML document defining what the agent can, cannot, and must escalate. Ed25519-signed. Modification after signing is detected on load.
 
-**Receipt** — JSON artifact binding inputs, reasoning, action, and check results into a cryptographically signed, schema-validated, deterministically fingerprinted record.
+**Receipt** — JSON artifact binding inputs, reasoning, action, and check results into a cryptographically signed, schema-validated, deterministically fingerprinted record. Receipts are generated per governed action — when an agent calls a tool or executes a decorated function — not per conversational turn. An agent that reasons for twenty turns and executes one action produces one receipt.
 
 **Coherence Checks (C1-C5)** — Five built-in deterministic heuristics. No API calls or external dependencies.
 

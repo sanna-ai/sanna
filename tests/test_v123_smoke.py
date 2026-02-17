@@ -1,6 +1,6 @@
-"""v0.12.4 integration smoke tests — Block 8 final validation.
+"""v0.12.5 integration smoke tests — Block 8 final validation.
 
-These tests verify the complete v0.12.4 release works end-to-end:
+These tests verify the complete v0.12.5 release works end-to-end:
 demo, inspect, check-config, verify, unified CLI, imports, async.
 """
 
@@ -29,10 +29,10 @@ from sanna.crypto import generate_keypair
 class TestVersion:
     def test_version_is_0_12_3(self):
         import sanna
-        assert sanna.__version__ == "0.12.4"
+        assert sanna.__version__ == "0.12.5"
 
     def test_tool_version_is_0_12_3(self):
-        assert TOOL_VERSION == "0.12.4"
+        assert TOOL_VERSION == "0.12.5"
 
 
 # =============================================================================
@@ -167,7 +167,7 @@ class TestUnifiedCLISmoke:
         with patch("sys.argv", ["sanna", "--version"]):
             rc = main_sanna()
         assert rc == 0
-        assert "0.12.4" in capsys.readouterr().out
+        assert "0.12.5" in capsys.readouterr().out
 
 
 # =============================================================================

@@ -297,15 +297,18 @@ class EscalationStore:
         async def _purge_loop() -> None:
             while True:
                 await _asyncio.sleep(interval_seconds)
-                purged = self.purge_expired()
-                if purged:
-                    logger.info(
-                        "Purged %d expired escalation(s)", purged,
-                    )
-                if self._persist_path:
-                    loop = _asyncio.get_running_loop()
-                    await loop.run_in_executor(
-                        None, self._save_to_disk,
+                try:
+                    purged = self.purge_expired()
+                    if purged:
+                        logger.info(
+                            "Purged %d expired escalation(s)", purged,
+                        )
+                    if self._persist_path:
+                        await self._save_to_disk_async()
+                except Exception:
+                    logger.warning(
+                        "Escalation purge/persist cycle failed",
+                        exc_info=True,
                     )
 
         self._purge_task = _asyncio.create_task(_purge_loop())
@@ -369,14 +372,39 @@ class EscalationStore:
 
     # -- Async persistence wrapper --------------------------------------------
 
-    async def _save_to_disk_async(self) -> None:
-        """Offload disk persistence to a thread-pool executor.
+    def _write_snapshot_to_disk(self, snapshot: dict) -> None:
+        """Write a pre-built snapshot dict to disk (runs in executor thread).
 
-        Prevents blocking the asyncio event loop during file I/O.
+        Separated from ``_save_to_disk`` so the dict iteration happens
+        in the event-loop thread (safe, single-threaded) and only the
+        file I/O runs in the executor.
         """
-        if self._persist_path:
-            loop = _asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._save_to_disk)
+        from sanna.utils.safe_io import atomic_write_sync, ensure_secure_dir
+        persist_dir = Path(self._persist_path).parent
+        ensure_secure_dir(persist_dir)
+        atomic_write_sync(
+            self._persist_path,
+            json.dumps(snapshot, indent=2),
+            mode=0o600,
+        )
+
+    async def _save_to_disk_async(self) -> None:
+        """Snapshot pending dict in event-loop thread, then write via executor.
+
+        The snapshot is taken in the single-threaded event loop to avoid
+        ``RuntimeError: dictionary changed size during iteration`` when
+        the executor thread reads ``self._pending`` concurrently.
+        """
+        if not self._persist_path:
+            return
+        # Snapshot in the event loop thread (safe — single-threaded)
+        snapshot = {
+            eid: record.to_dict()
+            for eid, record in self._pending.items()
+            if not self.is_expired(record)
+        }
+        loop = _asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._write_snapshot_to_disk, snapshot)
 
     # -- Core operations ------------------------------------------------------
 
@@ -1198,13 +1226,14 @@ class SannaGateway:
                     f"{self._constitution_path}. "
                     f"Run: sanna-sign-constitution {self._constitution_path}"
                 )
-            # Require Ed25519 signature, not just a policy_hash from hashing
+            # Require Ed25519 signature with valid structure
+            from sanna.utils.crypto_validation import is_valid_signature_structure
             _sig = self._constitution.provenance.signature if self._constitution.provenance else None
-            if not (_sig and getattr(_sig, 'value', None)):
+            if not is_valid_signature_structure(_sig):
                 raise SannaConstitutionError(
-                    f"Constitution is hashed but not signed (no cryptographic signature): "
+                    f"Constitution signature is missing or malformed: "
                     f"{self._constitution_path}. "
-                    f"Run: sanna-sign-constitution {self._constitution_path} --private-key <key>"
+                    f"Sign with: sanna-sign-constitution {self._constitution_path} --private-key <key>"
                 )
 
             # Verify constitution Ed25519 signature if public key configured

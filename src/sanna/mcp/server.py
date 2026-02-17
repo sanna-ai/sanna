@@ -245,12 +245,13 @@ def sanna_generate_receipt(
                     "receipt": None,
                 })
 
-            # Require Ed25519 signature, not just a policy hash
+            # Require Ed25519 signature with valid structure
+            from sanna.utils.crypto_validation import is_valid_signature_structure
             _sig = constitution.provenance.signature if constitution.provenance else None
-            if not (_sig and getattr(_sig, 'value', None)):
+            if not is_valid_signature_structure(_sig):
                 return json.dumps({
                     "error": (
-                        f"Constitution is hashed but not signed: "
+                        f"Constitution signature is missing or malformed: "
                         f"{constitution_path}. Sign with: "
                         f"sanna-sign-constitution {constitution_path} "
                         f"--private-key <key>"

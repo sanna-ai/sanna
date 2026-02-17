@@ -754,10 +754,11 @@ def sanna_observe(
                 f"Run: sanna-sign-constitution {constitution_path}"
             )
         # Reject constitutions that are hashed but not Ed25519-signed
+        from .utils.crypto_validation import is_valid_signature_structure
         _sig = loaded_constitution.provenance.signature if loaded_constitution.provenance else None
-        if not (_sig and getattr(_sig, 'value', None)):
+        if not is_valid_signature_structure(_sig):
             raise SannaConstitutionError(
-                f"Constitution is hashed but not signed: {constitution_path}. "
+                f"Constitution signature is missing or malformed: {constitution_path}. "
                 f"Sign with: sanna-sign-constitution {constitution_path} --private-key <key>"
             )
         constitution_ref_override = constitution_to_receipt_ref(loaded_constitution)

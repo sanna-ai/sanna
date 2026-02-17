@@ -8,10 +8,13 @@ Uses Python's built-in sqlite3 module with no external dependencies.
 import json
 import logging
 import os
+import stat
 import sqlite3
+import sys
 import threading
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger("sanna.store")
@@ -129,24 +132,90 @@ class ReceiptStore:
         if db_dir:
             ensure_secure_dir(db_dir, 0o700)
 
-        # Pre-create the DB file with restricted permissions to
-        # eliminate the race window between sqlite3.connect() creating
-        # the file with default umask and a subsequent chmod().
-        from pathlib import Path
         db_file = Path(db_path)
-        if not db_file.exists():
-            fd = os.open(str(db_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            os.close(fd)
+        self._secure_db_file(db_file)
 
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.row_factory = sqlite3.Row
+
+        # Harden WAL/SHM sidecar files after enabling WAL mode
+        self._harden_wal_sidecars(db_path)
+
         try:
             self._init_schema()
         except Exception:
             self._conn.close()
             raise
         self._has_json1 = self._detect_json1()
+
+    def _secure_db_file(self, db_file: Path) -> None:
+        """Validate and harden a DB file (new or existing).
+
+        For new files: creates with restricted permissions (0o600).
+        For existing files: validates regular file, ownership, and
+        enforces 0o600 permissions. Rejects symlinks via O_NOFOLLOW.
+        """
+        from sanna.utils.safe_io import SecurityError
+
+        if db_file.exists():
+            # Existing file — validate and harden
+            if sys.platform == "win32":
+                # Windows: limited validation — reject symlinks, chmod only
+                if db_file.is_symlink():
+                    raise SecurityError(
+                        f"Cannot open {db_file}: is a symlink"
+                    )
+                try:
+                    os.chmod(str(db_file), 0o600)
+                except OSError as e:
+                    logger.warning(
+                        "Could not harden DB file permissions on Windows: %s", e,
+                    )
+            else:
+                try:
+                    fd = os.open(str(db_file), os.O_RDWR | os.O_NOFOLLOW)
+                except OSError:
+                    raise SecurityError(
+                        f"Cannot open {db_file}: may be a symlink or inaccessible"
+                    )
+                try:
+                    st = os.fstat(fd)
+                    if not stat.S_ISREG(st.st_mode):
+                        raise SecurityError(
+                            f"{db_file} is not a regular file"
+                        )
+                    if st.st_uid != os.getuid():
+                        raise SecurityError(
+                            f"{db_file} is not owned by current user"
+                        )
+                    os.fchmod(fd, 0o600)
+                finally:
+                    os.close(fd)
+        else:
+            # New file — create with restricted permissions
+            fd = os.open(str(db_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+
+    def _harden_wal_sidecars(self, db_path: str) -> None:
+        """Ensure WAL/SHM sidecar files have restricted permissions."""
+        if sys.platform == "win32":
+            return
+        for suffix in ("-wal", "-shm"):
+            sidecar = Path(db_path + suffix)
+            if sidecar.exists():
+                if sidecar.is_symlink():
+                    logger.warning(
+                        "Sidecar %s is a symlink — skipping permission hardening",
+                        sidecar,
+                    )
+                    continue
+                try:
+                    os.chmod(str(sidecar), 0o600)
+                except OSError as e:
+                    logger.warning(
+                        "Could not harden sidecar %s: %s", sidecar, e,
+                    )
 
     def _detect_json1(self) -> bool:
         """Detect whether the SQLite build has JSON1 extension support."""

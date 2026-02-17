@@ -288,7 +288,7 @@ class TestConstitutionSignatureVerification:
             )
             with pytest.raises(
                 SannaConstitutionError,
-                match="hashed but not signed|no cryptographic signature",
+                match="hashed but not signed|no cryptographic signature|missing or malformed",
             ):
                 await gw.start()
 

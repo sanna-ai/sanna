@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.12.5] - 2026-02-17
+
+Final security hardening from review cycle 4 (2 independent security reviews + 1 adoption review of v0.12.4).
+
+### Security
+- **LLM semantic evaluator prompts hardened** -- All _CHECK_PROMPTS in evaluators/llm.py now wrap untrusted content (context, output, constitution) in `<audit>` sub-tags with XML entity escaping, matching the reasoning client pattern. Shared `escape_audit_content` helper in `sanna.utils.sanitize`.
+- **Legacy coherence client prompt injection eliminated** -- `AnthropicClient.evaluate_coherence` now wraps untrusted content (tool name, args, justification) in `<audit>` tags with XML escaping. No LLM judge paths accept unescaped untrusted input.
+- **SQLite ReceiptStore hardens existing DB files** -- Existing databases are validated (regular file, correct ownership) and permissions enforced to 0o600 on open. WAL/SHM sidecar files hardened after journal mode enable. Symlinks rejected via `O_NOFOLLOW`.
+- **Signature presence checks require valid Ed25519 structure** -- All enforcement points (middleware, gateway, MCP) now validate base64 encoding and 64-byte signature length via `is_valid_signature_structure()`. Whitespace, junk, and placeholder strings no longer satisfy the "signed" check.
+
+### Reliability
+- **EscalationStore thread-safe persistence** -- Dict snapshot taken in event loop thread before offloading to executor, eliminating cross-thread race on `self._pending`. Purge loop wrapped in try/except for resilience.
+
+### Documentation
+- **README Quick Start reordered** -- Library Mode now shows setup steps (keygen, init, sign) before the Python code block.
+- **Receipts-per-action clarified** -- README explicitly states receipts are generated per governed action, not per conversational turn.
+- **`_justification` field verified** -- Templates and examples confirmed to use correct field names.
+
 ## [0.12.4] - 2026-02-17
 
 Final pre-launch fixes from third review cycle (2 independent security reviews + 1 adoption review of v0.12.3).
