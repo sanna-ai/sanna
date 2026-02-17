@@ -139,7 +139,16 @@ sanna drift-report --db .sanna/receipts.db --window 30 --json
 
 ## Constitution Templates
 
-Five pre-built templates for common deployment patterns:
+`sanna init` offers three interactive templates plus blank:
+
+| Template | Use Case |
+|----------|----------|
+| Enterprise IT | Strict enforcement, ServiceNow-style compliance |
+| Customer-Facing | Standard enforcement, Salesforce-style support agents |
+| General Purpose | Advisory enforcement, starter template |
+| Blank | Empty constitution for custom configuration |
+
+Five additional gateway-oriented templates are available in `examples/constitutions/`:
 
 | Template | Use Case |
 |----------|----------|
@@ -170,6 +179,7 @@ All commands are available as `sanna <command>` or `sanna-<command>`:
 | `sanna drift-report` | Fleet governance drift report |
 | `sanna bundle-create` | Create evidence bundle zip |
 | `sanna bundle-verify` | Verify evidence bundle (7-step) |
+| `sanna generate` | Generate receipt from Langfuse trace |
 
 ## API Reference
 
