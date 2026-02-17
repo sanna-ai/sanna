@@ -1,7 +1,7 @@
 """
 Sanna Receipt offline verifier.
 
-Validates receipts without requiring Langfuse or any network access.
+Validates receipts without any network access.
 
 Exit codes:
   0 = valid

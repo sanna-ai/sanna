@@ -59,8 +59,7 @@ Use descriptive branch names: `feature/gateway-mcp-client`, `fix/c3-false-positi
 
 Adapters bridge Sanna receipts to observability and orchestration platforms. Existing adapters:
 
-- **Langfuse**: `sanna/adapters/langfuse.py`
-- **OpenTelemetry**: `sanna/otel/` — governance semantic conventions for OTel-compatible backends
+- **OpenTelemetry**: `sanna/exporters/otel_exporter.py` — governance semantic conventions for OTel-compatible backends
 - **MCP**: `sanna/mcp/` — FastMCP server exposing Sanna tools as MCP tool calls
 - **Gateway**: `sanna/gateway/` — (v0.10.0) MCP enforcement proxy with downstream client
 
@@ -76,7 +75,7 @@ Templates are accessible via `sanna init-constitution --template <name>`. As of 
 - `openclaw-personal` — individuals running autonomous agents
 - `openclaw-developer` — skill builders proving safety for marketplace distribution
 - `cowork-personal` — knowledge workers using Cowork/Claude Desktop with MCP
-- `cowork-team` — small teams sharing MCP infrastructure
+- `cowork-team` — small teams sharing governance via Git (each dev runs own gateway)
 - `claude-code-standard` — developers using Claude Code with MCP connectors
 
 When adding templates:

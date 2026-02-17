@@ -10,6 +10,12 @@ provenance:
   approval_date: '2026-01-01'
   approval_method: test-approval
   change_history: []
+  signature:
+    value: N0n7F97vBVFPqAs5Dd/jyKmrymRPcmNM4MoD4F5kX/Dvnjgc6CX8girC5zayejZ5oUQJrtatc2nJNDKK3wmTDw==
+    key_id: c7065a8b70d9ad93611125691c762cedbef6c15e8f4fc25a86cabb4ceecbd3d8
+    signed_by: test-signer
+    signed_at: '2026-02-17T06:27:56.105347+00:00'
+    scheme: constitution_sig_v1
 boundaries:
 - id: B001
   description: Test boundary

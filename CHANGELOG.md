@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.12.4] - 2026-02-17
+
+Final pre-launch fixes from third review cycle (2 independent security reviews + 1 adoption review of v0.12.3).
+
+### Security
+- **SannaGateway.for_single_server() now propagates policy config** — Factory method correctly wires policy_overrides, default_policy, and circuit_breaker_cooldown into DownstreamSpec. Passing policy kwargs alongside a downstreams list now raises ValueError.
+- **Middleware rejects unsigned constitutions** — @sanna_observe now raises SannaConstitutionError for hashed-only constitutions, matching gateway enforcement behavior.
+- **MCP receipt generation requires signed constitution** — sanna_generate_receipt MCP endpoint checks for cryptographic signature, not just policy hash.
+- **SQLite store uses fd-based permission hardening** — Directory creation uses ensure_secure_dir(). DB file pre-created with 0o600 before sqlite3.connect to eliminate race window.
+
+### Reliability
+- **EscalationStore persistence path resolved at init** — Filename-only paths relocated to ~/.sanna/escalations/. No more writes to CWD.
+- **EscalationStore saves offloaded to executor** — create, mark_status, and remove use run_in_executor for async safety.
+
+### Correctness
+- **LLM judge prompt structure aligned** — All untrusted data (tool name, args, justification) now inside <audit> tags, matching system prompt instructions.
+- **sanna init path resolution fixed** — Gateway config references constitution filename when both files are in the same directory.
+- **sanna demo persists public key** — Public key saved alongside receipt for manual verification.
+
+### Removed
+- **Langfuse adapter** (`sanna.adapters.langfuse`) — Context extraction logic folded into core `extract_trace_data()` in `receipt.py`. The `sanna[langfuse]` extras group is removed. `sanna-generate` now accepts a trace-data JSON file instead of a Langfuse trace ID.
+
+### Documentation
+- **docs/gateway-config.md** — Fixed meta-tool names and persistence default to match code.
+- **docs/otel-integration.md** — OpenTelemetry integration guide: guaranteed vs experimental signal reference, configuration examples, pointer+hash architecture.
+- **README** — Added Observability section for OTel integration. Removed Langfuse references.
+- **cowork-team template** — Clarified description: shared governance via Git, not shared gateway infrastructure.
+
 ## [0.12.3] - 2026-02-17
 
 ### Security

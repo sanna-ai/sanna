@@ -21,7 +21,8 @@ from pathlib import Path
 # Add src to path for development
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from sanna.constitution import load_constitution, compute_constitution_hash
+from sanna.constitution import load_constitution, compute_constitution_hash, sign_constitution
+from sanna.crypto import generate_keypair
 from sanna.drift import DriftAnalyzer, export_drift_report_to_file, format_drift_report
 from sanna.evaluators import register_invariant_evaluator, clear_evaluators
 from sanna.init_constitution import load_template, render_template
@@ -148,11 +149,15 @@ def _register_custom_evaluator():
 # =============================================================================
 
 def setup_constitutions(tmp_dir: Path):
-    """Load templates, customise, hash-sign, and return paths by agent name.
+    """Load templates, customise, sign with Ed25519, and return paths by agent name.
 
-    Uses YAML-patching to set policy_hash without round-tripping through
-    save_constitution (which serialises null fields that fail schema validation).
+    Uses YAML-patching to set policy_hash and inject the Ed25519 signature
+    without round-tripping through save_constitution (which serialises null
+    fields that fail schema validation).
     """
+    # Generate a single keypair for all demo constitutions
+    priv_path, _ = generate_keypair(tmp_dir / "keys")
+
     paths = {}
     for agent in AGENTS:
         template_content = load_template(agent["template"])
@@ -167,13 +172,30 @@ def setup_constitutions(tmp_dir: Path):
         if agent["name"] == "custom-agent":
             rendered = _inject_custom_invariant(rendered)
 
-        # Write unsigned, compute hash, patch YAML
+        # Write unsigned, compute hash, patch YAML with policy_hash
         unsigned_path = tmp_dir / f"{agent['name']}_unsigned.yaml"
         unsigned_path.write_text(rendered, encoding="utf-8")
 
         constitution = load_constitution(str(unsigned_path))
         policy_hash = compute_constitution_hash(constitution)
-        signed_yaml = rendered.replace("policy_hash: null", f"policy_hash: {policy_hash}")
+        hashed_yaml = rendered.replace("policy_hash: null", f"policy_hash: {policy_hash}")
+
+        # Sign the constitution with Ed25519 and inject signature into YAML
+        signed_const = sign_constitution(
+            constitution, private_key_path=str(priv_path), signed_by="demo-signer"
+        )
+        sig = signed_const.provenance.signature
+        sig_block = (
+            f"  signature:\n"
+            f"    value: {sig.value}\n"
+            f"    key_id: {sig.key_id}\n"
+            f"    signed_by: {sig.signed_by}\n"
+            f"    signed_at: '{sig.signed_at}'\n"
+            f"    scheme: {sig.scheme}\n"
+        )
+        signed_yaml = hashed_yaml.replace(
+            "  change_history: []\n", f"  change_history: []\n{sig_block}"
+        )
 
         signed_path = tmp_dir / f"{agent['name']}.yaml"
         signed_path.write_text(signed_yaml, encoding="utf-8")

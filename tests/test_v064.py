@@ -161,11 +161,24 @@ class TestStrictSchemaValidation:
             def agent(query, context):
                 return "answer"
 
-    def test_sanna_observe_strict_false_allows_unsigned(self, tmp_path):
-        """sanna_observe(strict=False) should allow loading without schema validation."""
-        # Create a valid but unsigned constitution
+    def test_hashed_only_constitution_rejected_in_middleware(self, tmp_path):
+        """sanna_observe rejects hashed-but-not-signed constitutions even with strict=False."""
+        # Create a valid but hash-only (not Ed25519 signed) constitution
         const = _make_constitution()
         signed = sign_constitution(const)
+        path = tmp_path / "constitution.yaml"
+        save_constitution(signed, path)
+
+        with pytest.raises(SannaConstitutionError, match="hashed but not signed"):
+            @sanna_observe(constitution_path=str(path), strict=False)
+            def agent(query, context):
+                return "Grounded answer."
+
+    def test_sanna_observe_strict_false_allows_signed(self, tmp_path):
+        """sanna_observe(strict=False) works with properly signed constitutions."""
+        const = _make_constitution()
+        priv_path, _ = generate_keypair(tmp_path / "keys")
+        signed = sign_constitution(const, private_key_path=str(priv_path), signed_by="tester")
         path = tmp_path / "constitution.yaml"
         save_constitution(signed, path)
 
@@ -267,24 +280,18 @@ class TestChainVerificationSignatureBinding:
         assert len(errors) > 0
         assert any("mismatch" in e.lower() or "different" in e.lower() for e in errors)
 
-    def test_receipt_from_unsigned_constitution_passes(self, tmp_path):
-        """Receipt from unsigned constitution should pass chain verification
-        (no signature to compare)."""
+    def test_hashed_only_constitution_rejected_in_middleware(self, tmp_path):
+        """sanna_observe rejects hashed-only constitutions (no Ed25519 signature)."""
+        from sanna.constitution import SannaConstitutionError
         const = _make_constitution()
         signed = sign_constitution(const)  # hash only, no Ed25519
         path = tmp_path / "constitution.yaml"
         save_constitution(signed, path)
 
-        @sanna_observe(constitution_path=str(path))
-        def agent(query, context):
-            return "Grounded answer."
-
-        result = agent(query="test", context="Context")
-        receipt = result.receipt
-
-        # Chain verification without keys should pass (hash bond only)
-        errors, _ = verify_constitution_chain(receipt, str(path))
-        assert errors == [], f"Unexpected errors: {errors}"
+        with pytest.raises(SannaConstitutionError, match="hashed but not signed"):
+            @sanna_observe(constitution_path=str(path))
+            def agent(query, context):
+                return "Grounded answer."
 
     def test_signature_scheme_mismatch_detected(self, tmp_path):
         """If receipt and constitution have different scheme fields, detect it."""
@@ -414,14 +421,14 @@ class TestPrivateKeyPermissions:
 
 class TestV064Versions:
     def test_tool_version(self):
-        assert TOOL_VERSION == "0.12.3"
+        assert TOOL_VERSION == "0.12.4"
 
     def test_checks_version(self):
         assert CHECKS_VERSION == "4"
 
     def test_init_version(self):
         import sanna
-        assert sanna.__version__ == "0.12.3"
+        assert sanna.__version__ == "0.12.4"
 
     def test_sanitize_for_signing_exported(self):
         """sanitize_for_signing should be importable from sanna.crypto."""

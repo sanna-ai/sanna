@@ -155,7 +155,7 @@ Five additional gateway-oriented templates are available in `examples/constituti
 | `openclaw-personal` | Individual agents on personal machines |
 | `openclaw-developer` | Skill builders for marketplace distribution |
 | `cowork-personal` | Knowledge workers with Claude Desktop |
-| `cowork-team` | Small teams sharing MCP infrastructure |
+| `cowork-team` | Small teams sharing governance via Git (each dev runs own gateway) |
 | `claude-code-standard` | Developers with Claude Code + MCP connectors |
 
 ## CLI Reference
@@ -179,7 +179,7 @@ All commands are available as `sanna <command>` or `sanna-<command>`:
 | `sanna drift-report` | Fleet governance drift report |
 | `sanna bundle-create` | Create evidence bundle zip |
 | `sanna bundle-verify` | Verify evidence bundle (7-step) |
-| `sanna generate` | Generate receipt from Langfuse trace |
+| `sanna generate` | Generate receipt from trace-data JSON |
 
 ## API Reference
 
@@ -241,13 +241,22 @@ No network. No API keys. No vendor dependency.
 - **Production deployment**: Docker, logging, retention, failure modes. See [docs/production.md](docs/production.md).
 - **Gateway configuration**: Full config reference. See [docs/gateway-config.md](docs/gateway-config.md).
 
+## Observability (OpenTelemetry)
+
+Sanna can emit OpenTelemetry signals to correlate governed actions with receipts on disk. Receipts are the canonical audit artifact — telemetry is optional and intended for dashboards, alerts, and correlation.
+
+```bash
+pip install "sanna[otel]"
+```
+
+See [docs/otel-integration.md](docs/otel-integration.md) for configuration and signal reference.
+
 ## Install
 
 ```bash
 pip install sanna                # Core library (Python 3.10+)
 pip install sanna[mcp]           # MCP server + gateway
 pip install sanna[otel]          # OpenTelemetry bridge
-pip install sanna[langfuse]      # Langfuse adapter
 ```
 
 ## Development

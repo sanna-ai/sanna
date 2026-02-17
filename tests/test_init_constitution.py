@@ -44,19 +44,39 @@ def _render(template_name, agent_name="test-agent", description="Test agent",
 
 
 def _write_and_sign(yaml_content, tmp_path, filename="constitution.yaml"):
-    """Write YAML to file, compute hash, inject policy_hash, return path.
+    """Write YAML to file, compute hash, inject policy_hash + Ed25519 signature.
 
     Avoids save_constitution round-trip (which serializes null fields
-    that fail strict schema validation). Instead, computes the hash
-    and patches the original YAML text.
+    that fail strict schema validation). Instead, computes the hash,
+    signs with Ed25519, and patches the original YAML text.
     """
     from sanna.constitution import compute_constitution_hash
+    from sanna.crypto import generate_keypair
     path = tmp_path / filename
     path.write_text(yaml_content)
     const = load_constitution(str(path))
     policy_hash = compute_constitution_hash(const)
     # Replace policy_hash: null with actual hash in the original text
-    signed_content = yaml_content.replace("policy_hash: null", f"policy_hash: {policy_hash}")
+    hashed_content = yaml_content.replace("policy_hash: null", f"policy_hash: {policy_hash}")
+
+    # Sign with Ed25519 and inject signature block
+    priv_path, _ = generate_keypair(tmp_path / "keys")
+    signed_const = sign_constitution(
+        const, private_key_path=str(priv_path), signed_by="test-signer"
+    )
+    sig = signed_const.provenance.signature
+    sig_block = (
+        f"  signature:\n"
+        f"    value: {sig.value}\n"
+        f"    key_id: {sig.key_id}\n"
+        f"    signed_by: {sig.signed_by}\n"
+        f"    signed_at: '{sig.signed_at}'\n"
+        f"    scheme: {sig.scheme}\n"
+    )
+    signed_content = hashed_content.replace(
+        "  change_history: []\n", f"  change_history: []\n{sig_block}"
+    )
+
     signed_path = tmp_path / f"signed_{filename}"
     signed_path.write_text(signed_content)
     return str(signed_path)

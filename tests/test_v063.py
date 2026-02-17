@@ -564,14 +564,14 @@ class TestChainVerification:
 
 class TestV063Versions:
     def test_tool_version(self):
-        assert TOOL_VERSION == "0.12.3"
+        assert TOOL_VERSION == "0.12.4"
 
     def test_checks_version(self):
         assert CHECKS_VERSION == "4"
 
     def test_init_version(self):
         import sanna
-        assert sanna.__version__ == "0.12.3"
+        assert sanna.__version__ == "0.12.4"
 
 
 # =============================================================================
@@ -612,20 +612,17 @@ class TestConstitutionSignatureDataclass:
 # =============================================================================
 
 class TestSigningCheckDistinction:
-    def test_hashed_only_constitution_warns_in_middleware(self, tmp_path):
-        """sanna_observe with hashed-only constitution logs warning but doesn't error."""
+    def test_hashed_only_constitution_rejected_in_middleware(self, tmp_path):
+        """sanna_observe with hashed-only constitution raises SannaConstitutionError."""
         const = _make_constitution()
         signed = sign_constitution(const)  # hash-only
         path = tmp_path / "hashed.yaml"
         save_constitution(signed, path)
 
-        # Should succeed (hashed-only is allowed in middleware)
-        @sanna_observe(constitution_path=str(path))
-        def agent(query, context):
-            return "OK"
-
-        result = agent(query="test", context="ctx")
-        assert result is not None
+        with pytest.raises(SannaConstitutionError, match="hashed but not signed"):
+            @sanna_observe(constitution_path=str(path))
+            def agent(query, context):
+                return "OK"
 
     def test_signed_constitution_accepted(self, tmp_path):
         """sanna_observe with fully signed constitution works without warning."""
@@ -713,8 +710,9 @@ class TestVerifyChainReturnType:
 
     def test_return_type_is_tuple(self, tmp_path):
         """Return value is a 2-tuple (errors, warnings)."""
+        priv_path, _ = generate_keypair(tmp_path / "keys")
         const = _make_constitution()
-        signed = sign_constitution(const)
+        signed = sign_constitution(const, private_key_path=str(priv_path), signed_by="tester")
         path = tmp_path / "const.yaml"
         save_constitution(signed, path)
 
@@ -731,24 +729,17 @@ class TestVerifyChainReturnType:
         assert isinstance(errors, list)
         assert isinstance(warnings_list, list)
 
-    def test_hashed_only_returns_warning_not_error(self, tmp_path):
-        """Hashed-only constitution returns warning (not error) about missing signature."""
+    def test_hashed_only_rejected_in_middleware(self, tmp_path):
+        """Hashed-only constitution is now rejected by middleware (not just warning)."""
         const = _make_constitution()
         signed = sign_constitution(const)  # hash-only
         path = tmp_path / "const.yaml"
         save_constitution(signed, path)
 
-        @sanna_observe(constitution_path=str(path))
-        def agent(query, context):
-            return "test"
-
-        sr = agent(query="q", context="c")
-        errors, warn_list = verify_constitution_chain(sr.receipt, str(path))
-
-        assert len(errors) == 0, f"Unexpected errors: {errors}"
-        assert any("not signed" in w or "no cryptographic signature" in w for w in warn_list), (
-            f"Expected signing warning, got: {warn_list}"
-        )
+        with pytest.raises(SannaConstitutionError, match="hashed but not signed"):
+            @sanna_observe(constitution_path=str(path))
+            def agent(query, context):
+                return "test"
 
 
 class TestSannaObserveAsync:
@@ -759,8 +750,9 @@ class TestSannaObserveAsync:
         import asyncio
         from sanna.middleware import sanna_observe
 
+        priv_path, _ = generate_keypair(tmp_path / "keys")
         const = _make_constitution()
-        signed = sign_constitution(const)
+        signed = sign_constitution(const, private_key_path=str(priv_path), signed_by="tester")
         path = tmp_path / "const.yaml"
         save_constitution(signed, path)
 
@@ -777,8 +769,9 @@ class TestSannaObserveAsync:
         """Wrapping a sync function still works."""
         from sanna.middleware import sanna_observe
 
+        priv_path, _ = generate_keypair(tmp_path / "keys")
         const = _make_constitution()
-        signed = sign_constitution(const)
+        signed = sign_constitution(const, private_key_path=str(priv_path), signed_by="tester")
         path = tmp_path / "const.yaml"
         save_constitution(signed, path)
 
@@ -798,8 +791,9 @@ class TestSannaObserveAsync:
         import asyncio
         from sanna.middleware import sanna_observe
 
+        priv_path, _ = generate_keypair(tmp_path / "keys")
         const = _make_constitution()
-        signed = sign_constitution(const)
+        signed = sign_constitution(const, private_key_path=str(priv_path), signed_by="tester")
         path = tmp_path / "const.yaml"
         save_constitution(signed, path)
 

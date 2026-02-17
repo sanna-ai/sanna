@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from sanna.crypto import generate_keypair
 from sanna.evaluators import register_invariant_evaluator, clear_evaluators
 from sanna.middleware import sanna_observe, SannaHaltError
 from sanna.verify import (
@@ -61,7 +62,8 @@ def _make_receipt_with_errored_checks(tmp_path):
             Invariant(id="INV_CUSTOM_CRASH", rule="Crashes", enforcement="warn"),
         ],
     )
-    signed = sign_constitution(const)
+    priv_path, _ = generate_keypair(tmp_path / "keys")
+    signed = sign_constitution(const, private_key_path=str(priv_path), signed_by="tester")
     path = tmp_path / "const.yaml"
     save_constitution(signed, path)
 

@@ -58,7 +58,7 @@ downstream:
 | `max_pending_escalations` | int | `100` | Maximum concurrent pending escalations. New ones rejected when full. |
 | `circuit_breaker_cooldown` | float | `60` | Seconds before retrying a downstream server after circuit breaker opens. |
 | `gateway_secret_path` | string | `~/.sanna/gateway_secret` | Path to HMAC secret file for escalation token binding. Auto-generated if missing. |
-| `escalation_persist_path` | string | `~/.sanna/escalations.json` | Path for persisting pending escalations across restarts. |
+| `escalation_persist_path` | string | — | Path for persisting pending escalations across restarts. Filename-only values resolve to `~/.sanna/escalations/`. |
 | `approval_requires_reason` | bool | `false` | Whether escalation approvals must include a reason string. |
 | `token_delivery` | list | `[file, stderr]` | How escalation approval tokens are delivered to the user. Options: `file`, `stderr`. |
 
@@ -133,5 +133,5 @@ Two gateway meta-tools are always registered (not prefixed):
 
 | Tool | Description |
 |------|-------------|
-| `sanna_escalation_respond` | User approval/denial for `must_escalate` tool calls |
-| `sanna_gateway_status` | Gateway health and downstream connection status |
+| `sanna_approve_escalation` | User approval for `must_escalate` tool calls |
+| `sanna_deny_escalation` | User denial for `must_escalate` tool calls |

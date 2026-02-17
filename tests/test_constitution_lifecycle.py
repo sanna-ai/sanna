@@ -41,6 +41,7 @@ from sanna.constitution import (
     scaffold_constitution,
     CONSTITUTION_SCHEMA_VERSION,
 )
+from sanna.crypto import generate_keypair
 from sanna.receipt import generate_receipt, ConstitutionProvenance, SannaReceipt
 from sanna.hashing import hash_text, hash_obj
 from sanna.verify import verify_receipt, load_schema, verify_fingerprint
@@ -527,7 +528,9 @@ class TestReceiptRefOverride:
 class TestMiddlewareConstitutionPath:
     def _write_constitution(self, tmp_path) -> Path:
         """Write a signed constitution YAML to tmp_path and return path."""
-        signed = _signed_constitution()
+        priv_path, _ = generate_keypair(tmp_path / "keys")
+        const = _sample_constitution()
+        signed = sign_constitution(const, private_key_path=str(priv_path), signed_by="tester")
         path = tmp_path / "constitution.yaml"
         save_constitution(signed, path)
         return path

@@ -41,6 +41,7 @@ def _make_signed_constitution(tmp_path, invariants, enforcement="warn"):
         Constitution, AgentIdentity, Provenance, Boundary, Invariant,
         sign_constitution, save_constitution,
     )
+    from sanna.crypto import generate_keypair
 
     inv_objects = [
         Invariant(id=inv_id, rule=f"Rule for {inv_id}", enforcement=enforcement)
@@ -59,7 +60,8 @@ def _make_signed_constitution(tmp_path, invariants, enforcement="warn"):
         boundaries=[Boundary(id="B001", description="Test", category="scope", severity="medium")],
         invariants=inv_objects,
     )
-    signed = sign_constitution(const)
+    priv_path, _ = generate_keypair(tmp_path / "keys")
+    signed = sign_constitution(const, private_key_path=str(priv_path), signed_by="tester")
     path = tmp_path / "const.yaml"
     save_constitution(signed, path)
     return str(path)

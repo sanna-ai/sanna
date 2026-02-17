@@ -14,7 +14,7 @@ from sanna.middleware import sanna_observe
 class TestVersionConsistency:
 
     def test_version_value(self):
-        assert sanna.__version__ == "0.12.3"
+        assert sanna.__version__ == "0.12.4"
 
     def test_version_matches_tool_version(self):
         assert sanna.__version__ == TOOL_VERSION
@@ -25,6 +25,7 @@ class TestVersionConsistency:
             Constitution, AgentIdentity, Provenance, Boundary, Invariant,
             sign_constitution, save_constitution,
         )
+        from sanna.crypto import generate_keypair
 
         const = Constitution(
             schema_version="0.1.0",
@@ -40,7 +41,8 @@ class TestVersionConsistency:
                 Invariant(id="INV_NO_FABRICATION", rule="No fabrication", enforcement="halt"),
             ],
         )
-        signed = sign_constitution(const)
+        priv_path, _ = generate_keypair(tmp_path / "keys")
+        signed = sign_constitution(const, private_key_path=str(priv_path), signed_by="tester")
         path = tmp_path / "const.yaml"
         save_constitution(signed, path)
 

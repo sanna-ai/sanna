@@ -649,37 +649,102 @@ def generate_receipt(
 
 
 # =============================================================================
-# LANGFUSE TRACE EXTRACTION
+# TRACE DATA EXTRACTION
 # =============================================================================
 
 def extract_trace_data(trace) -> dict:
-    """Extract relevant data from a Langfuse trace object."""
-    data = {
-        "trace_id": trace.id,
-        "name": trace.name,
-        "timestamp": str(trace.timestamp) if trace.timestamp else None,
-        "input": trace.input,
-        "output": trace.output,
-        "metadata": trace.metadata,
-        "observations": []
+    """Extract relevant data from a trace object.
+
+    Works with any trace object that exposes .id, .name, .timestamp,
+    .input, .output, .metadata, and .observations attributes.
+
+    Context extraction: scans observation outputs for common retrieval
+    keys (documents, context, retrieved, chunks, retrieval,
+    search_results) and synthesises a retrieval observation when context
+    is found only in the trace input.
+    """
+    trace_id = getattr(trace, "id", "unknown")
+
+    observations_raw = getattr(trace, "observations", None) or []
+    observations = []
+    context = ""
+
+    for obs in observations_raw:
+        obs_output = getattr(obs, "output", None)
+        # Scan observation outputs for retrieval context
+        if obs_output and isinstance(obs_output, dict):
+            for key in ("documents", "context", "retrieved", "chunks",
+                        "retrieval", "search_results"):
+                if key in obs_output:
+                    ctx_val = obs_output[key]
+                    if not context:
+                        context = (
+                            "\n".join(str(d) for d in ctx_val)
+                            if isinstance(ctx_val, list)
+                            else str(ctx_val)
+                        )
+                    break
+
+        obs_data = {
+            "id": getattr(obs, "id", None),
+            "name": getattr(obs, "name", None),
+            "type": getattr(obs, "type", None),
+            "input": getattr(obs, "input", None),
+            "output": getattr(obs, "output", None),
+            "metadata": getattr(obs, "metadata", None),
+            "start_time": (
+                str(getattr(obs, "start_time", None))
+                if getattr(obs, "start_time", None)
+                else None
+            ),
+            "end_time": (
+                str(getattr(obs, "end_time", None))
+                if getattr(obs, "end_time", None)
+                else None
+            ),
+        }
+        observations.append(obs_data)
+
+    # Extract query from trace input
+    trace_input = getattr(trace, "input", None)
+    query = ""
+    if isinstance(trace_input, dict):
+        query = trace_input.get("query", trace_input.get("question",
+                trace_input.get("input", "")))
+    elif isinstance(trace_input, str):
+        query = trace_input
+
+    # If no retrieval span found, check trace input for context
+    if not context and isinstance(trace_input, dict):
+        ctx_val = trace_input.get("context", "")
+        if ctx_val:
+            context = str(ctx_val)
+            observations.insert(0, {
+                "id": "synthetic-retrieval",
+                "name": "retrieval",
+                "type": "SPAN",
+                "input": {"query": query},
+                "output": {"context": context},
+                "metadata": {},
+                "start_time": None,
+                "end_time": None,
+            })
+
+    trace_output = getattr(trace, "output", None)
+
+    return {
+        "trace_id": trace_id,
+        "name": getattr(trace, "name", None),
+        "timestamp": (
+            str(getattr(trace, "timestamp", None))
+            if getattr(trace, "timestamp", None)
+            else None
+        ),
+        "input": trace_input if isinstance(trace_input, dict) else {"query": query},
+        "output": trace_output if isinstance(trace_output, dict) else None,
+        "metadata": getattr(trace, "metadata", None),
+        "observations": observations,
     }
-
-    # Get observations (spans/generations) - v3 API returns ObservationsView objects
-    if hasattr(trace, 'observations') and trace.observations:
-        for obs in trace.observations:
-            obs_data = {
-                "id": getattr(obs, 'id', None),
-                "name": getattr(obs, 'name', None),
-                "type": getattr(obs, 'type', None),
-                "input": getattr(obs, 'input', None),
-                "output": getattr(obs, 'output', None),
-                "metadata": getattr(obs, 'metadata', None),
-                "start_time": str(getattr(obs, 'start_time', None)) if getattr(obs, 'start_time', None) else None,
-                "end_time": str(getattr(obs, 'end_time', None)) if getattr(obs, 'end_time', None) else None,
-            }
-            data["observations"].append(obs_data)
-
-    return data
 
 
 # ---------------------------------------------------------------------------

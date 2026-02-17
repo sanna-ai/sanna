@@ -245,6 +245,19 @@ def sanna_generate_receipt(
                     "receipt": None,
                 })
 
+            # Require Ed25519 signature, not just a policy hash
+            _sig = constitution.provenance.signature if constitution.provenance else None
+            if not (_sig and getattr(_sig, 'value', None)):
+                return json.dumps({
+                    "error": (
+                        f"Constitution is hashed but not signed: "
+                        f"{constitution_path}. Sign with: "
+                        f"sanna-sign-constitution {constitution_path} "
+                        f"--private-key <key>"
+                    ),
+                    "receipt": None,
+                })
+
             constitution_ref = constitution_to_receipt_ref(constitution)
             check_configs, custom_records = configure_checks(constitution)
             constitution_version = constitution.schema_version

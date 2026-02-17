@@ -9,7 +9,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from .receipt import generate_receipt, extract_trace_data, SannaReceipt, TOOL_VERSION
+from .receipt import generate_receipt, SannaReceipt, TOOL_VERSION
 from .verify import verify_receipt, load_schema, VerificationResult
 
 
@@ -68,11 +68,14 @@ def format_receipt_summary(receipt: SannaReceipt) -> str:
 
 
 def main_generate():
-    """Entry point for sanna-generate command."""
+    """Entry point for sanna-generate command.
+
+    Generates a receipt from a JSON trace-data file.
+    """
     parser = argparse.ArgumentParser(
-        description="Generate Sanna reasoning receipts from Langfuse traces"
+        description="Generate a Sanna reasoning receipt from a trace-data JSON file"
     )
-    parser.add_argument("trace_id", help="Langfuse trace ID to analyze")
+    parser.add_argument("trace_file", help="Path to trace-data JSON file")
     parser.add_argument("--format", choices=["summary", "json"], default="summary",
                        help="Output format (default: summary)")
     parser.add_argument("--output", "-o", help="Output file (default: stdout)")
@@ -80,27 +83,18 @@ def main_generate():
 
     args = parser.parse_args()
 
-    # Import Langfuse only when needed
+    # Load trace data from JSON file
     try:
-        from langfuse import Langfuse
-    except ImportError:
-        print("Error: langfuse not installed. Run: pip install sanna[langfuse]", file=sys.stderr)
+        with open(args.trace_file) as f:
+            trace_data = json.load(f)
+    except FileNotFoundError:
+        print(f"Error: File not found: {args.trace_file}", file=sys.stderr)
+        return 1
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON: {e}", file=sys.stderr)
         return 1
 
-    # Connect to Langfuse
-    lf = Langfuse()
-
-    # Fetch trace
-    print(f"Fetching trace {args.trace_id}...", file=sys.stderr)
-
-    try:
-        trace = lf.api.trace.get(args.trace_id)
-    except Exception as e:
-        print(f"Error fetching trace: {e}", file=sys.stderr)
-        return 1
-
-    # Extract data and generate receipt
-    trace_data = extract_trace_data(trace)
+    # Generate receipt
     receipt = generate_receipt(trace_data)
 
     # Format output
@@ -1045,7 +1039,13 @@ def main_demo():
         save_constitution(signed, const_path)
         print(f"2. Created constitution with {len(const.invariants)} invariants")
 
-        # 3. Simulate governed action
+        # 3. Save public key for manual verification
+        import shutil
+        public_key_path = out_dir / "public_key.pem"
+        shutil.copy2(str(pub_path), str(public_key_path))
+        print("3. Saved public key for verification")
+
+        # 4. Simulate governed action
         @sanna_observe(
             constitution_path=str(const_path),
             private_key_path=str(priv_path),
@@ -1057,36 +1057,37 @@ def main_demo():
             query="What is the project status?",
             context="The project is on track for Q1 delivery.",
         )
-        print("3. Simulated governed tool call")
+        print("4. Simulated governed tool call")
 
-        # 4. Show receipt summary
+        # 5. Show receipt summary
         receipt = result.receipt
         status = receipt.get("coherence_status", "UNKNOWN")
         checks = receipt.get("checks", [])
         passed = sum(1 for c in checks if c.get("passed"))
         total = len(checks)
-        print(f"4. Generated receipt: {receipt.get('receipt_id', 'N/A')[:24]}...")
+        print(f"5. Generated receipt: {receipt.get('receipt_id', 'N/A')[:24]}...")
         print(f"   Status: {status} ({passed}/{total} checks passed)")
 
-        # 5. Write receipt to disk
+        # 6. Write receipt to disk
         receipt_path = out_dir / f"receipt-demo-{uuid.uuid4().hex[:8]}.json"
         from .utils.safe_io import atomic_write_text_sync
         atomic_write_text_sync(receipt_path, json.dumps(receipt, indent=2))
 
-        # 6. Verify receipt
+        # 7. Verify receipt
         from .verify import load_schema
         schema = load_schema()
         vr = verify_receipt(receipt, schema, public_key_path=str(pub_path),
                            constitution_path=str(const_path))
         icon = "VALID" if vr.valid else "INVALID"
-        print(f"5. Verified receipt: {icon}")
+        print(f"6. Verified receipt: {icon}")
 
     print()
     print(f"Receipt saved to: {receipt_path}")
+    print(f"Public key saved to: {public_key_path}")
     print()
     print("Next steps:")
-    print(f"  sanna-inspect {receipt_path}")
-    print(f"  sanna-verify {receipt_path}")
+    print(f"  sanna inspect {receipt_path}")
+    print(f"  sanna verify {receipt_path} --public-key {public_key_path}")
     return 0
 
 
@@ -1365,7 +1366,7 @@ def main_sanna():
         "drift-report": ("sanna.cli:main_drift_report", "Fleet governance drift report"),
         "bundle-create": ("sanna.cli:main_create_bundle", "Create evidence bundle"),
         "bundle-verify": ("sanna.cli:main_verify_bundle", "Verify evidence bundle"),
-        "generate": ("sanna.cli:main_generate", "Generate receipt from Langfuse trace"),
+        "generate": ("sanna.cli:main_generate", "Generate receipt from trace-data JSON"),
     }
 
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):

@@ -214,7 +214,7 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 - LLM-as-judge evaluators
 - SQLite receipt persistence with queryable metadata
 - Drift analytics with linear regression and breach projection
-- OpenTelemetry and Langfuse integration
+- OpenTelemetry integration
 - Evidence bundles for compliance
 
 ### Setup
@@ -225,7 +225,6 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 pip install sanna
 # Optional extras:
 pip install sanna[otel]       # OpenTelemetry bridge
-pip install sanna[langfuse]   # Langfuse adapter
 ```
 
 **2. Wrap your agent function**
@@ -313,16 +312,6 @@ from opentelemetry import trace
 
 tracer = trace.get_tracer("sanna")
 receipt_to_span(receipt, tracer, artifact_uri="s3://bucket/receipt.json")
-```
-
-Langfuse:
-
-```python
-from sanna.adapters.langfuse import langfuse_trace_to_trace_data
-from sanna import generate_receipt
-
-trace_data = langfuse_trace_to_trace_data(langfuse_trace.data)
-receipt = generate_receipt(trace_data)
 ```
 
 ---

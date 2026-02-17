@@ -123,14 +123,20 @@ class ReceiptStore:
         self._lock = threading.Lock()
         self._closed = False
 
+        from sanna.utils.safe_io import ensure_secure_dir
+
         db_dir = os.path.dirname(db_path)
         if db_dir:
-            os.makedirs(db_dir, exist_ok=True)
-            # Harden directory permissions (owner-only access)
-            try:
-                os.chmod(db_dir, 0o700)
-            except OSError:
-                pass
+            ensure_secure_dir(db_dir, 0o700)
+
+        # Pre-create the DB file with restricted permissions to
+        # eliminate the race window between sqlite3.connect() creating
+        # the file with default umask and a subsequent chmod().
+        from pathlib import Path
+        db_file = Path(db_path)
+        if not db_file.exists():
+            fd = os.open(str(db_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
 
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -141,12 +147,6 @@ class ReceiptStore:
             self._conn.close()
             raise
         self._has_json1 = self._detect_json1()
-
-        # Harden DB file permissions (owner-only read/write)
-        try:
-            os.chmod(db_path, 0o600)
-        except OSError:
-            pass
 
     def _detect_json1(self) -> bool:
         """Detect whether the SQLite build has JSON1 extension support."""

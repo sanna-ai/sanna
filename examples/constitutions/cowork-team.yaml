@@ -2,11 +2,13 @@
 # Sanna Constitution — Cowork Team
 # =============================================================================
 #
-# For small teams sharing MCP infrastructure. Extends cowork-personal
-# with shared resource protections. Actions affecting shared drives,
-# team channels, and team databases require escalation. Modifying team
-# configurations, access controls, or permissions is halted (blast radius
-# includes other people).
+# For small teams sharing governance via Git — each developer runs their
+# own gateway sidecar. This is NOT a shared gateway process or multi-tenant
+# setup. The constitution is version-controlled and shared; the runtime
+# is per-developer. Extends cowork-personal with shared resource
+# protections. Actions affecting shared drives, team channels, and team
+# databases require escalation. Modifying team configurations, access
+# controls, or permissions is halted (blast radius includes other people).
 #
 # Sign:  sanna-sign-constitution cowork-team.yaml --private-key <key>.key
 # Use:   sanna-gateway --config gateway.yaml

@@ -220,9 +220,14 @@ def _maybe_generate_gateway_config(constitution_path: Path) -> Path | None:
         print(f"  Skipped: {gateway_path} already exists.")
         return None
 
+    # Use relative filename when gateway and constitution are in the same dir
+    if gateway_path.parent.resolve() == constitution_path.parent.resolve():
+        config_constitution_ref = constitution_path.name
+    else:
+        config_constitution_ref = str(constitution_path)
     content = _GATEWAY_TEMPLATE.format(
         gateway_path=gateway_path,
-        constitution_path=constitution_path,
+        constitution_path=config_constitution_ref,
     )
     from .utils.safe_io import atomic_write_text_sync
     atomic_write_text_sync(gateway_path, content)

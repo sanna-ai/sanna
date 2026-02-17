@@ -753,13 +753,12 @@ def sanna_observe(
                 f"Constitution is not signed (no policy hash): {constitution_path}. "
                 f"Run: sanna-sign-constitution {constitution_path}"
             )
-        # Warn if constitution is hashed but not Ed25519-signed
+        # Reject constitutions that are hashed but not Ed25519-signed
         _sig = loaded_constitution.provenance.signature if loaded_constitution.provenance else None
         if not (_sig and getattr(_sig, 'value', None)):
-            logger.warning(
-                "Constitution is hashed but not Ed25519-signed: %s. "
-                "Run: sanna-sign-constitution %s --private-key <key>",
-                constitution_path, constitution_path,
+            raise SannaConstitutionError(
+                f"Constitution is hashed but not signed: {constitution_path}. "
+                f"Sign with: sanna-sign-constitution {constitution_path} --private-key <key>"
             )
         constitution_ref_override = constitution_to_receipt_ref(loaded_constitution)
 

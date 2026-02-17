@@ -69,9 +69,13 @@ _EXAMPLE_TMPDIR = tempfile.mkdtemp(prefix="sanna_test_examples_")
 
 def _sign_example(name: str) -> str:
     """Load an unsigned example constitution, sign it, save to temp dir."""
+    from sanna.crypto import generate_keypair
     source = str(EXAMPLE_CONSTITUTIONS_DIR / f"{name}.yaml")
     const = load_constitution(source)
-    signed = sign_constitution(const)
+    keys_dir = Path(_EXAMPLE_TMPDIR) / "keys"
+    keys_dir.mkdir(parents=True, exist_ok=True)
+    priv_path, _ = generate_keypair(keys_dir)
+    signed = sign_constitution(const, private_key_path=str(priv_path), signed_by="test-signer")
     dest = Path(_EXAMPLE_TMPDIR) / f"{name}.yaml"
     save_constitution(signed, dest)
     return str(dest)
@@ -456,7 +460,7 @@ class TestReceiptFormat:
             return SIMPLE_OUTPUT
 
         result = agent(query="test", context=SIMPLE_CONTEXT)
-        assert result.receipt["tool_version"] == "0.12.3"
+        assert result.receipt["tool_version"] == "0.12.4"
         assert result.receipt["checks_version"] == "4"
 
     def test_receipt_has_constitution_ref(self):
@@ -774,7 +778,7 @@ class TestNoConstitution:
 
 class TestVersionConstants:
     def test_tool_version(self):
-        assert TOOL_VERSION == "0.12.3"
+        assert TOOL_VERSION == "0.12.4"
 
     def test_checks_version(self):
         assert CHECKS_VERSION == "4"

@@ -103,8 +103,12 @@ def _make_constitution(invariants=None):
 def _signed_constitution_path(tmp_path, invariants=None, **kwargs):
     """Create a signed constitution YAML in tmp_path and return its path."""
     const = _make_constitution(invariants)
-    signed = sign_constitution(const, **kwargs)
     tmp_path.mkdir(parents=True, exist_ok=True)
+    if "private_key_path" not in kwargs:
+        priv_path, _ = generate_keypair(tmp_path / "keys")
+        kwargs["private_key_path"] = str(priv_path)
+        kwargs.setdefault("signed_by", "test-signer")
+    signed = sign_constitution(const, **kwargs)
     path = tmp_path / "constitution.yaml"
     save_constitution(signed, path)
     return str(path)
@@ -753,14 +757,14 @@ class TestConstitutionSchema:
 
 class TestV061Versions:
     def test_tool_version(self):
-        assert TOOL_VERSION == "0.12.3"
+        assert TOOL_VERSION == "0.12.4"
 
     def test_checks_version(self):
         assert CHECKS_VERSION == "4"
 
     def test_init_version(self):
         import sanna
-        assert sanna.__version__ == "0.12.3"
+        assert sanna.__version__ == "0.12.4"
 
 
 # =============================================================================

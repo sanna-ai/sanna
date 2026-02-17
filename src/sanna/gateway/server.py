@@ -256,8 +256,21 @@ class EscalationStore:
         self._timeout = timeout
         self._max_pending = max_pending
         self._max_per_tool = max_per_tool
-        self._persist_path = persist_path
         self._purge_task: _asyncio.Task | None = None
+
+        # Normalize persist path at init time so writes always go to a
+        # well-known location (never CWD for filename-only paths).
+        if persist_path:
+            p = Path(persist_path)
+            if not p.parent or p.parent == Path('.'):
+                # Filename-only — relocate to safe default
+                self._persist_path: str | None = str(
+                    Path.home() / '.sanna' / 'escalations' / p.name
+                )
+            else:
+                self._persist_path = str(p.expanduser().resolve())
+        else:
+            self._persist_path = None
 
         # Load any persisted escalations from disk
         if self._persist_path:
@@ -313,6 +326,7 @@ class EscalationStore:
         """Persist non-expired pending escalations to JSON file.
 
         Uses atomic_write_sync for symlink protection and crash safety.
+        Path is already resolved at init time — no fallback logic needed.
         """
         if not self._persist_path:
             return
@@ -322,10 +336,7 @@ class EscalationStore:
             if not self.is_expired(record)
         }
         from sanna.utils.safe_io import atomic_write_sync, ensure_secure_dir
-        persist_dir = Path(self._persist_path).resolve().parent
-        # Guard against empty/cwd dirname when persist_path is just a filename
-        if str(persist_dir) == "." or persist_dir == Path(".").resolve():
-            persist_dir = Path.home() / ".sanna" / "escalations"
+        persist_dir = Path(self._persist_path).parent
         ensure_secure_dir(persist_dir)
         atomic_write_sync(
             self._persist_path,
@@ -355,6 +366,17 @@ class EscalationStore:
                 logger.warning(
                     "Skipping malformed escalation %s: %s", eid, exc,
                 )
+
+    # -- Async persistence wrapper --------------------------------------------
+
+    async def _save_to_disk_async(self) -> None:
+        """Offload disk persistence to a thread-pool executor.
+
+        Prevents blocking the asyncio event loop during file I/O.
+        """
+        if self._persist_path:
+            loop = _asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._save_to_disk)
 
     # -- Core operations ------------------------------------------------------
 
@@ -419,6 +441,51 @@ class EscalationStore:
             self._save_to_disk()
         return entry
 
+    async def create_async(
+        self,
+        prefixed_name: str,
+        original_name: str,
+        arguments: dict[str, Any],
+        server_name: str,
+        reason: str,
+    ) -> PendingEscalation:
+        """Async wrapper: create in-memory + persist via executor.
+
+        Preferred over :meth:`create` in async handlers to avoid
+        blocking the event loop during file I/O.
+        """
+        # Inline the create logic but skip sync _save_to_disk
+        self.purge_expired()
+        tool_pending = sum(
+            1 for e in self._pending.values()
+            if e.prefixed_name == prefixed_name and e.status == "pending"
+        )
+        if tool_pending >= self._max_per_tool:
+            raise RuntimeError(
+                f"Too many pending escalations for tool "
+                f"'{prefixed_name}' ({tool_pending}). "
+                f"Approve or deny existing escalations first."
+            )
+        if len(self._pending) >= self._max_pending:
+            raise RuntimeError(
+                f"Escalation store at capacity "
+                f"({self._max_pending} pending). "
+                f"Approve or deny existing escalations first."
+            )
+        esc_id = f"esc_{uuid.uuid4().hex}"
+        entry = PendingEscalation(
+            escalation_id=esc_id,
+            prefixed_name=prefixed_name,
+            original_name=original_name,
+            arguments=arguments,
+            server_name=server_name,
+            reason=reason,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        self._pending[esc_id] = entry
+        await self._save_to_disk_async()
+        return entry
+
     def get(self, escalation_id: str) -> PendingEscalation | None:
         """Get a pending escalation, or None if not found."""
         return self._pending.get(escalation_id)
@@ -440,6 +507,17 @@ class EscalationStore:
             self._save_to_disk()
         return entry
 
+    async def remove_async(self, escalation_id: str) -> PendingEscalation | None:
+        """Async wrapper: remove + persist via executor.
+
+        Preferred over :meth:`remove` in async handlers to avoid
+        blocking the event loop during file I/O.
+        """
+        entry = self._pending.pop(escalation_id, None)
+        if entry is not None:
+            await self._save_to_disk_async()
+        return entry
+
     def mark_status(
         self, escalation_id: str, status: str,
     ) -> PendingEscalation | None:
@@ -449,6 +527,20 @@ class EscalationStore:
             entry.status = status
             if self._persist_path:
                 self._save_to_disk()
+        return entry
+
+    async def mark_status_async(
+        self, escalation_id: str, status: str,
+    ) -> PendingEscalation | None:
+        """Async wrapper: mark_status + persist via executor.
+
+        Preferred over :meth:`mark_status` in async handlers to avoid
+        blocking the event loop during file I/O.
+        """
+        entry = self._pending.get(escalation_id)
+        if entry is not None:
+            entry.status = status
+            await self._save_to_disk_async()
         return entry
 
     def __len__(self) -> int:
@@ -535,6 +627,21 @@ class SannaGateway:
     ) -> None:
         # Build downstream specs — either from explicit list or legacy params
         if downstreams is not None:
+            # Guard: per-downstream config must be set on DownstreamSpec, not
+            # as gateway-level kwargs, when using the downstreams list.
+            _ds_only = {
+                "policy_overrides": policy_overrides,
+                "default_policy": default_policy,
+            }
+            _ds_conflicts = [k for k, v in _ds_only.items() if v is not None]
+            if circuit_breaker_cooldown != _DEFAULT_CIRCUIT_BREAKER_COOLDOWN:
+                _ds_conflicts.append("circuit_breaker_cooldown")
+            if _ds_conflicts:
+                raise ValueError(
+                    f"{', '.join(_ds_conflicts)} must be set on "
+                    f"DownstreamSpec when using downstreams list, "
+                    f"not as gateway-level kwargs"
+                )
             if len(downstreams) == 0:
                 raise ValueError(
                     "downstreams list must contain at least one entry"
@@ -646,9 +753,13 @@ class SannaGateway:
         cls,
         name: str,
         command: str,
+        *,
         args: list[str] | None = None,
         env: dict[str, str] | None = None,
         timeout: float = 30.0,
+        policy_overrides: dict[str, str] | None = None,
+        default_policy: str | None = None,
+        circuit_breaker_cooldown: float = _DEFAULT_CIRCUIT_BREAKER_COOLDOWN,
         **kwargs,
     ) -> "SannaGateway":
         """Create a gateway with a single downstream server.
@@ -668,6 +779,12 @@ class SannaGateway:
             Extra environment variables for the child process.
         timeout:
             Per-call timeout in seconds.
+        policy_overrides:
+            Per-tool policy overrides for this downstream server.
+        default_policy:
+            Default policy for tools not listed in *policy_overrides*.
+        circuit_breaker_cooldown:
+            Seconds before retrying after circuit breaker opens.
         **kwargs:
             All remaining keyword arguments are forwarded to
             :class:`SannaGateway.__init__` (constitution_path, signing_key_path,
@@ -679,6 +796,9 @@ class SannaGateway:
             args=args or [],
             env=env,
             timeout=timeout,
+            policy_overrides=policy_overrides or {},
+            default_policy=default_policy,
+            circuit_breaker_cooldown=circuit_breaker_cooldown,
         )
         return cls(downstreams=[spec], **kwargs)
 
@@ -1970,7 +2090,7 @@ class SannaGateway:
 
         # 1. Store pending escalation
         try:
-            entry = self._escalation_store.create(
+            entry = await self._escalation_store.create_async(
                 prefixed_name=prefixed_name,
                 original_name=original_name,
                 arguments=arguments,
@@ -2085,7 +2205,7 @@ class SannaGateway:
             )
 
         if self._escalation_store.is_expired(entry):
-            self._escalation_store.remove(escalation_id)
+            await self._escalation_store.remove_async(escalation_id)
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",
@@ -2203,7 +2323,7 @@ class SannaGateway:
         entry.override_detail = override_detail
 
         # Mark as approved (keep in store until execution completes)
-        self._escalation_store.mark_status(escalation_id, "approved")
+        await self._escalation_store.mark_status_async(escalation_id, "approved")
 
         # Block G deferred: reasoning evaluation for evaluate_before_escalation: false
         reasoning_evaluation = None
@@ -2246,7 +2366,7 @@ class SannaGateway:
                         deny = True
 
                     if deny:
-                        self._escalation_store.mark_status(
+                        await self._escalation_store.mark_status_async(
                             escalation_id, "failed",
                         )
                         from sanna.enforcement import AuthorityDecision as AD
@@ -2296,7 +2416,7 @@ class SannaGateway:
         # Look up correct downstream for this escalation
         ds_state = self._downstream_states.get(entry.server_name)
         if ds_state is None or ds_state.connection is None:
-            self._escalation_store.mark_status(escalation_id, "failed")
+            await self._escalation_store.mark_status_async(escalation_id, "failed")
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",
@@ -2318,13 +2438,13 @@ class SannaGateway:
                 entry.original_name, forward_args,
             )
         except Exception:
-            self._escalation_store.mark_status(escalation_id, "failed")
+            await self._escalation_store.mark_status_async(escalation_id, "failed")
             raise
         # Block F: crash recovery
         await self._after_downstream_call(tool_result, ds_state)
 
         # Execution succeeded — remove from store
-        self._escalation_store.remove(escalation_id)
+        await self._escalation_store.remove_async(escalation_id)
 
         result_text = _extract_result_text(tool_result)
 
@@ -2402,7 +2522,7 @@ class SannaGateway:
             )
 
         if self._escalation_store.is_expired(entry):
-            self._escalation_store.remove(escalation_id)
+            await self._escalation_store.remove_async(escalation_id)
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text",
@@ -2415,7 +2535,7 @@ class SannaGateway:
             )
 
         # Remove from store (resolved)
-        self._escalation_store.remove(escalation_id)
+        await self._escalation_store.remove_async(escalation_id)
 
         result_text = (
             f"Escalation {escalation_id} denied by user. "
