@@ -19,13 +19,13 @@ from sanna.store import ReceiptStore
 def _make_receipt(
     *,
     receipt_id="r-001",
-    trace_id="sanna-abc123",
+    correlation_id="sanna-abc123",
     timestamp="2026-02-13T10:00:00+00:00",
-    coherence_status="PASS",
+    status="PASS",
     agent_name="my-agent",
     constitution_version="1.0.0",
     checks=None,
-    halt_event=None,
+    enforcement=None,
 ):
     if checks is None:
         checks = [
@@ -38,14 +38,14 @@ def _make_receipt(
     constitution_ref = {"document_id": doc_id, "policy_hash": "abc123"} if doc_id else None
     return {
         "receipt_id": receipt_id,
-        "trace_id": trace_id,
+        "correlation_id": correlation_id,
         "timestamp": timestamp,
-        "coherence_status": coherence_status,
+        "status": status,
         "checks": checks,
         "checks_passed": sum(1 for c in checks if c.get("passed")),
         "checks_failed": sum(1 for c in checks if not c.get("passed")),
         "constitution_ref": constitution_ref,
-        "halt_event": halt_event,
+        "enforcement": enforcement,
     }
 
 
@@ -98,7 +98,7 @@ class TestSave:
 
     def test_multiple_saves(self, store):
         for i in range(5):
-            store.save(_make_receipt(receipt_id=f"r-{i}", trace_id=f"t-{i}"))
+            store.save(_make_receipt(receipt_id=f"r-{i}", correlation_id=f"t-{i}"))
         assert store.count() == 5
 
 
@@ -109,14 +109,14 @@ class TestQuery:
         assert len(store.query(agent_id="alpha")) == 1
 
     def test_by_status(self, store):
-        store.save(_make_receipt(receipt_id="r1", coherence_status="PASS"))
-        store.save(_make_receipt(receipt_id="r2", coherence_status="FAIL"))
+        store.save(_make_receipt(receipt_id="r1", status="PASS"))
+        store.save(_make_receipt(receipt_id="r2", status="FAIL"))
         assert len(store.query(status="FAIL")) == 1
 
-    def test_by_trace_id(self, store):
-        store.save(_make_receipt(receipt_id="r1", trace_id="t-aaa"))
-        store.save(_make_receipt(receipt_id="r2", trace_id="t-bbb"))
-        assert len(store.query(trace_id="t-aaa")) == 1
+    def test_by_correlation_id(self, store):
+        store.save(_make_receipt(receipt_id="r1", correlation_id="t-aaa"))
+        store.save(_make_receipt(receipt_id="r2", correlation_id="t-bbb"))
+        assert len(store.query(correlation_id="t-aaa")) == 1
 
     def test_empty_db(self, store):
         assert store.query() == []
@@ -140,8 +140,8 @@ class TestCount:
         assert store.count() == 3
 
     def test_count_with_filter(self, store):
-        store.save(_make_receipt(receipt_id="r1", coherence_status="PASS"))
-        store.save(_make_receipt(receipt_id="r2", coherence_status="FAIL"))
+        store.save(_make_receipt(receipt_id="r1", status="PASS"))
+        store.save(_make_receipt(receipt_id="r2", status="FAIL"))
         assert store.count(status="PASS") == 1
 
 
@@ -164,7 +164,7 @@ class TestThreadSafety:
         def save_batch(start):
             try:
                 for i in range(20):
-                    store.save(_make_receipt(receipt_id=f"t{start}-{i}", trace_id=f"tr{start}-{i}"))
+                    store.save(_make_receipt(receipt_id=f"t{start}-{i}", correlation_id=f"tr{start}-{i}"))
             except Exception as e:
                 errors.append(e)
         threads = [threading.Thread(target=save_batch, args=(t,)) for t in range(5)]
@@ -230,7 +230,7 @@ class TestThreadSafetyExtended:
                 for i in range(10):
                     store.save(_make_receipt(
                         receipt_id=f"w{batch}-{i}",
-                        trace_id=f"tw{batch}-{i}",
+                        correlation_id=f"tw{batch}-{i}",
                     ))
             except Exception as e:
                 errors.append(e)
@@ -267,7 +267,7 @@ class TestThreadSafetyExtended:
             try:
                 for i in range(20):
                     store.save(_make_receipt(
-                        receipt_id=f"c-{i}", trace_id=f"tc-{i}",
+                        receipt_id=f"c-{i}", correlation_id=f"tc-{i}",
                     ))
             except Exception as e:
                 errors.append(e)
@@ -332,7 +332,7 @@ class TestMalformedReceipts:
 
     def test_no_constitution_ref(self, store):
         """Receipt without constitution_ref stores with null agent_id."""
-        r = {"receipt_id": "no-ref", "coherence_status": "PASS"}
+        r = {"receipt_id": "no-ref", "status": "PASS"}
         store.save(r)
         assert store.query(agent_id="anything") == []
         assert store.count() == 1
@@ -344,32 +344,32 @@ class TestMalformedReceipts:
 
 
 class TestHaltEventFilter:
-    def test_query_halt_events(self, store):
-        store.save(_make_receipt(receipt_id="ok", halt_event=None))
+    def test_query_enforcements(self, store):
+        store.save(_make_receipt(receipt_id="ok", enforcement=None))
         store.save(_make_receipt(
             receipt_id="halted",
-            halt_event={"halted": True, "reason": "C1 failed"},
+            enforcement={"action": "halted", "reason": "C1 failed"},
         ))
-        results = store.query(halt_event=True)
+        results = store.query(enforcement=True)
         assert len(results) == 1
         assert results[0]["receipt_id"] == "halted"
 
-    def test_count_halt_events(self, store):
+    def test_count_enforcements(self, store):
         store.save(_make_receipt(receipt_id="ok1"))
         store.save(_make_receipt(receipt_id="ok2"))
         store.save(_make_receipt(
             receipt_id="h1",
-            halt_event={"halted": True, "reason": "fail"},
+            enforcement={"action": "halted", "reason": "fail"},
         ))
-        assert store.count(halt_event=True) == 1
+        assert store.count(enforcement=True) == 1
 
-    def test_halt_false_not_matched(self, store):
-        """halt_event dict with halted=False is NOT a halt event."""
+    def test_allowed_not_matched(self, store):
+        """enforcement dict with action=allowed is NOT a halt event."""
         store.save(_make_receipt(
             receipt_id="soft",
-            halt_event={"halted": False, "reason": "n/a"},
+            enforcement={"action": "allowed", "reason": "n/a"},
         ))
-        assert store.count(halt_event=True) == 0
+        assert store.count(enforcement=True) == 0
 
 
 class TestCheckStatusFilter:
@@ -410,9 +410,9 @@ class TestCheckStatusFilter:
 
 class TestCombinedFilters:
     def test_agent_and_status(self, store):
-        store.save(_make_receipt(receipt_id="r1", agent_name="alpha", coherence_status="PASS"))
-        store.save(_make_receipt(receipt_id="r2", agent_name="alpha", coherence_status="FAIL"))
-        store.save(_make_receipt(receipt_id="r3", agent_name="beta", coherence_status="FAIL"))
+        store.save(_make_receipt(receipt_id="r1", agent_name="alpha", status="PASS"))
+        store.save(_make_receipt(receipt_id="r2", agent_name="alpha", status="FAIL"))
+        store.save(_make_receipt(receipt_id="r3", agent_name="beta", status="FAIL"))
         results = store.query(agent_id="alpha", status="FAIL")
         assert len(results) == 1
         assert results[0]["receipt_id"] == "r2"
@@ -450,18 +450,18 @@ class TestCombinedFilters:
         from datetime import datetime, timezone
         store.save(_make_receipt(
             receipt_id="target", agent_name="alpha",
-            coherence_status="FAIL", trace_id="t-target",
+            status="FAIL", correlation_id="t-target",
             timestamp="2026-02-10T00:00:00+00:00",
         ))
         store.save(_make_receipt(
             receipt_id="decoy", agent_name="alpha",
-            coherence_status="PASS", trace_id="t-other",
+            status="PASS", correlation_id="t-other",
             timestamp="2026-02-10T00:00:00+00:00",
         ))
         results = store.query(
             agent_id="alpha",
             status="FAIL",
-            trace_id="t-target",
+            correlation_id="t-target",
             since=datetime(2026, 2, 1, tzinfo=timezone.utc),
             until=datetime(2026, 2, 28, tzinfo=timezone.utc),
         )
@@ -486,7 +486,7 @@ class TestExtraction:
 
     def test_no_agent_when_no_ref(self, store):
         """Receipts without constitution_ref have NULL agent_id."""
-        store.save({"receipt_id": "no-ref", "coherence_status": "PASS"})
+        store.save({"receipt_id": "no-ref", "status": "PASS"})
         # Should not match any agent_id query
         assert store.query(agent_id="no-ref") == []
         # But should appear in unfiltered query

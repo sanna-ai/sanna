@@ -103,6 +103,7 @@ class TestDownstreamErrorLabels:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 gateway_secret_path=str(tmp_path / "secret"),
             )
@@ -119,7 +120,7 @@ class TestDownstreamErrorLabels:
                 assert result.isError
                 receipt = gw._last_receipt
                 assert receipt is not None
-                gw_ext = receipt.get("extensions", {}).get("gateway", {})
+                gw_ext = receipt.get("extensions", {}).get("com.sanna.gateway", {})
                 assert gw_ext.get("boundary_type") == "downstream_unhealthy"
             finally:
                 await gw.shutdown()
@@ -138,6 +139,7 @@ class TestDownstreamErrorLabels:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 policy_overrides={"search": "cannot_execute"},
                 gateway_secret_path=str(tmp_path / "secret"),
@@ -150,7 +152,7 @@ class TestDownstreamErrorLabels:
 
                 receipt = gw._last_receipt
                 assert receipt is not None
-                gw_ext = receipt.get("extensions", {}).get("gateway", {})
+                gw_ext = receipt.get("extensions", {}).get("com.sanna.gateway", {})
                 assert gw_ext.get("boundary_type") == "cannot_execute"
             finally:
                 await gw.shutdown()
@@ -169,6 +171,7 @@ class TestDownstreamErrorLabels:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 gateway_secret_path=str(tmp_path / "secret"),
             )
@@ -182,7 +185,7 @@ class TestDownstreamErrorLabels:
                     error_text="Internal Server Error",
                     server_name="mock",
                 )
-                gw_ext = receipt.get("extensions", {}).get("gateway", {})
+                gw_ext = receipt.get("extensions", {}).get("com.sanna.gateway", {})
                 assert gw_ext.get("boundary_type") == "execution_failed"
             finally:
                 await gw.shutdown()

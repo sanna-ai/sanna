@@ -1,10 +1,11 @@
-"""Tests for governance lifecycle demo (Block 7, v0.9.0).
+"""Tests for governance lifecycle demo.
 
 Verifies the demo script runs end-to-end, produces expected output,
 creates valid receipts, and detects tampering correctly.
+Updated for v0.13.0 schema migration (spec_version, correlation_id,
+status, enforcement, full_fingerprint).
 """
 
-import json
 import sys
 from pathlib import Path
 

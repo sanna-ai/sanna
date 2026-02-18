@@ -182,7 +182,7 @@ class TestConstitutionIntegrity:
             yaml.dump(data, f)
 
         with pytest.raises(SannaConstitutionError, match="not signed"):
-            @sanna_observe(constitution_path=str(path))
+            @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
             def agent(query, context):
                 return "test"
 
@@ -371,7 +371,7 @@ class TestReceiptSigning:
             Invariant(id="INV_NO_FABRICATION", rule="test", enforcement="halt"),
         ])
 
-        @sanna_observe(constitution_path=path)
+        @sanna_observe(require_constitution_sig=False, constitution_path=path)
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -389,7 +389,7 @@ class TestReceiptSigning:
             Invariant(id="INV_NO_FABRICATION", rule="test", enforcement="halt"),
         ])
 
-        @sanna_observe(constitution_path=path)
+        @sanna_observe(require_constitution_sig=False, constitution_path=path)
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -397,7 +397,7 @@ class TestReceiptSigning:
         signed = sign_receipt(result.receipt, str(priv_path))
 
         # Tamper
-        signed["coherence_status"] = "FAIL"
+        signed["status"] = "FAIL"
         valid = verify_receipt_signature(signed, str(pub_path))
         assert not valid
 
@@ -407,7 +407,7 @@ class TestReceiptSigning:
             Invariant(id="INV_NO_FABRICATION", rule="test", enforcement="halt"),
         ])
 
-        @sanna_observe(constitution_path=path, private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=path, private_key_path=str(priv_path))
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -429,7 +429,7 @@ class TestProvenanceBond:
             Invariant(id="INV_NO_FABRICATION", rule="test", enforcement="halt"),
         ])
 
-        @sanna_observe(constitution_path=path, private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=path, private_key_path=str(priv_path))
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -448,7 +448,7 @@ class TestProvenanceBond:
             Invariant(id="INV_NO_FABRICATION", rule="test", enforcement="halt"),
         ])
 
-        @sanna_observe(constitution_path=path, private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=path, private_key_path=str(priv_path))
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -517,7 +517,7 @@ class TestStableCheckIDs:
 
 class TestCheckImpl:
     def test_standard_check_has_check_impl(self):
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -527,7 +527,7 @@ class TestCheckImpl:
             assert check["check_impl"].startswith("sanna.")
 
     def test_custom_check_has_null_check_impl(self):
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -546,7 +546,7 @@ class TestCheckImpl:
 
 class TestReplayable:
     def test_builtin_checks_are_replayable(self):
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -555,7 +555,7 @@ class TestReplayable:
             assert check.get("replayable") is True
 
     def test_custom_invariants_are_not_replayable(self):
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -575,7 +575,7 @@ class TestReplayable:
 class TestPartialStatus:
     def test_partial_when_not_checked_and_all_pass(self):
         """PARTIAL when all evaluated checks pass but some are NOT_CHECKED."""
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -583,11 +583,11 @@ class TestPartialStatus:
             warnings.simplefilter("always")
             result = agent(query="test", context=SIMPLE_CONTEXT)
 
-        assert result.receipt["coherence_status"] == "PARTIAL"
+        assert result.receipt["status"] == "PARTIAL"
 
     def test_fail_overrides_partial(self):
         """FAIL takes priority over PARTIAL — halt enforcement raises SannaHaltError."""
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query, context):
             return REFUND_BAD_OUTPUT
 
@@ -595,19 +595,19 @@ class TestPartialStatus:
             agent(query="refund?", context=REFUND_CONTEXT)
 
         # The receipt from the halt should show FAIL, not PARTIAL
-        assert exc_info.value.receipt["coherence_status"] == "FAIL"
+        assert exc_info.value.receipt["status"] == "FAIL"
 
     def test_no_custom_invariants_gives_pass(self):
         """Without NOT_CHECKED invariants, status is PASS."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query, context):
             return SIMPLE_OUTPUT
 
         result = agent(query="test", context=SIMPLE_CONTEXT)
-        assert result.receipt["coherence_status"] == "PASS"
+        assert result.receipt["status"] == "PASS"
 
     def test_partial_receipt_passes_schema(self):
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -619,7 +619,7 @@ class TestPartialStatus:
         assert vr.valid, f"Verification failed: {vr.errors}"
 
     def test_partial_receipt_fingerprint_verifies(self):
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -637,7 +637,7 @@ class TestPartialStatus:
 
 class TestEvaluationCoverage:
     def test_full_coverage(self):
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -649,7 +649,7 @@ class TestEvaluationCoverage:
         assert cov["coverage_basis_points"] == 10000
 
     def test_partial_coverage(self):
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -664,7 +664,7 @@ class TestEvaluationCoverage:
         assert cov["coverage_basis_points"] == 6666
 
     def test_no_invariants_coverage(self):
-        @sanna_observe(constitution_path=NO_INVARIANTS_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=NO_INVARIANTS_CONST)
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -674,7 +674,7 @@ class TestEvaluationCoverage:
 
     def test_coverage_in_fingerprint(self):
         """Tampering with evaluation_coverage should invalidate fingerprint."""
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -757,14 +757,14 @@ class TestConstitutionSchema:
 
 class TestV061Versions:
     def test_tool_version(self):
-        assert TOOL_VERSION == "0.12.5"
+        assert TOOL_VERSION == "0.13.0"
 
     def test_checks_version(self):
-        assert CHECKS_VERSION == "4"
+        assert CHECKS_VERSION == "5"
 
     def test_init_version(self):
         import sanna
-        assert sanna.__version__ == "0.12.5"
+        assert sanna.__version__ == "0.13.0"
 
 
 # =============================================================================
@@ -810,7 +810,7 @@ class TestFullKeyId:
             Invariant(id="INV_NO_FABRICATION", rule="test", enforcement="halt"),
         ])
 
-        @sanna_observe(constitution_path=path, private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=path, private_key_path=str(priv_path))
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -908,7 +908,7 @@ class TestDemoEd25519Flow:
         signed_path = tmp_path / "signed.yaml"
         save_constitution(signed, signed_path)
 
-        @sanna_observe(constitution_path=str(signed_path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(signed_path), private_key_path=str(priv_path))
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -927,7 +927,7 @@ class TestDemoEd25519Flow:
         signed_path = tmp_path / "signed.yaml"
         save_constitution(signed, signed_path)
 
-        @sanna_observe(constitution_path=str(signed_path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(signed_path), private_key_path=str(priv_path))
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -989,7 +989,7 @@ class TestTamperDetection:
             Invariant(id="INV_NO_FABRICATION", rule="test", enforcement="halt"),
         ])
 
-        @sanna_observe(constitution_path=path, private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=path, private_key_path=str(priv_path))
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -1000,7 +1000,7 @@ class TestTamperDetection:
         assert verify_receipt_signature(receipt, str(pub_path))
 
         # Tamper: change a field to a clearly different value
-        receipt["coherence_status"] = "FAIL"
+        receipt["status"] = "FAIL"
         assert not verify_receipt_signature(receipt, str(pub_path))
 
     def test_wrong_key_fails_receipt_verify(self, tmp_path):
@@ -1012,7 +1012,7 @@ class TestTamperDetection:
             Invariant(id="INV_NO_FABRICATION", rule="test", enforcement="halt"),
         ])
 
-        @sanna_observe(constitution_path=path, private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=path, private_key_path=str(priv_path))
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -1047,7 +1047,7 @@ class TestProvenanceChainVerification:
         signed_path = tmp_path / "const.yaml"
         save_constitution(signed, signed_path)
 
-        @sanna_observe(constitution_path=str(signed_path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(signed_path), private_key_path=str(priv_path))
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -1067,7 +1067,7 @@ class TestProvenanceChainVerification:
         signed_path = tmp_path / "const.yaml"
         save_constitution(signed, signed_path)
 
-        @sanna_observe(constitution_path=str(signed_path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(signed_path), private_key_path=str(priv_path))
         def agent(query, context):
             return SIMPLE_OUTPUT
 
@@ -1091,7 +1091,7 @@ class TestProvenanceChainVerification:
         signed_path = tmp_path / "const.yaml"
         save_constitution(signed, signed_path)
 
-        @sanna_observe(constitution_path=str(signed_path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(signed_path), private_key_path=str(priv_path))
         def agent(query, context):
             return SIMPLE_OUTPUT
 

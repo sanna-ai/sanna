@@ -4,7 +4,7 @@
   "checks_version": "2",
   "receipt_id": "706e20339974ab45",
   "receipt_fingerprint": "7d49555f8e980141",
-  "trace_id": "golden-011-pass-span-provenance",
+  "correlation_id": "golden-011-pass-span-provenance",
   "timestamp": "2026-02-13T00:37:54.691577+00:00",
   "inputs": {
     "query": "document summary",
@@ -65,7 +65,7 @@
   ],
   "checks_passed": 5,
   "checks_failed": 0,
-  "coherence_status": "PASS",
+  "status": "PASS",
   "constitution_ref": null,
   "halt_event": null
 }

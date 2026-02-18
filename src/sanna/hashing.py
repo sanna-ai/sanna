@@ -1,7 +1,8 @@
 """
 Canonical hashing for deterministic receipts across platforms.
 
-Canonicalization follows RFC 8785 (JSON Canonicalization Scheme).
+Sanna Canonical JSON — see spec/sanna-specification-v1.0.md
+
 Supported types: str, int, float, bool, None, list, dict.
 
 Floats are serialized as JSON numbers by Python's ``json.dumps``,
@@ -76,7 +77,9 @@ def canonicalize_text(s: str) -> str:
 
 
 def canonical_json_bytes(obj: Any) -> bytes:
-    """Serialize *obj* to RFC 8785 canonical JSON bytes.
+    """Serialize *obj* to Sanna Canonical JSON bytes.
+
+    Sanna Canonical JSON — see spec/sanna-specification-v1.0.md
 
     Covers str, int, float, bool, None, list, dict.  Non-finite
     floats (NaN, Infinity) are rejected.  Finite floats are
@@ -92,17 +95,26 @@ def canonical_json_bytes(obj: Any) -> bytes:
     return canon.encode("utf-8")
 
 
-def sha256_hex(data: bytes, truncate: int = 16) -> str:
-    """SHA256 hash, optionally truncated."""
+def sha256_hex(data: bytes, truncate: int = 64) -> str:
+    """SHA256 hash, optionally truncated.
+
+    Default is full 64-hex SHA-256.  Pass ``truncate=16`` for the
+    short human-readable form used in ``receipt_fingerprint``.
+    """
     full_hash = hashlib.sha256(data).hexdigest()
     return full_hash[:truncate] if truncate else full_hash
 
 
-def hash_text(s: str, truncate: int = 16) -> str:
+#: Sentinel hash for absent fields in the fingerprint formula.
+#: SHA-256 of zero bytes: e3b0c44298fc1c149afbf4c8996fb924...
+EMPTY_HASH = hashlib.sha256(b"").hexdigest()
+
+
+def hash_text(s: str, truncate: int = 64) -> str:
     """Hash canonicalized text."""
     return sha256_hex(canonicalize_text(s).encode("utf-8"), truncate)
 
 
-def hash_obj(obj: Any, truncate: int = 16) -> str:
+def hash_obj(obj: Any, truncate: int = 64) -> str:
     """Hash canonicalized JSON object."""
     return sha256_hex(canonical_json_bytes(obj), truncate)

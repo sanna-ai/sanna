@@ -4,7 +4,7 @@
   "checks_version": "2",
   "receipt_id": "095ac44b3bea07b4",
   "receipt_fingerprint": "856f5676df0126e2",
-  "trace_id": "golden-002-pass-simple-qa",
+  "correlation_id": "golden-002-pass-simple-qa",
   "timestamp": "2026-02-13T00:37:54.688998+00:00",
   "inputs": {
     "query": "capital of France",
@@ -65,7 +65,7 @@
   ],
   "checks_passed": 5,
   "checks_failed": 0,
-  "coherence_status": "PASS",
+  "status": "PASS",
   "constitution_ref": null,
   "halt_event": null
 }

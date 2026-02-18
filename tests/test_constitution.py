@@ -20,7 +20,7 @@ SCHEMA = load_schema()
 def make_trace(**overrides):
     """Build a minimal trace dict."""
     trace = {
-        "trace_id": "test-constitution-001",
+        "correlation_id": "test-constitution-001",
         "name": "constitution-test",
         "timestamp": "2026-01-01T00:00:00Z",
         "input": {"query": "Can I get a refund?"},
@@ -67,7 +67,7 @@ class TestConstitutionProvenance:
         assert receipt.constitution_ref["document_id"] == "policy-v2-refund"
         assert receipt.constitution_ref["version"] == "2.0"
         assert receipt.constitution_ref["source"] == "policy-repo"
-        assert len(receipt.constitution_ref["policy_hash"]) == 16
+        assert len(receipt.constitution_ref["policy_hash"]) == 64
 
     def test_constitution_changes_fingerprint(self):
         """Adding a constitution should change the fingerprint."""

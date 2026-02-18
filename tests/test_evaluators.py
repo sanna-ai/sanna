@@ -241,7 +241,7 @@ class TestSannaObserveIntegration:
         """Custom evaluator returning PASS appears in receipt."""
         register_invariant_evaluator("INV_CUSTOM_NO_PII")(_passing_evaluator)
 
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -257,7 +257,7 @@ class TestSannaObserveIntegration:
         """Custom evaluator returning FAIL appears in receipt."""
         register_invariant_evaluator("INV_CUSTOM_NO_PII")(_failing_evaluator)
 
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -274,7 +274,7 @@ class TestSannaObserveIntegration:
         """Custom evaluator returning WARNING (severity=warning) triggers warn."""
         register_invariant_evaluator("INV_CUSTOM_NO_PII")(_warning_evaluator)
 
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -282,11 +282,11 @@ class TestSannaObserveIntegration:
         with pytest.raises(SannaHaltError):
             agent(query="test", context=SIMPLE_CONTEXT)
 
-    def test_errored_evaluator_in_receipt(self):
-        """Evaluator that raises exception produces ERRORED status."""
+    def test_errored_evaluator_fail_open(self):
+        """fail_open: exception produces ERRORED status, passed=True."""
         register_invariant_evaluator("INV_CUSTOM_NO_PII")(_raising_evaluator)
 
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST, error_policy="fail_open")
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -298,11 +298,11 @@ class TestSannaObserveIntegration:
         assert "Something broke" in errored[0]["details"]
         assert errored[0]["check_impl"] == "custom_evaluator"
 
-    def test_errored_does_not_halt_pipeline(self):
-        """ERRORED evaluator doesn't prevent other checks from running."""
+    def test_errored_fail_open_does_not_halt(self):
+        """fail_open: ERRORED evaluator doesn't halt even with halt enforcement."""
         register_invariant_evaluator("INV_CUSTOM_NO_PII")(_raising_evaluator)
 
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST, error_policy="fail_open")
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -312,11 +312,11 @@ class TestSannaObserveIntegration:
         builtin = [c for c in checks if c.get("check_impl") != "custom_evaluator" and c.get("status") != "ERRORED"]
         assert len(builtin) >= 2  # INV_NO_FABRICATION + INV_PRESERVE_TENSION
 
-    def test_errored_not_counted_as_failure(self):
-        """ERRORED checks should not count in checks_failed."""
+    def test_errored_fail_open_not_counted_as_failure(self):
+        """fail_open: ERRORED checks should not count in checks_failed."""
         register_invariant_evaluator("INV_CUSTOM_NO_PII")(_raising_evaluator)
 
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST, error_policy="fail_open")
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -328,11 +328,53 @@ class TestSannaObserveIntegration:
         ]
         assert result.receipt["checks_failed"] == len([c for c in standard if not c["passed"]])
 
+    def test_errored_fail_closed_halts(self):
+        """fail_closed (default): evaluator error → halt enforcement fires."""
+        register_invariant_evaluator("INV_CUSTOM_NO_PII")(_raising_evaluator)
+
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
+        def agent(query: str, context: str) -> str:
+            return SIMPLE_OUTPUT
+
+        with pytest.raises(SannaHaltError):
+            agent(query="test", context=SIMPLE_CONTEXT)
+
+    def test_errored_fail_closed_produces_failed_status(self):
+        """fail_closed: evaluator error → FAILED status, passed=False in halt receipt."""
+        register_invariant_evaluator("INV_CUSTOM_NO_PII")(_raising_evaluator)
+
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
+        def agent(query: str, context: str) -> str:
+            return SIMPLE_OUTPUT
+
+        with pytest.raises(SannaHaltError) as exc_info:
+            agent(query="test", context=SIMPLE_CONTEXT)
+
+        receipt = exc_info.value.receipt
+        checks = receipt["checks"]
+        failed_custom = [c for c in checks if c["check_id"] == "INV_CUSTOM_NO_PII"]
+        assert len(failed_custom) == 1
+        assert failed_custom[0]["passed"] is False
+        assert failed_custom[0]["status"] == "FAILED"
+        assert "fail_closed" in failed_custom[0]["details"]
+
+    def test_default_error_policy_is_fail_closed(self):
+        """The default error_policy should be fail_closed."""
+        register_invariant_evaluator("INV_CUSTOM_NO_PII")(_raising_evaluator)
+
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
+        def agent(query: str, context: str) -> str:
+            return SIMPLE_OUTPUT
+
+        # Default is fail_closed → halt enforcement fires for errored evaluator
+        with pytest.raises(SannaHaltError):
+            agent(query="test", context=SIMPLE_CONTEXT)
+
     def test_custom_evaluator_replayable_false(self):
         """Custom evaluator results should have replayable=False."""
         register_invariant_evaluator("INV_CUSTOM_NO_PII")(_passing_evaluator)
 
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -344,7 +386,7 @@ class TestSannaObserveIntegration:
         """Built-in checks should still be replayable=True."""
         register_invariant_evaluator("INV_CUSTOM_NO_PII")(_passing_evaluator)
 
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -379,7 +421,7 @@ class TestMultipleEvaluators:
         """All three types coexist in one receipt."""
         register_invariant_evaluator("INV_CUSTOM_NO_PII")(_passing_evaluator)
 
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 

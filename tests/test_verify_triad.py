@@ -44,33 +44,34 @@ def _make_receipt_with_triad(
     triad_dict = receipt_triad_to_dict(triad)
 
     if tamper_input:
-        triad_dict["input_hash"] = "sha256:" + "0" * 64
+        triad_dict["input_hash"] = "0" * 64
     if tamper_reasoning:
-        triad_dict["reasoning_hash"] = "sha256:" + "0" * 64
+        triad_dict["reasoning_hash"] = "0" * 64
     if tamper_action:
-        triad_dict["action_hash"] = "sha256:" + "0" * 64
+        triad_dict["action_hash"] = "0" * 64
 
     # Build the args JSON for inputs.context (what the gateway stores)
     args_json = json.dumps(args, sort_keys=True)
 
     receipt = {
-        "schema_version": "0.1",
-        "tool_version": "0.12.2",
-        "checks_version": "4",
-        "receipt_id": "a" * 16,
+        "spec_version": "1.0",
+        "tool_version": "0.13.0",
+        "checks_version": "5",
+        "receipt_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
         "receipt_fingerprint": "b" * 16,
-        "trace_id": "gw-test123",
+        "full_fingerprint": "b" * 64,
+        "correlation_id": "gw-test123",
         "timestamp": "2026-02-14T18:00:00+00:00",
         "inputs": {"context": args_json, "query": tool_name},
         "outputs": {"output": "OK"},
-        "context_hash": "c" * 16,
-        "output_hash": "d" * 16,
-        "coherence_status": "PASS",
+        "context_hash": "c" * 64,
+        "output_hash": "d" * 64,
+        "status": "PASS",
         "checks_passed": 0,
         "checks_failed": 0,
         "checks": [],
         "extensions": {
-            "gateway_v2": {
+            "com.sanna.gateway": {
                 "receipt_version": "2.0",
                 "receipt_triad": triad_dict,
                 "action": {
@@ -120,7 +121,7 @@ class TestTriadVerification:
         result = verify_receipt_triad(receipt)
 
         assert result.present is True
-        # input_hash format is still valid (it's a proper sha256:... string)
+        # input_hash format is still valid (it's a proper 64-hex string)
         assert result.input_hash_valid is True
         # But it doesn't match re-computed
         assert result.input_hash_match is False
@@ -136,7 +137,7 @@ class TestTriadVerification:
         result = verify_receipt_triad(receipt)
 
         assert result.present is True
-        # Reasoning hash has valid format (sha256:000...)
+        # Reasoning hash has valid format (bare 64-hex 000...)
         assert result.reasoning_hash_valid is True
         # Gateway boundary still holds (input == action, both untampered)
         assert result.gateway_boundary_consistent is True
@@ -221,8 +222,8 @@ class TestV1ReceiptFallback:
     def test_verify_v1_receipt_no_triad(self):
         """v1 receipt without triad hashes returns present=False, no errors."""
         receipt = {
-            "schema_version": "0.1",
-            "receipt_id": "a" * 16,
+            "spec_version": "1.0",
+            "receipt_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
             "extensions": {
                 "gateway": {
                     "server_name": "notion",

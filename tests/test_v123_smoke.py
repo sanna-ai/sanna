@@ -29,10 +29,10 @@ from sanna.crypto import generate_keypair
 class TestVersion:
     def test_version_is_0_12_3(self):
         import sanna
-        assert sanna.__version__ == "0.12.5"
+        assert sanna.__version__ == "0.13.0"
 
     def test_tool_version_is_0_12_3(self):
-        assert TOOL_VERSION == "0.12.5"
+        assert TOOL_VERSION == "0.13.0"
 
 
 # =============================================================================
@@ -167,7 +167,7 @@ class TestUnifiedCLISmoke:
         with patch("sys.argv", ["sanna", "--version"]):
             rc = main_sanna()
         assert rc == 0
-        assert "0.12.5" in capsys.readouterr().out
+        assert "0.13.0" in capsys.readouterr().out
 
 
 # =============================================================================
@@ -211,10 +211,10 @@ class TestAsyncSmoke:
         cp = tmp_path / "c.yaml"
         save_constitution(signed, cp)
 
-        @sanna_observe(constitution_path=str(cp), private_key_path=str(priv))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(cp), private_key_path=str(priv))
         async def async_agent(query, context):
             return f"Answer: {context}"
 
         result = asyncio.run(async_agent(query="q", context="c"))
         assert result.receipt is not None
-        assert result.receipt.get("coherence_status") in ("PASS", "WARN", "FAIL")
+        assert result.receipt.get("status") in ("PASS", "WARN", "FAIL")

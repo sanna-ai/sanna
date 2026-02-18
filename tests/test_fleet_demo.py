@@ -162,6 +162,6 @@ class TestVerification:
 
     def test_sample_receipts_have_required_fields(self, demo_results):
         for name, receipt in demo_results["sample_receipts"].items():
-            assert "coherence_status" in receipt
+            assert "status" in receipt
             assert "checks" in receipt
             assert "receipt_id" in receipt

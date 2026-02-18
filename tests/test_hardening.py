@@ -8,6 +8,10 @@ Covers:
 5. create_bundle requires Ed25519-signed constitution
 6. Unknown source tier normalization
 7. Authority matching separator normalization
+
+Updated for v0.13.0 schema migration:
+- correlation_id used in _build_trace_data calls
+- MCP tests require mcp[cli] extra (skip if MCP SDK not importable)
 """
 
 import json
@@ -16,6 +20,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
+try:
+    import mcp  # noqa: F401
+    _mcp_available = True
+except (ImportError, ModuleNotFoundError):
+    _mcp_available = False
 
 from sanna.bundle import (
     create_bundle,
@@ -73,7 +83,7 @@ def signed_receipt_and_path(tmp_path, keypair, signed_const_path):
     const_ref = constitution_to_receipt_ref(const)
     check_configs, custom_records = configure_checks(const)
     trace_data = _build_trace_data(
-        trace_id="hardening-001",
+        correlation_id="hardening-001",
         query="What is the refund policy?",
         context="Physical products: 30-day returns. Digital: non-refundable.",
         output="Physical products can be returned within 30 days.",
@@ -247,14 +257,10 @@ class TestZipBombSlipProtection:
 # 2. MCP SERVER CRASH PROTECTION
 # =============================================================================
 
-try:
-    import mcp as _mcp  # noqa: F401
-    _HAS_MCP = True
-except ImportError:
-    _HAS_MCP = False
-
-
-@pytest.mark.skipif(not _HAS_MCP, reason="mcp extra not installed")
+@pytest.mark.skipif(
+    not _mcp_available,
+    reason="mcp extra not installed or not importable",
+)
 class TestMCPServerCrashProtection:
     def test_verify_receipt_oversized_input(self):
         from sanna.mcp.server import sanna_verify_receipt, MAX_RECEIPT_JSON_SIZE

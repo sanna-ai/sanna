@@ -4,7 +4,7 @@
   "checks_version": "2",
   "receipt_id": "6b4fc9ceff5723f4",
   "receipt_fingerprint": "2b693ea3aaea5b1d",
-  "trace_id": "golden-007-warn-c5-compression",
+  "correlation_id": "golden-007-warn-c5-compression",
   "timestamp": "2026-02-13T00:37:54.690589+00:00",
   "inputs": {
     "query": "deployment options",
@@ -65,7 +65,7 @@
   ],
   "checks_passed": 4,
   "checks_failed": 1,
-  "coherence_status": "WARN",
+  "status": "WARN",
   "constitution_ref": null,
   "halt_event": null
 }

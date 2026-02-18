@@ -116,6 +116,7 @@ class TestApprovalOverrideReason:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 gateway_secret_path=str(tmp_path / "secret"),
             )
@@ -140,7 +141,7 @@ class TestApprovalOverrideReason:
 
                 receipt = gw._last_receipt
                 assert receipt is not None
-                gw_ext = receipt.get("extensions", {}).get("gateway", {})
+                gw_ext = receipt.get("extensions", {}).get("com.sanna.gateway", {})
                 assert gw_ext.get("override_reason") == "Customer requested urgent update"
                 assert gw_ext.get("override_detail") == "Ticket #4567"
             finally:
@@ -160,6 +161,7 @@ class TestApprovalOverrideReason:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 approval_requires_reason=False,
                 gateway_secret_path=str(tmp_path / "secret"),
@@ -199,6 +201,7 @@ class TestApprovalOverrideReason:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 approval_requires_reason=True,
                 gateway_secret_path=str(tmp_path / "secret"),
@@ -252,6 +255,7 @@ class TestTokenDelivery:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 token_delivery=["file"],
                 gateway_secret_path=str(tmp_path / "secret"),
@@ -292,6 +296,7 @@ class TestTokenDelivery:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 token_delivery=["stderr"],
                 gateway_secret_path=str(tmp_path / "secret"),
@@ -329,6 +334,7 @@ class TestTokenDelivery:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 token_delivery=["file", "stderr"],
                 gateway_secret_path=str(tmp_path / "secret"),

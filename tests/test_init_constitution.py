@@ -222,20 +222,20 @@ class TestSannaObserveIntegration:
         rendered = _render(name)
         signed_path = _write_and_sign(rendered, tmp_path)
 
-        @sanna_observe(constitution_path=signed_path)
+        @sanna_observe(require_constitution_sig=False, constitution_path=signed_path)
         def agent(query: str, context: str) -> str:
             return "Based on the context, the answer is yes."
 
         result = agent(query="test?", context="The answer is yes.")
         assert result.receipt is not None
-        assert result.receipt["coherence_status"] in ("PASS", "WARN", "PARTIAL", "FAIL")
+        assert result.receipt["status"] in ("PASS", "WARN", "PARTIAL", "FAIL")
 
     def test_blank_template_works_with_sanna_observe(self, tmp_path):
         """Blank template also works end-to-end."""
         rendered = _render("blank")
         signed_path = _write_and_sign(rendered, tmp_path)
 
-        @sanna_observe(constitution_path=signed_path)
+        @sanna_observe(require_constitution_sig=False, constitution_path=signed_path)
         def agent(query: str, context: str) -> str:
             return "Hello."
 

@@ -108,7 +108,7 @@ class TestLLMHappyPath:
         with patch("sanna.evaluators.llm.urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value = _mock_api_response(passed=True)
 
-            @sanna_observe(constitution_path=const_path)
+            @sanna_observe(require_constitution_sig=False, constitution_path=const_path)
             def agent(query, context):
                 return "Answer grounded in context."
 
@@ -131,7 +131,7 @@ class TestLLMHappyPath:
         assert llm_check.get("status") != "ERRORED"
 
     def test_llm_evaluator_fail_produces_warn(self, tmp_path):
-        """LLM evaluator returns fail -> receipt has WARN coherence_status."""
+        """LLM evaluator returns fail -> receipt has FAIL status."""
         const_path = _make_signed_constitution(
             tmp_path,
             invariants=["INV_LLM_FABRICATION_DETECTION"],
@@ -146,7 +146,7 @@ class TestLLMHappyPath:
                 passed=False, confidence=0.88, evidence="Fabricated claim detected"
             )
 
-            @sanna_observe(constitution_path=const_path)
+            @sanna_observe(require_constitution_sig=False, constitution_path=const_path)
             def agent(query, context):
                 return "The moon is made of cheese according to NASA."
 
@@ -156,9 +156,9 @@ class TestLLMHappyPath:
         llm_check = [c for c in receipt["checks"] if c["check_id"] == "INV_LLM_FABRICATION_DETECTION"][0]
         assert llm_check["passed"] is False
         assert llm_check["severity"] == "critical"
-        # severity=critical -> coherence_status=FAIL (status is driven by
+        # severity=critical -> status=FAIL (status is driven by
         # severity, enforcement_level controls halt/warn/log behavior)
-        assert receipt["coherence_status"] == "FAIL"
+        assert receipt["status"] == "FAIL"
 
 
 # ---------------------------------------------------------------------------
@@ -168,11 +168,11 @@ class TestLLMHappyPath:
 class TestLLMFailureUnderHalt:
 
     def test_api_error_produces_errored_not_halt(self, tmp_path):
-        """When LLM API fails and enforcement is halt, the check is ERRORED, not halted.
+        """When LLM API fails with fail_open, the check is ERRORED, not halted.
 
         The middleware catches the exception from the evaluator and records
         ERRORED status with passed=True. This prevents false halts when
-        the LLM API is unavailable.
+        the LLM API is unavailable and error_policy is fail_open.
         """
         const_path = _make_signed_constitution(
             tmp_path,
@@ -187,7 +187,7 @@ class TestLLMFailureUnderHalt:
             import urllib.error
             mock_urlopen.side_effect = urllib.error.URLError("Connection refused")
 
-            @sanna_observe(constitution_path=const_path)
+            @sanna_observe(require_constitution_sig=False, constitution_path=const_path, error_policy="fail_open")
             def agent(query, context):
                 return "Answer."
 
@@ -202,10 +202,10 @@ class TestLLMFailureUnderHalt:
         assert "Evaluator error" in llm_check["details"]
 
         # Overall status is PARTIAL (ERRORED checks are non-evaluated)
-        assert receipt["coherence_status"] == "PARTIAL"
+        assert receipt["status"] == "PARTIAL"
 
     def test_malformed_response_produces_errored(self, tmp_path):
-        """When LLM returns malformed JSON, the check is ERRORED."""
+        """When LLM returns malformed JSON with fail_open, the check is ERRORED."""
         const_path = _make_signed_constitution(
             tmp_path,
             invariants=["INV_LLM_FALSE_CERTAINTY"],
@@ -230,7 +230,7 @@ class TestLLMFailureUnderHalt:
         with patch("sanna.evaluators.llm.urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value = mock_resp
 
-            @sanna_observe(constitution_path=const_path)
+            @sanna_observe(require_constitution_sig=False, constitution_path=const_path, error_policy="fail_open")
             def agent(query, context):
                 return "The data clearly shows X."
 
@@ -266,7 +266,7 @@ class TestNoInterference:
         with patch("sanna.evaluators.llm.urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value = _mock_api_response(passed=True)
 
-            @sanna_observe(constitution_path=const_path)
+            @sanna_observe(require_constitution_sig=False, constitution_path=const_path)
             def agent(query, context):
                 return "Answer based on the provided context."
 
@@ -297,7 +297,7 @@ class TestNoInterference:
         )
         # Intentionally do NOT register LLM evaluators
 
-        @sanna_observe(constitution_path=const_path)
+        @sanna_observe(require_constitution_sig=False, constitution_path=const_path)
         def agent(query, context):
             return "Normal answer."
 
@@ -334,7 +334,7 @@ class TestLLMEnhancedTemplate:
         with patch("sanna.evaluators.llm.urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value = _mock_api_response(passed=True)
 
-            @sanna_observe(constitution_path=const_path)
+            @sanna_observe(require_constitution_sig=False, constitution_path=const_path)
             def agent(query, context):
                 return "Complete answer."
 
@@ -346,8 +346,8 @@ class TestLLMEnhancedTemplate:
         for inv_id in all_llm_invariants:
             assert inv_id in check_ids, f"{inv_id} missing from receipt"
 
-        # All passed -> coherence_status = PASS
-        assert receipt["coherence_status"] == "PASS"
+        # All passed -> status = PASS
+        assert receipt["status"] == "PASS"
         assert receipt["checks_passed"] == 5
         assert receipt["checks_failed"] == 0
 
@@ -369,14 +369,14 @@ class TestLLMEnhancedTemplate:
         with patch("sanna.evaluators.llm.urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value = _mock_api_response(passed=True)
 
-            @sanna_observe(constitution_path=const_path)
+            @sanna_observe(require_constitution_sig=False, constitution_path=const_path)
             def agent(query, context):
                 return "Answer using provided facts."
 
             result = agent(query="q", context="Known facts.")
 
         receipt = result.receipt
-        assert receipt["coherence_status"] == "PASS"
+        assert receipt["status"] == "PASS"
         assert receipt["checks_passed"] == 4
         assert receipt["checks_failed"] == 0
 

@@ -4,7 +4,7 @@
   "checks_version": "2",
   "receipt_id": "e43866c18f20b8a8",
   "receipt_fingerprint": "9737cd0eb49f519a",
-  "trace_id": "golden-001-fail-c1-refund",
+  "correlation_id": "golden-001-fail-c1-refund",
   "timestamp": "2026-02-13T00:37:54.692255+00:00",
   "inputs": {
     "query": "refund policy software",
@@ -65,7 +65,7 @@
   ],
   "checks_passed": 4,
   "checks_failed": 1,
-  "coherence_status": "FAIL",
+  "status": "FAIL",
   "constitution_ref": null,
   "halt_event": null
 }

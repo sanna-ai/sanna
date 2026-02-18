@@ -53,7 +53,7 @@ SIMPLE_OUTPUT = "The capital of France is Paris."
 
 def make_passing_agent(constitution_path=ALL_HALT_CONST):
     """Create a simple agent that passes all checks."""
-    @sanna_observe(constitution_path=constitution_path)
+    @sanna_observe(require_constitution_sig=False, constitution_path=constitution_path)
     def agent(query: str, context: str) -> str:
         return SIMPLE_OUTPUT
     return agent
@@ -61,7 +61,7 @@ def make_passing_agent(constitution_path=ALL_HALT_CONST):
 
 def make_failing_agent_with_constitution(constitution_path=ALL_HALT_CONST):
     """Create an agent that triggers C1 (critical) failure with a constitution."""
-    @sanna_observe(constitution_path=constitution_path)
+    @sanna_observe(require_constitution_sig=False, constitution_path=constitution_path)
     def agent(query: str, context: str) -> str:
         return REFUND_BAD_OUTPUT
     return agent
@@ -86,11 +86,12 @@ class TestHappyPath:
         result = agent(query="test", context=SIMPLE_CONTEXT)
 
         required = [
-            "schema_version", "tool_version", "checks_version",
-            "receipt_id", "receipt_fingerprint", "trace_id",
+            "spec_version", "tool_version", "checks_version",
+            "receipt_id", "receipt_fingerprint", "correlation_id",
+            "full_fingerprint",
             "timestamp", "inputs", "outputs", "context_hash",
-            "output_hash", "final_answer_provenance", "checks",
-            "checks_passed", "checks_failed", "coherence_status",
+            "output_hash", "checks",
+            "checks_passed", "checks_failed", "status",
         ]
         for field in required:
             assert field in result.receipt, f"Missing field: {field}"
@@ -100,7 +101,7 @@ class TestHappyPath:
         result = agent(query="test", context=SIMPLE_CONTEXT)
 
         assert "extensions" in result.receipt
-        mw = result.receipt["extensions"]["middleware"]
+        mw = result.receipt["extensions"]["com.sanna.middleware"]
         assert mw["decorator"] == "@sanna_observe"
         assert mw["function_name"] == "agent"
         assert mw["enforcement_decision"] == "PASSED"
@@ -123,7 +124,7 @@ class TestHappyPath:
 
         result = agent(query="refund policy", context=REFUND_CONTEXT)
         assert isinstance(result, SannaResult)
-        assert result.receipt["coherence_status"] == "PASS"
+        assert result.receipt["status"] == "PASS"
         assert result.receipt["checks"] == []
         assert result.receipt["checks_passed"] == 0
         assert result.receipt["checks_failed"] == 0
@@ -141,7 +142,7 @@ class TestHalt:
             agent(query="refund policy software", context=REFUND_CONTEXT)
 
         assert exc_info.value.receipt is not None
-        assert exc_info.value.receipt["coherence_status"] == "FAIL"
+        assert exc_info.value.receipt["status"] == "FAIL"
         assert "context_contradiction" in str(exc_info.value)
 
     def test_halt_receipt_has_enforcement_decision(self):
@@ -150,7 +151,7 @@ class TestHalt:
         with pytest.raises(SannaHaltError) as exc_info:
             agent(query="refund policy", context=REFUND_CONTEXT)
 
-        mw = exc_info.value.receipt["extensions"]["middleware"]
+        mw = exc_info.value.receipt["extensions"]["com.sanna.middleware"]
         assert mw["enforcement_decision"] == "HALTED"
         assert mw["on_violation"] == "halt"
 
@@ -169,7 +170,7 @@ class TestWarn:
 
         assert isinstance(result, SannaResult)
         assert result.output == REFUND_BAD_OUTPUT
-        assert result.receipt["coherence_status"] == "FAIL"
+        assert result.receipt["status"] == "FAIL"
         assert not result.passed
 
         # Should have emitted a warning
@@ -183,7 +184,7 @@ class TestWarn:
             warnings.simplefilter("always")
             result = agent(query="refund policy", context=REFUND_CONTEXT)
 
-        mw = result.receipt["extensions"]["middleware"]
+        mw = result.receipt["extensions"]["com.sanna.middleware"]
         assert mw["enforcement_decision"] == "WARNED"
 
 
@@ -201,7 +202,7 @@ class TestLog:
 
         assert isinstance(result, SannaResult)
         assert result.output == REFUND_BAD_OUTPUT
-        assert result.receipt["coherence_status"] == "FAIL"
+        assert result.receipt["status"] == "FAIL"
 
         # Should NOT have emitted a warning
         sanna_warnings = [x for x in w if "Sanna" in str(x.message)]
@@ -214,7 +215,7 @@ class TestLog:
             warnings.simplefilter("always")
             result = agent(query="refund policy", context=REFUND_CONTEXT)
 
-        mw = result.receipt["extensions"]["middleware"]
+        mw = result.receipt["extensions"]["com.sanna.middleware"]
         assert mw["enforcement_decision"] == "LOGGED"
 
 
@@ -224,7 +225,7 @@ class TestLog:
 
 class TestCheckSubset:
     def test_subset_only_runs_requested_checks(self):
-        @sanna_observe(constitution_path=C1_C3_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=C1_C3_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -235,7 +236,7 @@ class TestCheckSubset:
         assert len(result.receipt["checks"]) == 2
 
     def test_subset_counts_match(self):
-        @sanna_observe(constitution_path=C1_C3_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=C1_C3_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -253,7 +254,7 @@ class TestReceiptFileOutput:
     def test_writes_receipt_json(self, tmp_path):
         receipt_dir = str(tmp_path / "receipts")
 
-        @sanna_observe(constitution_path=ALL_HALT_CONST, receipt_dir=receipt_dir)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST, receipt_dir=receipt_dir)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -266,8 +267,8 @@ class TestReceiptFileOutput:
         # File should contain valid JSON matching the receipt
         with open(files[0]) as f:
             written = json.load(f)
-        assert written["trace_id"] == result.receipt["trace_id"]
-        assert written["coherence_status"] == result.receipt["coherence_status"]
+        assert written["correlation_id"] == result.receipt["correlation_id"]
+        assert written["status"] == result.receipt["status"]
 
     def test_no_file_when_receipt_dir_none(self, tmp_path):
         @sanna_observe(on_violation="log", receipt_dir=None)
@@ -282,7 +283,7 @@ class TestReceiptFileOutput:
         """Receipt should be written even when halting."""
         receipt_dir = str(tmp_path / "receipts")
 
-        @sanna_observe(constitution_path=ALL_HALT_CONST, receipt_dir=receipt_dir)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST, receipt_dir=receipt_dir)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -376,7 +377,7 @@ class TestInputMappingConvention:
 class TestHaltSeverityFiltering:
     def test_halt_only_on_critical(self):
         """C1 at warn enforcement should NOT halt."""
-        @sanna_observe(constitution_path=C1_WARN_ONLY)
+        @sanna_observe(require_constitution_sig=False, constitution_path=C1_WARN_ONLY)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -391,7 +392,7 @@ class TestHaltSeverityFiltering:
 
     def test_halt_on_c1_halt_enforcement(self):
         """C1 at halt enforcement SHOULD halt."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -429,7 +430,7 @@ class TestHaltErrorReceipt:
         with pytest.raises(SannaHaltError) as exc_info:
             agent(query="refund policy", context=REFUND_CONTEXT)
 
-        assert exc_info.value.receipt["coherence_status"] == "FAIL"
+        assert exc_info.value.receipt["status"] == "FAIL"
 
     def test_halt_receipt_has_check_evidence(self):
         agent = make_failing_agent_with_constitution(ALL_HALT_CONST)
@@ -482,6 +483,6 @@ class TestEdgeCases:
 
         result = agent(query="test", context=SIMPLE_CONTEXT)
 
-        ms = result.receipt["extensions"]["middleware"]["execution_time_ms"]
+        ms = result.receipt["extensions"]["com.sanna.middleware"]["execution_time_ms"]
         assert isinstance(ms, int)
         assert ms >= 0

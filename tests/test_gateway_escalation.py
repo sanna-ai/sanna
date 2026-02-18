@@ -176,6 +176,7 @@ class TestEscalationRequired:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -209,6 +210,7 @@ class TestEscalationRequired:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -246,6 +248,7 @@ class TestApproveEscalation:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -285,6 +288,7 @@ class TestApproveEscalation:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -308,7 +312,7 @@ class TestApproveEscalation:
                 approval_receipt = gw.last_receipt
 
                 # Chain fields in extensions
-                gw_ext = approval_receipt["extensions"]["gateway"]
+                gw_ext = approval_receipt["extensions"]["com.sanna.gateway"]
                 assert gw_ext["escalation_id"] == esc_id
                 assert gw_ext["escalation_receipt_id"] == esc_receipt_id
                 assert gw_ext["escalation_resolution"] == "approved"
@@ -328,6 +332,7 @@ class TestApproveEscalation:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -360,7 +365,7 @@ class TestDenyEscalation:
     def test_deny_generates_halt_receipt(
         self, mock_server_path, signed_constitution,
     ):
-        """Deny valid escalation → denial receipt generated with halt_event,
+        """Deny valid escalation → denial receipt generated with enforcement,
         no downstream call."""
         const_path, key_path, _ = signed_constitution
         async def _test():
@@ -369,6 +374,7 @@ class TestDenyEscalation:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -390,11 +396,11 @@ class TestDenyEscalation:
                 deny_data = json.loads(deny_result.content[0].text)
                 assert deny_data["status"] == "denied"
 
-                # Receipt has halt_event
+                # Receipt has enforcement
                 receipt = gw.last_receipt
-                assert receipt["halt_event"] is not None
-                assert receipt["halt_event"]["halted"] is True
-                assert esc_id in receipt["halt_event"]["reason"]
+                assert receipt["enforcement"] is not None
+                assert receipt["enforcement"]["action"] == "halted"
+                assert esc_id in receipt["enforcement"]["reason"]
             finally:
                 await gw.shutdown()
 
@@ -411,6 +417,7 @@ class TestDenyEscalation:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -428,7 +435,7 @@ class TestDenyEscalation:
                     {"escalation_id": esc_id},
                 )
                 deny_receipt = gw.last_receipt
-                gw_ext = deny_receipt["extensions"]["gateway"]
+                gw_ext = deny_receipt["extensions"]["com.sanna.gateway"]
                 assert gw_ext["escalation_id"] == esc_id
                 assert gw_ext["escalation_receipt_id"] == esc_receipt_id
                 assert gw_ext["escalation_resolution"] == "denied"
@@ -454,6 +461,7 @@ class TestExpiredAndNotFound:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -481,6 +489,7 @@ class TestExpiredAndNotFound:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -508,6 +517,7 @@ class TestExpiredAndNotFound:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 escalation_timeout=1,  # 1 second
             )
@@ -546,6 +556,7 @@ class TestExpiredAndNotFound:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 escalation_timeout=1,  # 1 second
             )
@@ -591,6 +602,7 @@ class TestReceiptVerification:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -623,6 +635,7 @@ class TestReceiptVerification:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -663,6 +676,7 @@ class TestReceiptVerification:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -700,6 +714,7 @@ class TestReceiptVerification:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -718,7 +733,7 @@ class TestReceiptVerification:
                     {"escalation_id": esc_id, "approval_token": token},
                 )
                 approval_receipt = gw.last_receipt
-                chain_ref = approval_receipt["extensions"]["gateway"][
+                chain_ref = approval_receipt["extensions"]["com.sanna.gateway"][
                     "escalation_receipt_id"
                 ]
                 assert chain_ref == esc_receipt_id
@@ -745,6 +760,7 @@ class TestMetaToolRegistration:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -769,6 +785,7 @@ class TestMetaToolRegistration:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -793,6 +810,7 @@ class TestMetaToolRegistration:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -826,6 +844,7 @@ class TestConcurrentEscalations:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -887,6 +906,7 @@ class TestDoubleResolution:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -931,6 +951,7 @@ class TestDoubleResolution:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -978,6 +999,7 @@ class TestEscalationEdgeCases:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1004,6 +1026,7 @@ class TestEscalationEdgeCases:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1030,6 +1053,7 @@ class TestEscalationEdgeCases:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1064,6 +1088,7 @@ class TestApprovalToken:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1083,7 +1108,7 @@ class TestApprovalToken:
                 assert approve_result.isError is not True
 
                 receipt = gw.last_receipt
-                gw_ext = receipt["extensions"]["gateway"]
+                gw_ext = receipt["extensions"]["com.sanna.gateway"]
                 assert gw_ext["approval_method"] == "token_verified"
             finally:
                 await gw.shutdown()
@@ -1101,6 +1126,7 @@ class TestApprovalToken:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1136,6 +1162,7 @@ class TestApprovalToken:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1173,6 +1200,7 @@ class TestApprovalToken:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1218,6 +1246,7 @@ class TestApprovalToken:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 escalation_timeout=1,
             )
@@ -1257,6 +1286,7 @@ class TestApprovalToken:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 require_approval_token=False,
             )
@@ -1278,7 +1308,7 @@ class TestApprovalToken:
                 assert data["updated"] is True
 
                 receipt = gw.last_receipt
-                gw_ext = receipt["extensions"]["gateway"]
+                gw_ext = receipt["extensions"]["com.sanna.gateway"]
                 assert gw_ext["approval_method"] == "unverified"
             finally:
                 await gw.shutdown()
@@ -1296,6 +1326,7 @@ class TestApprovalToken:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1323,6 +1354,7 @@ class TestApprovalToken:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1354,6 +1386,7 @@ class TestApprovalToken:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1371,7 +1404,7 @@ class TestApprovalToken:
                     {"escalation_id": esc_id, "approval_token": token},
                 )
                 receipt = gw.last_receipt
-                gw_ext = receipt["extensions"]["gateway"]
+                gw_ext = receipt["extensions"]["com.sanna.gateway"]
 
                 # token_hash is present and is a SHA-256 hex
                 assert "token_hash" in gw_ext
@@ -1398,6 +1431,7 @@ class TestApprovalToken:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1433,7 +1467,7 @@ class TestApprovalToken:
 
                 # Step 4: Verify approval receipt
                 approval_receipt = gw.last_receipt
-                gw_ext = approval_receipt["extensions"]["gateway"]
+                gw_ext = approval_receipt["extensions"]["com.sanna.gateway"]
                 assert gw_ext["escalation_id"] == esc_id
                 assert gw_ext["escalation_receipt_id"] == esc_receipt_id
                 assert gw_ext["escalation_resolution"] == "approved"
@@ -1656,6 +1690,7 @@ class TestEscalationStoreHardening:
                 command=sys.executable,
                 args=["-c", MOCK_SERVER_SCRIPT],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 policy_overrides={"update_item": "must_escalate"},
                 escalation_timeout=300,
@@ -1700,6 +1735,7 @@ class TestEscalationStoreHardening:
                 command=sys.executable,
                 args=["-c", MOCK_SERVER_SCRIPT],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 policy_overrides={"update_item": "must_escalate"},
                 escalation_timeout=300,
@@ -1742,6 +1778,7 @@ class TestEscalationStoreHardening:
                 command=sys.executable,
                 args=["-c", MOCK_SERVER_SCRIPT],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 policy_overrides={"update_item": "must_escalate"},
                 escalation_timeout=300,
@@ -1857,6 +1894,7 @@ class TestApprovalIdempotency:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1899,6 +1937,7 @@ class TestApprovalIdempotency:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()

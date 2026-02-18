@@ -1060,7 +1060,7 @@ def _reasoning_check_to_dict(name: str, check: GLCCheckConfig, *, for_signing: b
     """Serialize a single reasoning check config to a plain dict.
 
     When ``for_signing=True``, float values are converted to integer
-    basis points (0-10000) to satisfy RFC 8785 canonical JSON constraints.
+    basis points (0-10000) for deterministic Sanna Canonical JSON.
     """
     d = asdict(check)
     canonical = _normalize_check_key(name)
@@ -1073,7 +1073,7 @@ def _reasoning_config_to_dict(reasoning: ReasoningConfig, *, for_signing: bool =
     """Serialize ReasoningConfig to a plain dict.
 
     When ``for_signing=True``, float values are converted to integer
-    basis points for RFC 8785 compatibility (used by hashing and Ed25519
+    basis points for Sanna Canonical JSON compatibility (used by hashing and Ed25519
     signing). When ``False`` (default), floats are preserved (for YAML output).
     """
     checks_dict: dict[str, dict] = {}
@@ -1099,15 +1099,7 @@ def compute_constitution_hash(constitution: Constitution) -> str:
     Hash covers identity, boundaries, trust_tiers, halt_conditions
     but NOT provenance. Same policy = same hash regardless of who approved.
 
-    .. note::
-
-       policy_hash uses ``json.dumps(sort_keys=True, ensure_ascii=True)``.
-       This differs from RFC 8785 (JCS) which uses ``ensure_ascii=False``.
-       The choice is intentional for v0.7.x: ``ensure_ascii=True`` produces
-       ASCII-safe hashes that are portable across JSON parsers that may
-       handle Unicode normalization differently.  Cross-language implementors
-       should use ``ensure_ascii=True`` (Python default) or equivalent ASCII
-       escaping for Unicode characters.
+    Uses Sanna Canonical JSON — see spec/sanna-specification-v1.0.md
     """
     # Sort boundaries by ID for determinism
     boundaries = sorted(
@@ -1153,8 +1145,8 @@ def compute_constitution_hash(constitution: Constitution) -> str:
     if constitution.reasoning is not None:
         hashable["reasoning"] = _reasoning_config_to_dict(constitution.reasoning, for_signing=True)
 
-    canonical = json.dumps(hashable, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(canonical).hexdigest()
+    from .hashing import canonical_json_bytes
+    return hashlib.sha256(canonical_json_bytes(hashable)).hexdigest()
 
 
 def compute_content_hash(constitution: Constitution) -> str:
@@ -1466,6 +1458,8 @@ def approve_constitution(
     approver_id: str,
     approver_role: str,
     constitution_version: str,
+    author_public_key_path: str | Path | None = None,
+    verify_author_sig: bool = True,
 ) -> ApprovalRecord:
     """Approve a constitution by signing it with the approver's key.
 
@@ -1475,12 +1469,17 @@ def approve_constitution(
         approver_id: Email or identifier of the approver.
         approver_role: Human-readable role (e.g., "VP Risk").
         constitution_version: Human-readable version string.
+        author_public_key_path: Path to author's Ed25519 public key for
+            signature verification. Required when verify_author_sig is True.
+        verify_author_sig: If True (default), cryptographically verify the
+            author's signature before writing the approval record.
 
     Returns:
         The ApprovalRecord that was created and embedded in the constitution.
 
     Raises:
-        SannaConstitutionError: If constitution is not signed by author.
+        SannaConstitutionError: If constitution is not signed by author,
+            or if signature verification fails.
         FileNotFoundError: If constitution or key file not found.
     """
     import warnings
@@ -1501,6 +1500,27 @@ def approve_constitution(
         raise SannaConstitutionError(
             "Constitution must be signed before approval. "
             "Run `sanna-sign-constitution` first."
+        )
+
+    # 2b. Cryptographic verification of author signature (HIGH-06)
+    if verify_author_sig:
+        if not author_public_key_path:
+            raise SannaConstitutionError(
+                "Author public key required for signature verification. "
+                "Provide author_public_key_path or pass verify_author_sig=False."
+            )
+        from .crypto import verify_constitution_full
+        if not verify_constitution_full(constitution, str(author_public_key_path)):
+            raise SannaConstitutionError(
+                "Author signature verification failed. The constitution "
+                "may have been tampered with since signing."
+            )
+    else:
+        warnings.warn(
+            "Approving constitution without verifying author signature "
+            "(verify_author_sig=False). For production governance, always "
+            "verify before approving.",
+            stacklevel=2,
         )
 
     # 3. Load approver key

@@ -302,6 +302,7 @@ class TestCircuitBreaker:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 receipt_store_path=receipt_store,
             )
@@ -332,6 +333,7 @@ class TestCircuitBreaker:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 receipt_store_path=receipt_store,
             )
@@ -342,8 +344,8 @@ class TestCircuitBreaker:
                 await gw._forward_call("mock_get_status", {})
                 receipt = gw.last_receipt
                 assert receipt is not None
-                assert receipt["halt_event"]["halted"] is True
-                assert "unhealthy" in receipt["halt_event"]["reason"].lower()
+                assert receipt["enforcement"]["action"] == "halted"
+                assert "unhealthy" in receipt["enforcement"]["reason"].lower()
             finally:
                 await gw.shutdown()
 
@@ -378,6 +380,7 @@ class TestHalfOpenCircuitBreaker:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
             )
             await gw.start()
@@ -411,6 +414,7 @@ class TestHalfOpenCircuitBreaker:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 circuit_breaker_cooldown=60.0,
             )
@@ -442,6 +446,7 @@ class TestHalfOpenCircuitBreaker:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 circuit_breaker_cooldown=1.0,  # 1s cooldown
             )
@@ -477,6 +482,7 @@ class TestHalfOpenCircuitBreaker:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 circuit_breaker_cooldown=0.1,
             )
@@ -519,6 +525,7 @@ class TestHalfOpenCircuitBreaker:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 circuit_breaker_cooldown=0.1,
             )
@@ -560,6 +567,7 @@ class TestHalfOpenCircuitBreaker:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
             )
             await gw.start()
@@ -589,6 +597,7 @@ class TestHalfOpenCircuitBreaker:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 circuit_breaker_cooldown=0.1,
             )
@@ -622,6 +631,7 @@ class TestHalfOpenCircuitBreaker:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 circuit_breaker_cooldown=0.1,
             )
@@ -659,6 +669,7 @@ class TestHalfOpenCircuitBreaker:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 receipt_store_path=receipt_store,
             )
@@ -670,7 +681,7 @@ class TestHalfOpenCircuitBreaker:
                 receipt = gw.last_receipt
                 assert receipt is not None
                 # The halt reason should mention circuit breaker
-                reason = receipt["halt_event"]["reason"].lower()
+                reason = receipt["enforcement"]["reason"].lower()
                 assert "circuit breaker" in reason
                 assert "unhealthy" in reason
             finally:
@@ -724,6 +735,7 @@ class TestReceiptPersistence:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 receipt_store_path=receipt_store,
             )
@@ -750,6 +762,7 @@ class TestReceiptPersistence:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 receipt_store_path=receipt_store,
             )
@@ -782,6 +795,7 @@ class TestReceiptPersistence:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 receipt_store_path=receipt_store,
             )
@@ -793,7 +807,7 @@ class TestReceiptPersistence:
                 with open(filepath) as f:
                     persisted = json.load(f)
                 assert persisted["receipt_id"] == gw.last_receipt["receipt_id"]
-                assert persisted["trace_id"] == gw.last_receipt["trace_id"]
+                assert persisted["correlation_id"] == gw.last_receipt["correlation_id"]
             finally:
                 await gw.shutdown()
 
@@ -810,6 +824,7 @@ class TestReceiptPersistence:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 receipt_store_path=receipt_store,
             )
@@ -842,6 +857,7 @@ class TestReceiptPersistence:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 receipt_store_path=receipt_store,
             )
@@ -869,6 +885,7 @@ class TestReceiptPersistence:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 # No receipt_store_path
             )
@@ -899,6 +916,7 @@ class TestStructuredLogging:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
             )
             await gw.start()
@@ -931,6 +949,7 @@ class TestStructuredLogging:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=signed_constitution[0],
+                require_constitution_sig=False,
                 signing_key_path=signed_constitution[1],
                 policy_overrides={"get_status": "cannot_execute"},
             )
@@ -956,6 +975,7 @@ class TestStructuredLogging:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 receipt_store_path=receipt_store,
             )
@@ -991,6 +1011,7 @@ class TestLatencyBudget:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 receipt_store_path=receipt_store,
             )
@@ -1094,7 +1115,7 @@ class TestCrashRecovery:
     def test_error_receipt_has_correct_structure(
         self, mock_server_path, signed_constitution,
     ):
-        """Error receipts have halt_event and authority_decisions."""
+        """Error receipts have enforcement and authority_decisions."""
         async def _test():
             const_path, private_key, _ = signed_constitution
             gw = SannaGateway(
@@ -1102,6 +1123,7 @@ class TestCrashRecovery:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
             )
             await gw.start()
@@ -1112,8 +1134,8 @@ class TestCrashRecovery:
                     arguments={},
                     error_text="test error",
                 )
-                assert receipt["halt_event"]["halted"] is True
-                assert "test error" in receipt["halt_event"]["reason"]
+                assert receipt["enforcement"]["action"] == "halted"
+                assert "test error" in receipt["enforcement"]["reason"]
                 assert len(receipt["authority_decisions"]) == 1
                 assert receipt["authority_decisions"][0]["decision"] == "halt"
             finally:
@@ -1142,6 +1164,7 @@ class TestArgumentsHashFloatFallback:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1149,9 +1172,9 @@ class TestArgumentsHashFloatFallback:
                 await gw._forward_call(
                     "mock_search", {"query": "test", "limit": 10},
                 )
-                gw_ext = gw.last_receipt["extensions"]["gateway"]
-                assert gw_ext["arguments_hash_method"] == "jcs"
-                assert len(gw_ext["arguments_hash"]) == 16
+                gw_ext = gw.last_receipt["extensions"]["com.sanna.gateway"]
+                assert gw_ext["arguments_hash_method"] == "sanna_canonical"
+                assert len(gw_ext["arguments_hash"]) == 64
             finally:
                 await gw.shutdown()
 
@@ -1169,6 +1192,7 @@ class TestArgumentsHashFloatFallback:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1177,9 +1201,9 @@ class TestArgumentsHashFloatFallback:
                     "mock_set_threshold",
                     {"name": "accuracy", "threshold": 0.85},
                 )
-                gw_ext = gw.last_receipt["extensions"]["gateway"]
-                assert gw_ext["arguments_hash_method"] == "jcs"
-                assert len(gw_ext["arguments_hash"]) == 16
+                gw_ext = gw.last_receipt["extensions"]["com.sanna.gateway"]
+                assert gw_ext["arguments_hash_method"] == "sanna_canonical"
+                assert len(gw_ext["arguments_hash"]) == 64
             finally:
                 await gw.shutdown()
 
@@ -1197,6 +1221,7 @@ class TestArgumentsHashFloatFallback:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1205,10 +1230,10 @@ class TestArgumentsHashFloatFallback:
                     "mock_configure",
                     {"config": json.dumps({"rate": 1.5, "count": 3})},
                 )
-                gw_ext = gw.last_receipt["extensions"]["gateway"]
+                gw_ext = gw.last_receipt["extensions"]["com.sanna.gateway"]
                 # config value is a string (JSON-encoded), so no float
                 # at the top level — should use JCS
-                assert gw_ext["arguments_hash_method"] == "jcs"
+                assert gw_ext["arguments_hash_method"] == "sanna_canonical"
             finally:
                 await gw.shutdown()
 
@@ -1226,6 +1251,7 @@ class TestArgumentsHashFloatFallback:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1235,9 +1261,9 @@ class TestArgumentsHashFloatFallback:
                     "mock_set_threshold",
                     {"name": "score", "threshold": 0.95},
                 )
-                gw_ext = gw.last_receipt["extensions"]["gateway"]
-                assert gw_ext["arguments_hash_method"] == "jcs"
-                assert len(gw_ext["arguments_hash"]) == 16
+                gw_ext = gw.last_receipt["extensions"]["com.sanna.gateway"]
+                assert gw_ext["arguments_hash_method"] == "sanna_canonical"
+                assert len(gw_ext["arguments_hash"]) == 64
             finally:
                 await gw.shutdown()
 
@@ -1255,15 +1281,16 @@ class TestArgumentsHashFloatFallback:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
             try:
                 await gw._forward_call("mock_get_status", {})
-                gw_ext = gw.last_receipt["extensions"]["gateway"]
+                gw_ext = gw.last_receipt["extensions"]["com.sanna.gateway"]
                 assert "arguments_hash" in gw_ext
-                assert len(gw_ext["arguments_hash"]) == 16
-                assert gw_ext["arguments_hash_method"] == "jcs"
+                assert len(gw_ext["arguments_hash"]) == 64
+                assert gw_ext["arguments_hash_method"] == "sanna_canonical"
             finally:
                 await gw.shutdown()
 
@@ -1330,6 +1357,7 @@ class TestExtractResultText:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1338,11 +1366,11 @@ class TestExtractResultText:
                     "mock_get_status", {},
                 )
                 r = gw.last_receipt
-                gw_ext = r["extensions"]["gateway"]
+                gw_ext = r["extensions"]["com.sanna.gateway"]
                 # The output hash should correspond to the actual output
                 # (not empty, not truncated)
                 assert gw_ext["tool_output_hash"] != hash_text("")
-                assert len(gw_ext["tool_output_hash"]) == 16
+                assert len(gw_ext["tool_output_hash"]) == 64
             finally:
                 await gw.shutdown()
 
@@ -1368,6 +1396,7 @@ class TestCircuitBreakerProbe:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
             )
             await gw.start()
@@ -1427,6 +1456,7 @@ class TestCircuitBreakerProbe:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
             )
             await gw.start()
@@ -1483,6 +1513,7 @@ class TestReceiptPermissions:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 receipt_store_path=store,
             )
@@ -1510,6 +1541,7 @@ class TestReceiptPermissions:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=private_key,
                 receipt_store_path=store,
             )
@@ -1594,11 +1626,11 @@ class TestRedactionHMAC:
         )
         assert "SHA-256-SALTED" in result
 
-    def test_pattern_redact_mode_passthrough(self):
-        """pattern_redact mode passes content through unchanged."""
+    def test_pattern_redact_mode_raises(self):
+        """pattern_redact mode raises ValueError (not yet implemented)."""
         from sanna.gateway.server import _redact_for_storage
 
-        result = _redact_for_storage(
-            "keep this", mode="pattern_redact", salt="s",
-        )
-        assert result == "keep this"
+        with pytest.raises(ValueError, match="pattern_redact.*not yet implemented"):
+            _redact_for_storage(
+                "keep this", mode="pattern_redact", salt="s",
+            )

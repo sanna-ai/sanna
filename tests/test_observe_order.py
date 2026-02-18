@@ -70,7 +70,7 @@ class TestObserveHaltBeforeExecution:
 
         func_called = False
 
-        @sanna_observe(constitution_path=const_path, strict=False)
+        @sanna_observe(require_constitution_sig=False, constitution_path=const_path, strict=False)
         def my_agent(query, context, _justification=""):
             nonlocal func_called
             func_called = True
@@ -94,7 +94,7 @@ class TestObserveHaltBeforeExecution:
 
         func_called = False
 
-        @sanna_observe(constitution_path=const_path, strict=False)
+        @sanna_observe(require_constitution_sig=False, constitution_path=const_path, strict=False)
         def my_agent(query, context, _justification=""):
             nonlocal func_called
             func_called = True
@@ -117,7 +117,7 @@ class TestObserveHaltBeforeExecution:
 
         func_called = False
 
-        @sanna_observe(constitution_path=const_path, strict=False)
+        @sanna_observe(require_constitution_sig=False, constitution_path=const_path, strict=False)
         def my_agent(query, context):
             nonlocal func_called
             func_called = True
@@ -175,7 +175,7 @@ class TestObserveLogButExecute:
 
         func_called = False
 
-        @sanna_observe(constitution_path=const_path, strict=False)
+        @sanna_observe(require_constitution_sig=False, constitution_path=const_path, strict=False)
         def my_agent(query, context, _justification=""):
             nonlocal func_called
             func_called = True

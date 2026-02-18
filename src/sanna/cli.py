@@ -5,6 +5,7 @@ Legacy aliases: c3m-receipt, c3m-verify
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -24,14 +25,14 @@ def format_receipt_summary(receipt: SannaReceipt) -> str:
         "SANNA REASONING RECEIPT",
         "=" * 60,
         f"Tool:        v{receipt.tool_version}",
-        f"Schema:      v{receipt.schema_version}",
+        f"Spec:        v{receipt.spec_version}",
         f"Checks:      v{receipt.checks_version}",
         f"Receipt ID:  {receipt.receipt_id}",
         f"Fingerprint: {receipt.receipt_fingerprint}",
-        f"Trace ID:    {receipt.trace_id}",
+        f"Correlation:  {receipt.correlation_id}",
         f"Generated:   {receipt.timestamp}",
         "",
-        f"Status:      {receipt.coherence_status}",
+        f"Status:      {receipt.status}",
         f"Passed:      {receipt.checks_passed}/{receipt.checks_passed + receipt.checks_failed}",
         "",
         "-" * 60,
@@ -45,13 +46,6 @@ def format_receipt_summary(receipt: SannaReceipt) -> str:
         if not check["passed"] and check.get("evidence"):
             lines.append(f"      └─ {check['evidence']}")
 
-    prov = receipt.final_answer_provenance
-    prov_str = prov.get("source", "unknown")
-    if prov.get("span_name"):
-        prov_str += f" ({prov['span_name']})"
-    elif prov.get("field"):
-        prov_str += f" [{prov['field']}]"
-
     lines.extend([
         "",
         "-" * 60,
@@ -59,7 +53,6 @@ def format_receipt_summary(receipt: SannaReceipt) -> str:
         "-" * 60,
         f"  Context Hash:  {receipt.context_hash}",
         f"  Output Hash:   {receipt.output_hash}",
-        f"  Answer Source: {prov_str}",
         "",
         "=" * 60,
     ])
@@ -111,7 +104,7 @@ def main_generate():
     else:
         print(output)
 
-    return 0 if receipt.coherence_status != "FAIL" else 1
+    return 0 if receipt.status != "FAIL" else 1
 
 
 # =============================================================================
@@ -121,7 +114,7 @@ def main_generate():
 VERIFIER_VERSION = "0.3.0"
 
 
-def format_verify_summary(result: VerificationResult, receipt: dict) -> str:
+def format_verify_summary(result: VerificationResult, receipt: dict, signature_status: dict = None) -> str:
     """Format verification result as human-readable summary."""
     # Check for extensions
     extensions = receipt.get("extensions")
@@ -131,15 +124,25 @@ def format_verify_summary(result: VerificationResult, receipt: dict) -> str:
     else:
         ext_status = "None"
 
+    # Signature status line
+    sig = signature_status or {}
+    if sig.get("verified"):
+        sig_line = "✓ Verified"
+    elif sig.get("present") and not sig.get("verified"):
+        sig_line = "⚠ UNVERIFIED (provide --public-key to verify)"
+    else:
+        sig_line = "Not signed"
+
     lines = [
         "=" * 50,
         "SANNA RECEIPT VERIFICATION",
         "=" * 50,
         "",
         f"Status:      {'✓ VALID' if result.valid else '✗ INVALID'}",
-        f"Schema:      v{receipt.get('schema_version', '?')}",
+        f"Spec:        v{receipt.get('spec_version', receipt.get('schema_version', '?'))}",
         f"Fingerprint: {'✓ Match' if result.computed_fingerprint == result.expected_fingerprint else '✗ Mismatch'}",
         f"Consistency: {'✓ OK' if result.computed_status == result.expected_status else '✗ Mismatch'}",
+        f"Signature:   {sig_line}",
         f"Extensions:  {ext_status}",
     ]
 
@@ -165,7 +168,7 @@ def format_verify_summary(result: VerificationResult, receipt: dict) -> str:
 
     # Receipt Triad section (Block I — v2 gateway receipts)
     extensions = receipt.get("extensions") or {}
-    gw_v2 = extensions.get("gateway_v2") or {}
+    gw_v2 = extensions.get("com.sanna.gateway") or {}
     triad = gw_v2.get("receipt_triad")
     if triad and isinstance(triad, dict):
         from sanna.verify import verify_receipt_triad
@@ -235,7 +238,7 @@ def format_verify_json(result: VerificationResult, receipt: dict) -> str:
     output = {
         "valid": result.valid,
         "exit_code": result.exit_code,
-        "schema_version": receipt.get("schema_version"),
+        "spec_version": receipt.get("spec_version", receipt.get("schema_version")),
         "receipt_id": receipt.get("receipt_id"),
         "fingerprint_match": result.computed_fingerprint == result.expected_fingerprint,
         "status_match": result.computed_status == result.expected_status,
@@ -259,6 +262,8 @@ def main_verify():
     parser.add_argument("--constitution", help="Path to constitution file for chain verification")
     parser.add_argument("--constitution-public-key", help="Path to Ed25519 public key for constitution signature verification")
     parser.add_argument("--approver-public-key", help="Path to Ed25519 public key for approval signature verification")
+    parser.add_argument("--strict", action="store_true",
+                       help="Require receipt signature verification (fail if unsigned or no key)")
     parser.add_argument("--version", action="version", version=f"sanna-verify {VERIFIER_VERSION}")
 
     args = parser.parse_args()
@@ -290,11 +295,61 @@ def main_verify():
         approver_public_key_path=args.approver_public_key,
     )
 
+    # Signature awareness (HIGH-05)
+    has_signature = bool(receipt.get("receipt_signature", {}).get("value"))
+    sig_verified = args.public_key is not None and has_signature and result.valid
+
+    if args.strict:
+        if not has_signature:
+            result = VerificationResult(
+                valid=False,
+                exit_code=5,
+                errors=result.errors + ["--strict: Receipt is unsigned. Provide a signed receipt."],
+                warnings=result.warnings,
+                computed_fingerprint=result.computed_fingerprint,
+                expected_fingerprint=result.expected_fingerprint,
+                computed_status=result.computed_status,
+                expected_status=result.expected_status,
+            )
+        elif not args.public_key:
+            result = VerificationResult(
+                valid=False,
+                exit_code=5,
+                errors=result.errors + ["--strict: Receipt is signed but no --public-key provided."],
+                warnings=result.warnings,
+                computed_fingerprint=result.computed_fingerprint,
+                expected_fingerprint=result.expected_fingerprint,
+                computed_status=result.computed_status,
+                expected_status=result.expected_status,
+            )
+    elif has_signature and not args.public_key:
+        result = VerificationResult(
+            valid=result.valid,
+            exit_code=result.exit_code,
+            errors=result.errors,
+            warnings=result.warnings + ["Receipt is signed but no --public-key provided. Signature UNVERIFIED."],
+            computed_fingerprint=result.computed_fingerprint,
+            expected_fingerprint=result.expected_fingerprint,
+            computed_status=result.computed_status,
+            expected_status=result.expected_status,
+        )
+
     # Output
     if args.format == "json":
-        print(format_verify_json(result, receipt))
+        output = format_verify_json(result, receipt)
+        # Add signature status to JSON output
+        import json as _json
+        parsed = _json.loads(output)
+        parsed["signature_present"] = has_signature
+        parsed["signature_verified"] = sig_verified
+        parsed["strict_mode"] = args.strict
+        print(_json.dumps(parsed, indent=2))
     else:
-        print(format_verify_summary(result, receipt))
+        print(format_verify_summary(result, receipt, signature_status={
+            "present": has_signature,
+            "verified": sig_verified,
+            "strict": args.strict,
+        }))
 
     return result.exit_code
 
@@ -748,8 +803,9 @@ def main_verify_bundle():
             if summary:
                 if summary.get("agent_name"):
                     print(f"Agent: {summary['agent_name']}")
-                if summary.get("coherence_status"):
-                    print(f"Decision: {summary['coherence_status']}")
+                decision = summary.get("status")
+                if decision:
+                    print(f"Decision: {decision}")
                 if summary.get("constitution_version"):
                     print(f"Constitution: v{summary['constitution_version']}")
 
@@ -933,9 +989,33 @@ def approve_constitution_cmd():
                        help="Human-readable role (e.g., 'VP Risk', 'CISO')")
     parser.add_argument("--version", dest="constitution_version", required=True,
                        help="Human-readable constitution version (e.g., '1', '2.0')")
+    parser.add_argument("--author-public-key",
+                       help="Path to author's Ed25519 public key for signature verification")
+    parser.add_argument("--no-verify", action="store_true",
+                       help="Skip author signature verification (not recommended for production)")
+    parser.add_argument("--non-interactive", action="store_true",
+                       help="Skip interactive confirmation (required when not run from a terminal)")
     parser.add_argument("--tool-version", action="version", version=f"sanna-approve-constitution {TOOL_VERSION}")
 
     args = parser.parse_args()
+
+    # CRIT-01: TTY safety check — prevent unattended approval
+    try:
+        is_tty = os.isatty(sys.stdin.fileno())
+    except (AttributeError, OSError):
+        is_tty = False
+
+    if is_tty:
+        # Interactive terminal: prompt for confirmation
+        answer = input("Approve constitution? [y/N] ")
+        if answer.strip().lower() not in ("y", "yes"):
+            print("Aborted.", file=sys.stderr)
+            return 1
+    else:
+        # Non-TTY (piped/scripted): require --non-interactive flag
+        if not args.non_interactive:
+            print("sanna-approve requires --non-interactive flag when not run from a terminal.", file=sys.stderr)
+            return 1
 
     from .constitution import approve_constitution, SannaConstitutionError
 
@@ -946,6 +1026,8 @@ def approve_constitution_cmd():
             approver_id=args.approver_id,
             approver_role=args.approver_role,
             constitution_version=args.constitution_version,
+            author_public_key_path=args.author_public_key,
+            verify_author_sig=not args.no_verify,
         )
     except SannaConstitutionError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1048,6 +1130,7 @@ def main_demo():
         # 4. Simulate governed action
         @sanna_observe(
             constitution_path=str(const_path),
+            constitution_public_key_path=str(pub_path),
             private_key_path=str(priv_path),
         )
         def demo_agent(query, context):
@@ -1061,7 +1144,7 @@ def main_demo():
 
         # 5. Show receipt summary
         receipt = result.receipt
-        status = receipt.get("coherence_status", "UNKNOWN")
+        status = receipt.get("status", "UNKNOWN")
         checks = receipt.get("checks", [])
         passed = sum(1 for c in checks if c.get("passed"))
         total = len(checks)
@@ -1125,15 +1208,15 @@ def main_inspect():
     print("SANNA RECEIPT")
     print("=" * 60)
     print(f"  Receipt ID:    {receipt.get('receipt_id', 'N/A')}")
-    print(f"  Trace ID:      {receipt.get('trace_id', 'N/A')}")
+    print(f"  Correlation:   {receipt.get('correlation_id', 'N/A')}")
     print(f"  Timestamp:     {receipt.get('timestamp', 'N/A')}")
     print(f"  Tool Version:  {receipt.get('tool_version', 'N/A')}")
-    print(f"  Schema:        {receipt.get('schema_version', 'N/A')}")
+    print(f"  Spec:          {receipt.get('spec_version', receipt.get('schema_version', 'N/A'))}")
     print(f"  Fingerprint:   {receipt.get('receipt_fingerprint', 'N/A')[:32]}...")
     print()
 
     # Status
-    status = receipt.get("coherence_status", "UNKNOWN")
+    status = receipt.get("status", "UNKNOWN")
     checks = receipt.get("checks", [])
     passed = sum(1 for c in checks if c.get("passed"))
     failed = sum(1 for c in checks if not c.get("passed"))
@@ -1204,14 +1287,16 @@ def main_inspect():
         print(f"  Signed:        {'Yes' if has_sig else 'No'}")
         print()
 
-    # Halt event
-    halt = receipt.get("halt_event")
-    if halt and isinstance(halt, dict) and halt.get("halted"):
+    # Enforcement
+    enforcement = receipt.get("enforcement")
+    if enforcement and isinstance(enforcement, dict):
         print("-" * 60)
-        print("HALT EVENT")
+        print("ENFORCEMENT")
         print("-" * 60)
-        print(f"  Reason:        {halt.get('reason', 'N/A')}")
-        print(f"  Failed Checks: {halt.get('failed_checks', [])}")
+        print(f"  Action:        {enforcement.get('action', 'N/A')}")
+        print(f"  Reason:        {enforcement.get('reason', 'N/A')}")
+        print(f"  Failed Checks: {enforcement.get('failed_checks', [])}")
+        print(f"  Mode:          {enforcement.get('enforcement_mode', 'N/A')}")
         print()
 
     print("=" * 60)

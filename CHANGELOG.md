@@ -1,5 +1,64 @@
 # Changelog
 
+## [0.13.0] - 2026-02-17
+
+Receipt format v1.0 specification, schema migration from v0.12.x field names, and security hardening across all enforcement paths.
+
+### Security
+- **CRIT-01: Approval channel hardened** — default token delivery changed to stderr-only, file delivery requires `SANNA_INSECURE_FILE_TOKENS=1`, webhook delivery with SSRF validation, TTY check on `sanna-approve`
+- **CRIT-02: Constitution signature verification enforced in all paths** — middleware, MCP, gateway all require Ed25519 signature by default (`require_constitution_sig=True`), `signature_verified` field in `constitution_ref`
+- **CRIT-03: PII redaction expanded** — `pattern_redact` raises `ConfigError` (not yet implemented), redacts `outputs.response` not `outputs.output`, redacted-only persistence with `_redaction_notice`
+- **HIGH-01: error_policy parameter** — `fail_closed` (default) treats evaluator errors as real failures (`status=FAILED`), `fail_open` preserves legacy ERRORED behavior
+- **HIGH-02: LLM evaluator prompt trust separation** — constitution in `<trusted_rules>`, untrusted I/O in `<audit_input>`/`<audit_output>`
+- **HIGH-03: asyncio.Lock on EscalationStore** for thread-safe async writes
+- **HIGH-04: ReceiptStore rejects /tmp paths** — resolves bare filenames to `~/.sanna/receipts/`
+- **HIGH-05: sanna-verify --strict flag** — warns on signed receipts without verification key
+- **HIGH-06: approve_constitution verifies author signature** before writing approval record
+- **HIGH-07: Async decorator fix** — `_pre_execution_check_async` directly awaits pipeline, shared module-level `ThreadPoolExecutor` for sync path
+- **HIGH-09: WAL sidecar forced creation** with 0o600 permissions
+- **MED-01: Docker ownership check skip** via `SANNA_SKIP_DB_OWNERSHIP_CHECK=1`
+- **MED-03: escape_audit_content handles None and non-string inputs**
+- **MED-04: math.isfinite() guard** before float-to-int conversion in signing
+- **MED-07: Key generation directory** uses `ensure_secure_dir`
+- **LOW-01: WAL sidecar TOCTOU fix** — `O_NOFOLLOW` + `fchmod` replaces `is_symlink()` + `chmod()`
+- **LOW-02: Gateway secret symlink rejection** before file read
+- **LOW-03: verify_signature catches specific exceptions** (`binascii.Error`, `ValueError`, `InvalidSignature`)
+
+### Schema Migration
+- `spec_version` "1.0" replaces `schema_version` "0.1"
+- `correlation_id` replaces `trace_id` (backward-compat fallback reads retained)
+- `status` replaces `coherence_status` (backward-compat fallback reads retained)
+- `enforcement` replaces `halt_event` in receipt output (internal parameter name retained)
+- `final_answer_provenance` removed
+- All content hashes now 64-hex SHA-256 (`receipt_fingerprint` remains 16-hex truncation)
+- `full_fingerprint` (64-hex) added alongside `receipt_fingerprint`
+- `receipt_id` now UUID v4 with schema validation
+- Fingerprint formula unified to 12 pipe-delimited fields with `EMPTY_HASH` sentinel
+- `CHECKS_VERSION` bumped to "5"
+- Extension keys use reverse-domain namespacing (`com.sanna.gateway`, `com.sanna.middleware`)
+- `CheckResult` `additionalProperties: false` in schema
+- `identity_verification` added to receipt schema
+
+### Specification
+- Published `spec/sanna-specification-v1.0.md` — 10 sections + 3 appendices covering receipt format, canonicalization, fingerprint construction, signing, constitution format, verification protocol
+
+### Breaking Changes
+- Receipt format incompatible with v0.12.x:
+  - `schema_version` → `spec_version`
+  - `trace_id` → `correlation_id`
+  - `coherence_status` → `status`
+  - `halt_event` → `enforcement` (in receipt output)
+  - `final_answer_provenance` removed
+  - Content hashes changed from 16-hex to 64-hex
+  - Fingerprint formula changed from variable-length to fixed 12 fields
+  - `receipt_id` now requires UUID v4 format
+  - `require_constitution_sig=True` by default (unsigned constitutions rejected)
+  - `error_policy=fail_closed` by default (evaluator errors now count as failures)
+  - `ReceiptStore` rejects `/tmp` paths
+
+### Tests
+- 2211+ passed, 17 xfailed (10 heuristic limitations, 7 MCP SDK compat)
+
 ## [0.12.5] - 2026-02-17
 
 Final security hardening from review cycle 4 (2 independent security reviews + 1 adoption review of v0.12.4).

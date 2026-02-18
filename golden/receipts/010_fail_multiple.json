@@ -4,7 +4,7 @@
   "checks_version": "2",
   "receipt_id": "d28868bcf8489bd0",
   "receipt_fingerprint": "5f31b2e166c8e213",
-  "trace_id": "golden-010-fail-multiple",
+  "correlation_id": "golden-010-fail-multiple",
   "timestamp": "2026-02-13T00:37:54.691164+00:00",
   "inputs": {
     "query": "refund eligibility",
@@ -65,7 +65,7 @@
   ],
   "checks_passed": 2,
   "checks_failed": 3,
-  "coherence_status": "FAIL",
+  "status": "FAIL",
   "constitution_ref": null,
   "halt_event": null
 }

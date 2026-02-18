@@ -14,7 +14,7 @@ from sanna.middleware import sanna_observe
 class TestVersionConsistency:
 
     def test_version_value(self):
-        assert sanna.__version__ == "0.12.5"
+        assert sanna.__version__ == "0.13.0"
 
     def test_version_matches_tool_version(self):
         assert sanna.__version__ == TOOL_VERSION
@@ -46,7 +46,7 @@ class TestVersionConsistency:
         path = tmp_path / "const.yaml"
         save_constitution(signed, path)
 
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         def agent(query, context):
             return "Grounded answer."
 

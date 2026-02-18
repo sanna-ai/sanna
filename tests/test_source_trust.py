@@ -459,7 +459,7 @@ class TestMiddlewareIntegration:
         evals = _build_source_trust_evaluations(resolved)
 
         trace_data = _build_trace_data(
-            trace_id="test-structured",
+            correlation_id="test-structured",
             query="test query",
             context=_to_str(ctx),
             output=SAFE_OUTPUT,
@@ -488,7 +488,7 @@ class TestMiddlewareIntegration:
         evals = _build_source_trust_evaluations(resolved)
 
         trace_data = _build_trace_data(
-            trace_id="test-verify-structured",
+            correlation_id="test-verify-structured",
             query="test query",
             context=_to_str(ctx),
             output=SAFE_OUTPUT,
@@ -514,7 +514,7 @@ class TestMiddlewareIntegration:
         check_configs, custom_records = configure_checks(constitution)
 
         trace_data = _build_trace_data(
-            trace_id="test-no-structured",
+            correlation_id="test-no-structured",
             query="test query",
             context=SAFE_CONTEXT,
             output=SAFE_OUTPUT,

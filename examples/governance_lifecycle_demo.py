@@ -164,7 +164,7 @@ def run_demo() -> dict:
 
         record = approve_constitution(
             const_v1_path, approver_priv, "bob@acme.com", "VP Risk", "1.0"
-        )
+        , verify_author_sig=False)
         approved_const = load_constitution(str(const_v1_path))
 
         print(f"  Approver: {record.approver_id}")
@@ -196,6 +196,7 @@ def run_demo() -> dict:
         ]
 
         @sanna_observe(
+            require_constitution_sig=False,
             constitution_path=str(const_v1_path),
             private_key_path=str(author_priv),
         )
@@ -210,7 +211,7 @@ def run_demo() -> dict:
             receipt_paths.append(receipt_path)
 
             has_approval = "constitution_approval" in (result.receipt.get("constitution_ref") or {})
-            subheader(f"Receipt {i+1}: status={result.receipt['coherence_status']}, "
+            subheader(f"Receipt {i+1}: status={result.receipt['status']}, "
                       f"approval_provenance={has_approval}")
             results["receipts_generated"] += 1
 
@@ -344,7 +345,7 @@ def run_demo() -> dict:
         # Approve v2
         record_v2 = approve_constitution(
             const_v2_path, approver_priv, "bob@acme.com", "VP Risk", "2.0"
-        )
+        , verify_author_sig=False)
         print()
         print(f"  Version 2 approved: {record_v2.constitution_version}")
         if record_v2.previous_version_hash:

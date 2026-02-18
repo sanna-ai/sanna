@@ -115,9 +115,9 @@ class TestGenerateReceipt:
         assert isinstance(receipt, dict)
         assert "receipt_id" in receipt
         assert "receipt_fingerprint" in receipt
-        assert "coherence_status" in receipt
-        assert "trace_id" in receipt
-        assert receipt["trace_id"].startswith("mcp-")
+        assert "status" in receipt
+        assert "correlation_id" in receipt
+        assert receipt["correlation_id"].startswith("mcp-")
 
     def test_no_constitution_produces_empty_checks(self):
         result_json = sanna_generate_receipt(
@@ -130,7 +130,7 @@ class TestGenerateReceipt:
         assert receipt["checks"] == []
         assert receipt["checks_passed"] == 0
         assert receipt["checks_failed"] == 0
-        assert receipt["coherence_status"] == "PASS"
+        assert receipt["status"] == "PASS"
         assert receipt["constitution_ref"] is None
 
     def test_generated_receipt_verifies(self):
@@ -374,9 +374,9 @@ def _store_receipt(store, agent_name, status="PASS", ts_offset_h=0):
     ts = datetime.now(timezone.utc) - timedelta(hours=ts_offset_h)
     receipt = {
         "receipt_id": f"r-{agent_name}-{ts_offset_h}-{status}",
-        "trace_id": f"t-{ts_offset_h}",
+        "correlation_id": f"t-{ts_offset_h}",
         "timestamp": ts.isoformat(),
-        "coherence_status": status,
+        "status": status,
         "constitution_ref": {
             "document_id": f"{agent_name}/v1",
             "policy_hash": "abc123",
@@ -432,7 +432,7 @@ class TestQueryReceipts:
 
         result = json.loads(sanna_query_receipts(db_path=db, status="FAIL"))
         assert result["count"] == 1
-        assert result["receipts"][0]["coherence_status"] == "FAIL"
+        assert result["receipts"][0]["status"] == "FAIL"
 
     def test_query_limit(self, tmp_path):
         db = str(tmp_path / "test.db")
@@ -465,14 +465,14 @@ class TestQueryReceipts:
         # Save a halt receipt
         halt_receipt = {
             "receipt_id": "r-halt-1",
-            "trace_id": "t-halt",
+            "correlation_id": "t-halt",
             "timestamp": "2025-01-01T00:00:00+00:00",
-            "coherence_status": "FAIL",
+            "status": "FAIL",
             "constitution_ref": {
                 "document_id": "agent-a/v1",
                 "policy_hash": "abc123",
             },
-            "halt_event": {"halted": True, "reason": "test"},
+            "enforcement": {"action": "halted", "reason": "test"},
             "checks": [],
         }
         store.save(halt_receipt)

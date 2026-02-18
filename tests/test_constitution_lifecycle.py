@@ -117,7 +117,7 @@ def _signed_constitution() -> Constitution:
 def _make_trace(**overrides):
     """Build a minimal trace dict for receipt generation."""
     trace = {
-        "trace_id": "test-lifecycle-001",
+        "correlation_id": "test-lifecycle-001",
         "name": "lifecycle-test",
         "timestamp": "2026-01-01T00:00:00Z",
         "input": {"query": "How do I run tests?"},
@@ -539,7 +539,7 @@ class TestMiddlewareConstitutionPath:
         """constitution_path should load, sign, and bind to receipt."""
         const_path = self._write_constitution(tmp_path)
 
-        @sanna_observe(on_violation="log", constitution_path=str(const_path))
+        @sanna_observe(on_violation="log", require_constitution_sig=False, constitution_path=str(const_path))
         def my_agent(query, context):
             return "Use pytest to run tests."
 
@@ -560,7 +560,7 @@ class TestMiddlewareConstitutionPath:
         """Receipt from constitution_path should have verifiable fingerprint."""
         const_path = self._write_constitution(tmp_path)
 
-        @sanna_observe(on_violation="log", constitution_path=str(const_path))
+        @sanna_observe(on_violation="log", require_constitution_sig=False, constitution_path=str(const_path))
         def my_agent(query, context):
             return "Use pytest to run tests."
 
@@ -575,7 +575,7 @@ class TestMiddlewareConstitutionPath:
         """Receipt from constitution_path should pass full verification."""
         const_path = self._write_constitution(tmp_path)
 
-        @sanna_observe(on_violation="log", constitution_path=str(const_path))
+        @sanna_observe(on_violation="log", require_constitution_sig=False, constitution_path=str(const_path))
         def my_agent(query, context):
             return "Use pytest to run tests."
 
@@ -593,6 +593,7 @@ class TestMiddlewareConstitutionPath:
         @sanna_observe(
             on_violation="log",
             checks=["C1", "C3"],
+            require_constitution_sig=False,
             constitution_path=str(const_path),
         )
         def my_agent(query, context):
@@ -619,7 +620,7 @@ class TestMiddlewareConstitutionPath:
             yaml.dump(data, f)
 
         with pytest.raises(SannaConstitutionError, match="not signed"):
-            @sanna_observe(on_violation="log", constitution_path=str(path))
+            @sanna_observe(on_violation="log", require_constitution_sig=False, constitution_path=str(path))
             def my_agent(query, context):
                 return "Response."
 

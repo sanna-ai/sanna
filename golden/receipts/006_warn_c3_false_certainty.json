@@ -4,7 +4,7 @@
   "checks_version": "2",
   "receipt_id": "5d9c7be48d94067b",
   "receipt_fingerprint": "debfdbe813a91235",
-  "trace_id": "golden-006-warn-c3-certainty",
+  "correlation_id": "golden-006-warn-c3-certainty",
   "timestamp": "2026-02-13T00:37:54.690086+00:00",
   "inputs": {
     "query": "API free tier",
@@ -65,7 +65,7 @@
   ],
   "checks_passed": 4,
   "checks_failed": 1,
-  "coherence_status": "WARN",
+  "status": "WARN",
   "constitution_ref": null,
   "halt_event": null
 }

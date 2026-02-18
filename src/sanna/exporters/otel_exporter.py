@@ -132,13 +132,13 @@ def receipt_to_span(
         artifact_uri: Optional URI where the full receipt is stored
             (e.g. ``s3://bucket/receipt.json``).
     """
-    coherence_status = receipt.get("coherence_status", "UNKNOWN")
+    status = receipt.get("status", "UNKNOWN")
     checks = receipt.get("checks", [])
 
     # Build span attributes
     attributes: dict[str, str | int | float | bool] = {
-        "sanna.receipt.id": receipt.get("trace_id", ""),
-        "sanna.coherence_status": coherence_status,
+        "sanna.receipt.id": receipt.get("correlation_id", ""),
+        "sanna.status": status,
         "sanna.artifact.content_hash": _content_hash(receipt),
     }
 
@@ -191,8 +191,8 @@ def receipt_to_span(
         attributes["sanna.artifact.uri"] = artifact_uri
 
     # Determine span status
-    if coherence_status in ("FAIL", "HALT"):
-        span_status = trace.Status(StatusCode.ERROR, f"coherence_status={coherence_status}")
+    if status in ("FAIL", "HALT"):
+        span_status = trace.Status(StatusCode.ERROR, f"status={status}")
     else:
         span_status = trace.Status(StatusCode.OK)
 
@@ -260,7 +260,7 @@ class SannaOTelExporter(SpanExporter):
                 logger.debug(
                     "Sanna span: receipt=%s status=%s",
                     attrs.get("sanna.receipt.id"),
-                    attrs.get("sanna.coherence_status"),
+                    attrs.get("sanna.status"),
                 )
 
         if self._delegate and sanna_spans:

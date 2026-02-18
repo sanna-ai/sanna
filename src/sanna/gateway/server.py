@@ -98,8 +98,12 @@ def _redact_for_storage(
         # Fallback for callers without a secret (shouldn't happen in practice)
         digest = hashlib.sha256(payload).hexdigest()
         return f"[REDACTED \u2014 SHA-256-SALTED: {digest}]"
-    # "pattern_redact" reserved for future regex-based PII detection
-    return content
+    # "pattern_redact" should be rejected at config load time; raise here
+    # as defense-in-depth if it somehow reaches the runtime path.
+    raise ValueError(
+        f"Unsupported redaction mode: '{mode}'. "
+        f"pattern_redact is not yet implemented."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +261,7 @@ class EscalationStore:
         self._max_pending = max_pending
         self._max_per_tool = max_per_tool
         self._purge_task: _asyncio.Task | None = None
+        self._lock = _asyncio.Lock()  # HIGH-03: async lock for all writes
 
         # Normalize persist path at init time so writes always go to a
         # well-known location (never CWD for filename-only paths).
@@ -480,39 +485,40 @@ class EscalationStore:
         """Async wrapper: create in-memory + persist via executor.
 
         Preferred over :meth:`create` in async handlers to avoid
-        blocking the event loop during file I/O.
+        blocking the event loop during file I/O.  Uses asyncio.Lock
+        to prevent concurrent writes from corrupting state (HIGH-03).
         """
-        # Inline the create logic but skip sync _save_to_disk
-        self.purge_expired()
-        tool_pending = sum(
-            1 for e in self._pending.values()
-            if e.prefixed_name == prefixed_name and e.status == "pending"
-        )
-        if tool_pending >= self._max_per_tool:
-            raise RuntimeError(
-                f"Too many pending escalations for tool "
-                f"'{prefixed_name}' ({tool_pending}). "
-                f"Approve or deny existing escalations first."
+        async with self._lock:
+            self.purge_expired()
+            tool_pending = sum(
+                1 for e in self._pending.values()
+                if e.prefixed_name == prefixed_name and e.status == "pending"
             )
-        if len(self._pending) >= self._max_pending:
-            raise RuntimeError(
-                f"Escalation store at capacity "
-                f"({self._max_pending} pending). "
-                f"Approve or deny existing escalations first."
+            if tool_pending >= self._max_per_tool:
+                raise RuntimeError(
+                    f"Too many pending escalations for tool "
+                    f"'{prefixed_name}' ({tool_pending}). "
+                    f"Approve or deny existing escalations first."
+                )
+            if len(self._pending) >= self._max_pending:
+                raise RuntimeError(
+                    f"Escalation store at capacity "
+                    f"({self._max_pending} pending). "
+                    f"Approve or deny existing escalations first."
+                )
+            esc_id = f"esc_{uuid.uuid4().hex}"
+            entry = PendingEscalation(
+                escalation_id=esc_id,
+                prefixed_name=prefixed_name,
+                original_name=original_name,
+                arguments=arguments,
+                server_name=server_name,
+                reason=reason,
+                created_at=datetime.now(timezone.utc).isoformat(),
             )
-        esc_id = f"esc_{uuid.uuid4().hex}"
-        entry = PendingEscalation(
-            escalation_id=esc_id,
-            prefixed_name=prefixed_name,
-            original_name=original_name,
-            arguments=arguments,
-            server_name=server_name,
-            reason=reason,
-            created_at=datetime.now(timezone.utc).isoformat(),
-        )
-        self._pending[esc_id] = entry
-        await self._save_to_disk_async()
-        return entry
+            self._pending[esc_id] = entry
+            await self._save_to_disk_async()
+            return entry
 
     def get(self, escalation_id: str) -> PendingEscalation | None:
         """Get a pending escalation, or None if not found."""
@@ -539,12 +545,13 @@ class EscalationStore:
         """Async wrapper: remove + persist via executor.
 
         Preferred over :meth:`remove` in async handlers to avoid
-        blocking the event loop during file I/O.
+        blocking the event loop during file I/O.  Uses asyncio.Lock (HIGH-03).
         """
-        entry = self._pending.pop(escalation_id, None)
-        if entry is not None:
-            await self._save_to_disk_async()
-        return entry
+        async with self._lock:
+            entry = self._pending.pop(escalation_id, None)
+            if entry is not None:
+                await self._save_to_disk_async()
+            return entry
 
     def mark_status(
         self, escalation_id: str, status: str,
@@ -563,13 +570,14 @@ class EscalationStore:
         """Async wrapper: mark_status + persist via executor.
 
         Preferred over :meth:`mark_status` in async handlers to avoid
-        blocking the event loop during file I/O.
+        blocking the event loop during file I/O.  Uses asyncio.Lock (HIGH-03).
         """
-        entry = self._pending.get(escalation_id)
-        if entry is not None:
-            entry.status = status
-            await self._save_to_disk_async()
-        return entry
+        async with self._lock:
+            entry = self._pending.get(escalation_id)
+            if entry is not None:
+                entry.status = status
+                await self._save_to_disk_async()
+            return entry
 
     def __len__(self) -> int:
         return len(self._pending)
@@ -650,6 +658,8 @@ class SannaGateway:
         escalation_persist_path: str | None = None,
         approval_requires_reason: bool = False,
         token_delivery: list[str] | None = None,
+        # Block H: constitution signature verification
+        require_constitution_sig: bool = True,
         # Block G: PII redaction
         redaction_config: Any = None,
     ) -> None:
@@ -737,6 +747,7 @@ class SannaGateway:
         self._constitution_path = constitution_path
         self._signing_key_path = signing_key_path
         self._constitution_public_key_path = constitution_public_key_path
+        self._require_constitution_sig = require_constitution_sig
         self._constitution: Any = None
         self._constitution_ref: dict | None = None
         self._check_configs: list | None = None
@@ -757,7 +768,9 @@ class SannaGateway:
         self._require_approval_token = require_approval_token
         self._gateway_secret = self._load_or_create_secret(gateway_secret_path)
         self._approval_requires_reason = approval_requires_reason
-        self._token_delivery = token_delivery or ["file", "stderr"]
+        self._token_delivery = token_delivery or ["stderr"]
+        self._approval_webhook_url: str = ""
+        self._token_expiry_seconds: int = 900
 
         # Block F: hardening state
         self._receipt_store_path = receipt_store_path
@@ -766,10 +779,10 @@ class SannaGateway:
         from sanna.gateway.config import RedactionConfig
         self._redaction_config = redaction_config or RedactionConfig()
         if self._redaction_config.enabled:
-            logger.warning(
-                "Redaction enabled. Original signed receipts will be "
-                "stored alongside separate redacted views. Signature "
-                "verification requires the original receipt file.",
+            logger.info(
+                "Redaction enabled. Only redacted receipts will be "
+                "persisted to disk. The signature covers the original "
+                "unredacted content (held in memory only).",
             )
 
         self._setup_handlers()
@@ -869,9 +882,14 @@ class SannaGateway:
                     "SANNA_GATEWAY_SECRET is not valid hex, ignoring",
                 )
 
-        # 2. Load from file
+        # 2. Load from file (reject symlinks to prevent secret redirection)
         path = secret_path or os.path.expanduser("~/.sanna/gateway_secret")
         if os.path.exists(path):
+            if os.path.islink(path):
+                raise SafeIOSecurityError(
+                    f"Gateway secret at {path} is a symlink — "
+                    f"refusing to load (potential secret redirection)"
+                )
             with open(path, "rb") as f:
                 secret = f.read()
             if len(secret) != 32:
@@ -1057,7 +1075,16 @@ class SannaGateway:
                     flush=True,
                 )
             elif method == "file":
+                print(
+                    "[SANNA] WARNING: Writing approval token to file. "
+                    "File-based token delivery is insecure — agents "
+                    "with file-reading tools can self-approve.",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 self._deliver_token_to_file(token_info)
+            elif method == "webhook":
+                self._deliver_token_via_webhook(entry, token_info)
             elif method == "log":
                 logger.info(
                     "Escalation %s requires approval. Token: %s",
@@ -1140,6 +1167,73 @@ class SannaGateway:
                 mode=0o600,
             )
 
+    def _deliver_token_via_webhook(
+        self,
+        entry: PendingEscalation,
+        token_info: dict[str, Any],
+    ) -> None:
+        """POST approval token to the configured webhook URL.
+
+        Uses stdlib urllib to avoid adding httpx as a required dependency.
+        Logs warnings on failure but does not raise — webhook delivery is
+        best-effort so other delivery methods can still succeed.
+        """
+        if not self._approval_webhook_url:
+            logger.warning(
+                "Webhook delivery configured but no "
+                "approval_webhook_url set for %s",
+                entry.escalation_id,
+            )
+            return
+
+        import urllib.request
+        import urllib.error
+
+        expires_at_iso = datetime.fromtimestamp(
+            token_info["expires_at"], tz=timezone.utc,
+        ).isoformat()
+
+        payload = {
+            "escalation_id": entry.escalation_id,
+            "tool_name": entry.prefixed_name,
+            "reason": entry.reason,
+            "token": token_info["token"],
+            "expires_at": expires_at_iso,
+            "approve_command": (
+                f"sanna-approve --escalation-id {entry.escalation_id} "
+                f"--token <TOKEN>"
+            ),
+        }
+
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            self._approval_webhook_url,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status >= 400:
+                    logger.warning(
+                        "Webhook delivery for %s returned HTTP %d",
+                        entry.escalation_id,
+                        resp.status,
+                    )
+        except urllib.error.URLError as exc:
+            logger.warning(
+                "Webhook delivery failed for %s: %s",
+                entry.escalation_id,
+                exc,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Webhook delivery error for %s: %s",
+                entry.escalation_id,
+                exc,
+            )
+
     # -- handler registration ------------------------------------------------
 
     def _setup_handlers(self) -> None:
@@ -1218,6 +1312,7 @@ class SannaGateway:
                 SannaConstitutionError,
             )
             from sanna.enforcement import configure_checks
+            from sanna.utils.crypto_validation import is_valid_signature_structure
 
             self._constitution = load_constitution(self._constitution_path)
             if not self._constitution.policy_hash:
@@ -1226,28 +1321,64 @@ class SannaGateway:
                     f"{self._constitution_path}. "
                     f"Run: sanna-sign-constitution {self._constitution_path}"
                 )
-            # Require Ed25519 signature with valid structure
-            from sanna.utils.crypto_validation import is_valid_signature_structure
+
+            # Resolve public key from env var if not explicitly configured
+            if not self._constitution_public_key_path:
+                _env_key = os.environ.get("SANNA_CONSTITUTION_PUBLIC_KEY")
+                if _env_key and os.path.isfile(_env_key):
+                    try:
+                        from sanna.crypto import load_public_key, compute_key_id
+                        _env_pub = load_public_key(_env_key)
+                        _env_key_id = compute_key_id(_env_pub)
+                        _const_sig = self._constitution.provenance.signature if self._constitution.provenance else None
+                        if _const_sig and getattr(_const_sig, 'key_id', None) == _env_key_id:
+                            self._constitution_public_key_path = _env_key
+                    except Exception:
+                        pass
+
+            # Reject constitutions that are hashed but not Ed25519-signed (always enforced)
             _sig = self._constitution.provenance.signature if self._constitution.provenance else None
-            if not is_valid_signature_structure(_sig):
+            _has_structural_sig = is_valid_signature_structure(_sig)
+            if not _has_structural_sig:
                 raise SannaConstitutionError(
                     f"Constitution signature is missing or malformed: "
-                    f"{self._constitution_path}. "
-                    f"Sign with: sanna-sign-constitution {self._constitution_path} --private-key <key>"
+                    f"{self._constitution_path}. Sign with: "
+                    f"sanna-sign-constitution {self._constitution_path} --private-key <key>"
                 )
 
-            # Verify constitution Ed25519 signature if public key configured
-            if self._constitution_public_key_path:
+            _sig_verified = None
+
+            if self._require_constitution_sig:
+                # Strict mode: require public key and cryptographic verification
+                if not self._constitution_public_key_path:
+                    raise SannaConstitutionError(
+                        f"Constitution has signature but no public key "
+                        f"configured to verify it. Provide "
+                        f"constitution_public_key_path or set "
+                        f"require_constitution_sig=False for local development."
+                    )
                 self._verify_constitution_signature()
+                _sig_verified = True
             else:
-                logger.info(
-                    "No constitution public key configured — "
-                    "signature verification skipped",
-                )
+                # Permissive mode: verify if we can, warn otherwise
+                if self._constitution_public_key_path:
+                    self._verify_constitution_signature()
+                    _sig_verified = True
+                else:
+                    logger.warning(
+                        "Constitution signature present but no public key "
+                        "configured to verify it: %s",
+                        self._constitution_path,
+                    )
+                    _sig_verified = False
 
             self._constitution_ref = constitution_to_receipt_ref(
                 self._constitution,
             )
+            # Add signature_verified to constitution_ref
+            if _sig_verified is not None:
+                self._constitution_ref["signature_verified"] = _sig_verified
+
             self._check_configs, self._custom_records = configure_checks(
                 self._constitution,
             )
@@ -1607,11 +1738,14 @@ class SannaGateway:
         Filename: ``{timestamp}_{receipt_id}.json`` where timestamp
         uses underscores instead of colons for filesystem safety.
 
-        The original, unmodified signed receipt is always persisted so
-        that offline signature verification succeeds.  When PII
-        redaction is enabled, a separate ``*.redacted.json`` file is
-        also written with sensitive fields replaced by hash
-        placeholders.  This file is clearly marked as non-verifiable.
+        When PII redaction is enabled, **only** the redacted copy is
+        persisted to disk (as ``*.redacted.json``).  The unredacted
+        receipt exists only in memory during the request -- the
+        signature covers the original content, but the stored file
+        replaces sensitive fields with hash placeholders.
+
+        When redaction is disabled, the original receipt is persisted
+        as ``*.json`` with no modifications.
         """
         if not self._receipt_store_path:
             return
@@ -1625,22 +1759,8 @@ class SannaGateway:
         # Sanitize for filesystem: replace colons and + with underscores
         safe_ts = ts.replace(":", "_").replace("+", "_")
         receipt_id = receipt.get("receipt_id", uuid.uuid4().hex[:8])
-        filename = f"{safe_ts}_{receipt_id}.json"
 
-        filepath = store_dir / filename
-        try:
-            # Always persist the original signed receipt
-            atomic_write_sync(
-                filepath,
-                json.dumps(receipt, indent=2),
-                mode=0o600,
-            )
-            logger.info("Receipt persisted: %s", filename)
-        except OSError as e:
-            logger.error("Failed to persist receipt %s: %s", filename, e)
-            return
-
-        # Block G: write a separate redacted view alongside the original
+        # Block G: when redaction enabled, persist ONLY the redacted copy
         if self._redaction_config.enabled:
             import copy
             redacted = copy.deepcopy(receipt)
@@ -1655,9 +1775,9 @@ class SannaGateway:
                         secret=self._gateway_secret,
                     )
             if "result_text" in fields:
-                out = redacted.get("outputs", {}).get("output", "")
+                out = redacted.get("outputs", {}).get("response", "")
                 if out:
-                    redacted["outputs"]["output"] = _redact_for_storage(
+                    redacted["outputs"]["response"] = _redact_for_storage(
                         out, mode, salt=receipt_id,
                         secret=self._gateway_secret,
                     )
@@ -1676,14 +1796,27 @@ class SannaGateway:
                     mode=0o600,
                 )
                 logger.info(
-                    "Redacted receipt view persisted: %s",
+                    "Redacted receipt persisted: %s",
                     redacted_filename,
                 )
             except OSError as e:
-                logger.warning(
+                logger.error(
                     "Failed to persist redacted receipt %s: %s",
                     redacted_filename, e,
                 )
+        else:
+            # No redaction — persist the original signed receipt
+            filename = f"{safe_ts}_{receipt_id}.json"
+            filepath = store_dir / filename
+            try:
+                atomic_write_sync(
+                    filepath,
+                    json.dumps(receipt, indent=2),
+                    mode=0o600,
+                )
+                logger.info("Receipt persisted: %s", filename)
+            except OSError as e:
+                logger.error("Failed to persist receipt %s: %s", filename, e)
 
     async def _persist_receipt_async(self, receipt: dict) -> None:
         """Offload receipt persistence to thread pool to avoid blocking."""
@@ -2032,11 +2165,11 @@ class SannaGateway:
         # 4. Enforce and get result
         result_text = ""
         tool_result = None
-        halt_event = None
+        enforcement_obj = None
 
         if decision.decision == "halt":
             result_text = f"Action denied by policy: {decision.reason}"
-            halt_event = HaltEvent(
+            enforcement_obj = HaltEvent(
                 halted=True,
                 reason=decision.reason,
                 failed_checks=[],
@@ -2083,7 +2216,7 @@ class SannaGateway:
             result_text=result_text,
             decision=decision,
             authority_decisions=authority_decisions,
-            halt_event=halt_event,
+            enforcement=enforcement_obj,
             server_name=server_name,
             downstream_is_error=downstream_is_error,
             reasoning_evaluation=reasoning_evaluation,
@@ -2589,7 +2722,7 @@ class SannaGateway:
 
         from sanna.receipt import HaltEvent
 
-        halt_event = HaltEvent(
+        enforcement_obj = HaltEvent(
             halted=True,
             reason=f"User denied escalation {escalation_id}",
             failed_checks=[],
@@ -2604,7 +2737,7 @@ class SannaGateway:
             result_text=result_text,
             decision=decision,
             authority_decisions=authority_decisions,
-            halt_event=halt_event,
+            enforcement=enforcement_obj,
             escalation_id=escalation_id,
             escalation_receipt_id=entry.escalation_receipt_id,
             escalation_resolution="denied",
@@ -2667,7 +2800,7 @@ class SannaGateway:
             "boundary_type": boundary_type,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }]
-        halt_event = HaltEvent(
+        enforcement_obj = HaltEvent(
             halted=True,
             reason=error_text,
             failed_checks=[],
@@ -2682,7 +2815,7 @@ class SannaGateway:
             result_text=error_text,
             decision=decision,
             authority_decisions=authority_decisions,
-            halt_event=halt_event,
+            enforcement=enforcement_obj,
             server_name=server_name,
             reasoning_evaluation=reasoning_evaluation,
         )
@@ -2698,7 +2831,7 @@ class SannaGateway:
         result_text: str,
         decision: Any,
         authority_decisions: list,
-        halt_event: Any = None,
+        enforcement: Any = None,
         escalation_id: str | None = None,
         escalation_receipt_id: str | None = None,
         escalation_resolution: str | None = None,
@@ -2713,7 +2846,7 @@ class SannaGateway:
         """Generate and optionally sign a gateway receipt.
 
         v2.0: Computes a Receipt Triad (input_hash, reasoning_hash,
-        action_hash) and embeds it in ``extensions.gateway_v2``.  The
+        action_hash) and embeds it in ``extensions["com.sanna.gateway"]``.  The
         triad binds the tool call to any agent justification for
         auditability.  The ``_justification`` key in arguments is
         extracted and hashed separately, then stripped from the
@@ -2736,7 +2869,7 @@ class SannaGateway:
             ds_name = self._tool_to_downstream.get(prefixed_name)
             server_name = ds_name or self._first_ds.spec.name
 
-        trace_id = f"gw-{uuid.uuid4().hex[:12]}"
+        correlation_id = f"gw-{uuid.uuid4().hex[:12]}"
         context_str = json.dumps(
             arguments, sort_keys=True,
         ) if arguments else ""
@@ -2753,7 +2886,7 @@ class SannaGateway:
         stored_output = truncate_for_storage(result_text)
 
         trace_data = build_trace_data(
-            trace_id=trace_id,
+            correlation_id=correlation_id,
             query=original_name,
             context=stored_context or "",
             output=stored_output or "",
@@ -2776,7 +2909,7 @@ class SannaGateway:
                 "decision": decision.decision,
                 "boundary_type": decision.boundary_type,
                 "arguments_hash": arguments_hash,
-                "arguments_hash_method": "jcs",
+                "arguments_hash_method": "sanna_canonical",
                 "tool_output_hash": tool_output_hash,
                 "downstream_is_error": downstream_is_error,
             },
@@ -2784,7 +2917,7 @@ class SannaGateway:
             # NOTE: action.args stores only the arguments_hash (not raw
             # args) because raw args may be large.  Raw args are
             # recoverable from the receipt's inputs.context field.
-            "gateway_v2": {
+            "com.sanna.gateway": {
                 "receipt_version": RECEIPT_VERSION_2,
                 "receipt_triad": receipt_triad_to_dict(triad),
                 "action": {
@@ -2808,15 +2941,15 @@ class SannaGateway:
             },
         }
 
-        # Block G: embed reasoning evaluation in gateway_v2
+        # Block G: embed reasoning evaluation in com.sanna.gateway
         # Use for_signing=True to convert floats to integer basis points
-        # for RFC 8785 canonical JSON compatibility (extensions are hashed).
+        # for Sanna Canonical JSON compatibility (extensions are hashed).
         if reasoning_evaluation is not None:
             from sanna.gateway.receipt_v2 import (
                 reasoning_evaluation_to_dict,
             )
 
-            extensions["gateway_v2"]["reasoning_evaluation"] = (
+            extensions["com.sanna.gateway"]["reasoning_evaluation"] = (
                 reasoning_evaluation_to_dict(
                     reasoning_evaluation, for_signing=True,
                 )
@@ -2852,7 +2985,7 @@ class SannaGateway:
                 if self._constitution else ""
             ),
             extensions=extensions,
-            halt_event=halt_event,
+            enforcement=enforcement,
             authority_decisions=authority_decisions,
         )
 
@@ -3056,8 +3189,12 @@ def run_gateway() -> None:
         escalation_persist_path=config.escalation_persist_path or None,
         approval_requires_reason=config.approval_requires_reason,
         token_delivery=config.token_delivery,
+        require_constitution_sig=config.require_constitution_sig,
         redaction_config=config.redaction,
     )
+    # CRIT-01: propagate webhook URL and token expiry to gateway instance
+    gateway._approval_webhook_url = config.approval_webhook_url
+    gateway._token_expiry_seconds = config.token_expiry_seconds
 
     import asyncio
     asyncio.run(gateway.run_stdio())

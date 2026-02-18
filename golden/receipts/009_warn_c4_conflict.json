@@ -4,7 +4,7 @@
   "checks_version": "2",
   "receipt_id": "1ac62cc0ee854b8b",
   "receipt_fingerprint": "3f0d73d9b20a981d",
-  "trace_id": "golden-009-warn-c4-conflict",
+  "correlation_id": "golden-009-warn-c4-conflict",
   "timestamp": "2026-02-13T00:37:54.690984+00:00",
   "inputs": {
     "query": "license transfer policy",
@@ -65,7 +65,7 @@
   ],
   "checks_passed": 3,
   "checks_failed": 2,
-  "coherence_status": "WARN",
+  "status": "WARN",
   "constitution_ref": null,
   "halt_event": null
 }

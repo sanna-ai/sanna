@@ -69,7 +69,7 @@ def _make_receipt_with_errored_checks(tmp_path):
 
     register_invariant_evaluator("INV_CUSTOM_CRASH")(_raising_evaluator)
 
-    @sanna_observe(constitution_path=str(path))
+    @sanna_observe(require_constitution_sig=False, constitution_path=str(path), error_policy="fail_open")
     def agent(query, context):
         return "Grounded answer based on known context."
 
@@ -99,9 +99,9 @@ class TestErroredVerification:
         assert result.valid, f"Expected valid=True, got errors: {result.errors}"
 
     def test_errored_produces_partial_status(self, tmp_path):
-        """Receipt with PASS + ERRORED checks has coherence_status=PARTIAL."""
+        """Receipt with PASS + ERRORED checks has status=PARTIAL."""
         receipt = _make_receipt_with_errored_checks(tmp_path)
-        assert receipt["coherence_status"] == "PARTIAL"
+        assert receipt.get("status") == "PARTIAL"
 
     def test_verify_status_consistency_with_errored(self, tmp_path):
         """verify_status_consistency treats ERRORED like NOT_CHECKED."""
@@ -127,7 +127,7 @@ class TestErroredVerification:
             ],
             "checks_passed": 0,
             "checks_failed": 0,
-            "coherence_status": "PARTIAL",
+            "status": "PARTIAL",
         }
         matches, computed, expected = verify_status_consistency(receipt)
         assert matches
@@ -148,7 +148,7 @@ class TestErroredVerification:
             ],
             "checks_passed": 1,
             "checks_failed": 0,
-            "coherence_status": "PARTIAL",
+            "status": "PARTIAL",
         }
         matches, computed, expected = verify_status_consistency(receipt)
         assert matches

@@ -74,13 +74,16 @@ def _base_constitution_data(**identity_overrides) -> dict:
 
 
 def _make_receipt(extensions=None) -> dict:
-    """Build a minimal valid receipt dict with optional extensions."""
-    trace_id = "ext-test-001"
+    """Build a minimal valid v0.13.0 receipt dict with optional extensions."""
+    import uuid as _uuid
+    from sanna.hashing import EMPTY_HASH
+
+    correlation_id = "ext-test-001"
     inputs = {"query": "test query", "context": "test context"}
     outputs = {"response": "test response"}
     context_hash = hash_obj(inputs)
     output_hash = hash_obj(outputs)
-    checks_version = "2"
+    checks_version = "5"
 
     checks = [
         {
@@ -98,40 +101,44 @@ def _make_receipt(extensions=None) -> dict:
         for c in checks
     ]
     checks_hash = hash_obj(checks_fingerprint_data)
-    constitution_hash = ""
-    halt_hash = ""
 
-    fingerprint_input = f"{trace_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{halt_hash}"
+    # v0.13.0: unified 12-field fingerprint with EMPTY_HASH sentinels
+    constitution_hash = EMPTY_HASH
+    enforcement_hash = EMPTY_HASH
+    coverage_hash = EMPTY_HASH
+    authority_hash = EMPTY_HASH
+    escalation_hash = EMPTY_HASH
+    trust_hash = EMPTY_HASH
+    extensions_hash = hash_obj(extensions) if extensions else EMPTY_HASH
 
-    if extensions:
-        fingerprint_input += f"|{hash_obj(extensions)}"
+    fingerprint_input = (
+        f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}"
+        f"|{constitution_hash}|{enforcement_hash}|{coverage_hash}"
+        f"|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}"
+    )
 
-    receipt_fingerprint = hash_text(fingerprint_input)
+    full_fingerprint = hash_text(fingerprint_input)
+    receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
 
     return {
-        "schema_version": "0.1",
-        "tool_version": "0.7.0",
+        "spec_version": "1.0",
+        "tool_version": "0.13.0",
         "checks_version": checks_version,
-        "receipt_id": hash_text(f"{trace_id}2026-01-01"),
+        "receipt_id": str(_uuid.uuid4()),
         "receipt_fingerprint": receipt_fingerprint,
-        "trace_id": trace_id,
+        "full_fingerprint": full_fingerprint,
+        "correlation_id": correlation_id,
         "timestamp": "2026-02-12T00:00:00+00:00",
         "inputs": inputs,
         "outputs": outputs,
         "context_hash": context_hash,
         "output_hash": output_hash,
-        "final_answer_provenance": {
-            "source": "trace.output",
-            "span_id": None,
-            "span_name": None,
-            "field": "final_answer",
-        },
         "checks": checks,
         "checks_passed": 1,
         "checks_failed": 0,
-        "coherence_status": "PASS",
+        "status": "PASS",
         "constitution_ref": None,
-        "halt_event": None,
+        "enforcement": None,
         "extensions": extensions if extensions else {},
     }
 

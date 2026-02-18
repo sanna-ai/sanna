@@ -181,6 +181,7 @@ class TestSchemaMutation:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -214,6 +215,7 @@ class TestSchemaMutation:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -255,6 +257,7 @@ class TestReasoningEnforcement:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -280,6 +283,7 @@ class TestReasoningEnforcement:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -312,6 +316,7 @@ class TestReasoningEnforcement:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -327,7 +332,7 @@ class TestReasoningEnforcement:
                 assert receipt is not None
 
                 # Check gateway_v2 has reasoning evaluation
-                gw_v2 = receipt["extensions"]["gateway_v2"]
+                gw_v2 = receipt["extensions"]["com.sanna.gateway"]
                 assert "reasoning_evaluation" in gw_v2
 
                 reasoning = gw_v2["reasoning_evaluation"]
@@ -357,6 +362,7 @@ class TestReasoningFailure:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -370,7 +376,7 @@ class TestReasoningFailure:
 
                 receipt = gw.last_receipt
                 assert receipt is not None
-                gw_v2 = receipt["extensions"]["gateway_v2"]
+                gw_v2 = receipt["extensions"]["com.sanna.gateway"]
                 assert "reasoning_evaluation" in gw_v2
                 assert gw_v2["reasoning_evaluation"]["passed"] is False
             finally:
@@ -390,6 +396,7 @@ class TestReasoningFailure:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -425,6 +432,7 @@ class TestJustificationStripping:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -437,7 +445,7 @@ class TestJustificationStripping:
                     },
                 )
                 receipt = gw.last_receipt
-                gw_v2 = receipt["extensions"]["gateway_v2"]
+                gw_v2 = receipt["extensions"]["com.sanna.gateway"]
                 assert gw_v2["action"]["justification_stripped"] is True
             finally:
                 await gw.shutdown()
@@ -456,13 +464,14 @@ class TestJustificationStripping:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
             try:
                 await gw._forward_call("mock_get_status", {})
                 receipt = gw.last_receipt
-                gw_v2 = receipt["extensions"]["gateway_v2"]
+                gw_v2 = receipt["extensions"]["com.sanna.gateway"]
                 assert gw_v2["action"]["justification_stripped"] is False
             finally:
                 await gw.shutdown()
@@ -494,6 +503,7 @@ class TestNoReasoningConfig:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -517,7 +527,7 @@ class TestNoReasoningConfig:
 
                 # Receipt has no reasoning_evaluation
                 receipt = gw.last_receipt
-                gw_v2 = receipt["extensions"]["gateway_v2"]
+                gw_v2 = receipt["extensions"]["com.sanna.gateway"]
                 assert "reasoning_evaluation" not in gw_v2
             finally:
                 await gw.shutdown()
@@ -602,6 +612,7 @@ class TestOnMissingJustification:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -631,6 +642,7 @@ class TestOnMissingJustification:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -661,6 +673,7 @@ class TestOnMissingJustification:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -716,6 +729,7 @@ class TestOnCheckErrorBlock:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -729,7 +743,7 @@ class TestOnCheckErrorBlock:
                 assert "Reasoning check failed" in result.content[0].text
 
                 receipt = gw.last_receipt
-                gw_v2 = receipt["extensions"]["gateway_v2"]
+                gw_v2 = receipt["extensions"]["com.sanna.gateway"]
                 assert "reasoning_evaluation" in gw_v2
                 assert gw_v2["reasoning_evaluation"]["passed"] is False
             finally:
@@ -749,6 +763,7 @@ class TestOnCheckErrorBlock:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -808,6 +823,7 @@ class TestEvaluateBeforeEscalation:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -840,6 +856,7 @@ class TestEvaluateBeforeEscalation:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -876,6 +893,7 @@ class TestJustificationStrippedAudit:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -886,7 +904,7 @@ class TestJustificationStrippedAudit:
                     {"query": "test", "_justification": ["not", "a", "string"]},
                 )
                 receipt = gw.last_receipt
-                gw_v2 = receipt["extensions"]["gateway_v2"]
+                gw_v2 = receipt["extensions"]["com.sanna.gateway"]
                 assert gw_v2["action"]["justification_stripped"] is True
             finally:
                 await gw.shutdown()
@@ -905,6 +923,7 @@ class TestJustificationStrippedAudit:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -940,6 +959,7 @@ class TestEvaluatorErrorSafety:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -961,7 +981,7 @@ class TestEvaluatorErrorSafety:
                 assert result.isError is True
 
                 receipt = gw.last_receipt
-                gw_v2 = receipt["extensions"]["gateway_v2"]
+                gw_v2 = receipt["extensions"]["com.sanna.gateway"]
                 assert "reasoning_evaluation" in gw_v2
                 assert gw_v2["reasoning_evaluation"]["passed"] is False
                 assert gw_v2["reasoning_evaluation"]["failure_reason"] == "evaluator_error"

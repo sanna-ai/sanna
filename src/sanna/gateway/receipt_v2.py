@@ -4,9 +4,7 @@ Introduces the Receipt Triad (input_hash, reasoning_hash, action_hash)
 for gateway-level receipts, plus structured reasoning evaluation for
 governance-level checks on agent justifications.
 
-All hashes use ``sha256:`` prefix for algorithm agility. Canonical JSON
-follows RFC 8785; floats are normalized to fixed-precision strings before
-canonicalization (no json.dumps fallback needed).
+Sanna Canonical JSON — see spec/sanna-specification-v1.0.md.
 
 Dataclass-based models following the existing Sanna patterns.
 """
@@ -88,9 +86,9 @@ class ReceiptTriad:
             at the gateway boundary.
         context_limitation: Documents what the gateway can observe.
     """
-    input_hash: str       # "sha256:<hex>"
-    reasoning_hash: str   # "sha256:<hex>"
-    action_hash: str      # "sha256:<hex>"
+    input_hash: str       # bare 64-hex SHA-256
+    reasoning_hash: str   # bare 64-hex SHA-256
+    action_hash: str      # bare 64-hex SHA-256
     context_limitation: str = "gateway_boundary"
 
 
@@ -107,7 +105,7 @@ class GatewayCheckResult:
         method: Algorithm used.
         passed: Whether the check passed.
         score: Confidence score (0.0–1.0).  Stored as integer basis points
-            (0–10000) internally for RFC 8785 compatibility.
+            (0–10000) internally for Sanna Canonical JSON compatibility.
         latency_ms: Check execution time in milliseconds.
         details: Optional check-specific metadata.
     """
@@ -168,7 +166,7 @@ class ActionRecord:
         tool: The tool name (unprefixed original name).
         args_hash: Hash of tool arguments (truncated SHA-256).
             Raw args are not stored here because MCP tool arguments
-            may contain floats incompatible with RFC 8785 canonical JSON.
+            may contain floats incompatible with Sanna Canonical JSON.
         justification_stripped: True if ``_justification`` was extracted
             and removed from args before forwarding.
     """
@@ -234,7 +232,7 @@ class GatewayReceiptV2:
     The gateway's ``_generate_receipt`` continues to produce the standard
     SannaReceipt dict (for fingerprint parity with middleware.py and
     verify.py); this class captures the v2-specific extensions that are
-    stored in ``extensions.gateway_v2``.
+    stored in ``extensions["com.sanna.gateway"]``.
     """
     receipt_version: str
     receipt_id: str
@@ -331,16 +329,19 @@ def validate_approval_record(approval: dict) -> list[str]:
 # Receipt Triad computation
 # ---------------------------------------------------------------------------
 
-def _sha256_prefixed(data: bytes) -> str:
-    """Compute SHA-256 hash with ``sha256:`` prefix."""
-    return "sha256:" + hashlib.sha256(data).hexdigest()
+def _sha256_hex(data: bytes) -> str:
+    """Compute bare 64-hex SHA-256 hash."""
+    return hashlib.sha256(data).hexdigest()
+
+
+# Keep old name as alias for backward compatibility in verify.py imports
+_sha256_prefixed = _sha256_hex
 
 
 def _canonical_json_for_triad(obj: Any) -> str:
-    """RFC 8785 canonical JSON with float normalization.
+    """Sanna Canonical JSON for triad hashing.
 
-    Floats are converted to fixed-precision strings before
-    canonicalization, eliminating the need for a json.dumps fallback.
+    Sanna Canonical JSON — see spec/sanna-specification-v1.0.md.
     """
     normalized = normalize_floats(obj)
     return canonical_json_bytes(normalized).decode("utf-8")
@@ -404,7 +405,7 @@ def reasoning_evaluation_to_dict(
     """Convert ReasoningEvaluation to a dict.
 
     When ``for_signing=True``, float scores are converted to integer
-    basis points (0-10000) for RFC 8785 compatibility.
+    basis points (0-10000) for Sanna Canonical JSON compatibility.
     """
     d = asdict(evaluation)
     if for_signing:

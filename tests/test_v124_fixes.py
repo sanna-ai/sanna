@@ -307,7 +307,7 @@ class TestMiddlewareRejectsUnsigned:
         save_constitution(signed, path)
 
         with pytest.raises(SannaConstitutionError, match="hashed but not signed|missing or malformed"):
-            @sanna_observe(constitution_path=str(path))
+            @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
             def agent(query, context):
                 return "test"
 
@@ -316,7 +316,7 @@ class TestMiddlewareRejectsUnsigned:
         const = _make_constitution()
         signed, path = _sign_and_save(const, tmp_path, priv_path)
 
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         def agent(query, context):
             return "Grounded answer"
 
@@ -396,7 +396,7 @@ class TestMCPEndpointSignatureCheck:
         except TypeError:
             pytest.skip("MCP SDK version mismatch — pre-existing compat failure")
 
-        priv_path, _ = generate_keypair(tmp_path / "keys")
+        priv_path, pub_path = generate_keypair(tmp_path / "keys")
         const = _make_constitution()
         signed, path = _sign_and_save(const, tmp_path, priv_path)
 
@@ -405,9 +405,13 @@ class TestMCPEndpointSignatureCheck:
             context="context",
             response="Based on context, the answer is clear.",
             constitution_path=str(path),
+            constitution_public_key_path=str(pub_path),
         )
         result = json.loads(result_json)
-        assert result["receipt"] is not None
+        # Successful receipts are returned directly (not wrapped in {"receipt": ...})
+        assert "error" not in result, f"Unexpected error: {result.get('error')}"
+        assert result.get("spec_version") == "1.0"
+        assert result.get("status") in ("PASS", "WARN", "FAIL", "PARTIAL")
 
 
 # =============================================================================
@@ -567,7 +571,7 @@ class TestVersionBump:
 
     def test_version_is_0_12_4(self):
         import sanna
-        assert sanna.__version__ == "0.12.5"
+        assert sanna.__version__ == "0.13.0"
 
     def test_tool_version_is_0_12_4(self):
-        assert TOOL_VERSION == "0.12.5"
+        assert TOOL_VERSION == "0.13.0"

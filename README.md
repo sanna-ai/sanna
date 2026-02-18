@@ -93,6 +93,164 @@ This generates keys, creates a constitution, simulates a governed tool call, gen
 
 **Authority Boundaries** — `can_execute` (forward), `must_escalate` (prompt user), `cannot_execute` (deny). Policy cascade: per-tool override > server default > constitution.
 
+## Receipt Format
+
+Every governed action produces a reasoning receipt — a JSON artifact that cryptographically binds inputs, outputs, check results, and constitution provenance. See [spec/sanna-specification-v1.0.md](spec/sanna-specification-v1.0.md) for the full specification.
+
+**Identification**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `spec_version` | string | Schema version, `"1.0"` |
+| `tool_version` | string | Package version, e.g. `"0.13.0"` |
+| `checks_version` | string | Check algorithm version, e.g. `"5"` |
+| `receipt_id` | string | UUID v4 unique identifier |
+| `correlation_id` | string | Path-prefixed identifier for grouping related receipts |
+
+**Integrity**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `receipt_fingerprint` | string | 16-hex SHA-256 truncation for compact display |
+| `full_fingerprint` | string | 64-hex SHA-256 of all fingerprinted fields |
+| `context_hash` | string | 64-hex SHA-256 of canonical inputs |
+| `output_hash` | string | 64-hex SHA-256 of canonical outputs |
+
+**Content**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `timestamp` | string | ISO 8601 timestamp |
+| `inputs` | object | Contains `query` and `context` |
+| `outputs` | object | Contains `response` |
+
+**Governance**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `checks` | array | List of `CheckResult` objects with `check_id`, `passed`, `severity`, `evidence` |
+| `checks_passed` | integer | Count of checks that passed |
+| `checks_failed` | integer | Count of checks that failed |
+| `status` | string | `"PASS"` / `"WARN"` / `"FAIL"` / `"PARTIAL"` |
+| `constitution_ref` | object | Contains `document_id`, `policy_hash`, `version`, `source`, `signature_verified`, `constitution_approval` |
+| `enforcement` | object or null | Contains `action`, `reason`, `failed_checks`, `enforcement_mode`, `timestamp` when enforcement triggered |
+| `evaluation_coverage` | object | Contains `total_invariants`, `evaluated`, `not_checked`, `coverage_basis_points` |
+
+**Receipt Triad (Gateway)**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `input_hash` | string | 64-hex SHA-256, present in gateway receipts |
+| `reasoning_hash` | string | 64-hex SHA-256 of reasoning content |
+| `action_hash` | string | 64-hex SHA-256 of action content |
+| `assurance` | string | `"full"` or `"partial"` |
+
+**Identity and Signature**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `receipt_signature` | object | Contains `value`, `key_id`, `signed_by`, `signed_at`, `scheme` |
+| `identity_verification` | object or null | Verification results for identity claims, when present |
+
+**Extensions**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `extensions` | object | Reverse-domain namespaced metadata (`com.sanna.gateway`, `com.sanna.middleware`) |
+
+Minimal example receipt:
+
+```json
+{
+  "spec_version": "1.0",
+  "tool_version": "0.13.0",
+  "checks_version": "5",
+  "receipt_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+  "receipt_fingerprint": "7b4d06e836514eef",
+  "full_fingerprint": "7b4d06e836514eef26ab96f5c62b193d036c92b45d966ef7025d75539ff93aca",
+  "correlation_id": "sanna-my-agent-1708128000",
+  "timestamp": "2026-02-17T00:00:00+00:00",
+  "inputs": {"query": "refund policy", "context": "All sales are final."},
+  "outputs": {"response": "Unfortunately, all sales are final per our policy."},
+  "context_hash": "...(64 hex)...",
+  "output_hash": "...(64 hex)...",
+  "checks": [
+    {"check_id": "C1", "name": "Context Contradiction", "passed": true, "severity": "info"}
+  ],
+  "checks_passed": 5,
+  "checks_failed": 0,
+  "status": "PASS",
+  "constitution_ref": {"document_id": "support-agent/1.0", "policy_hash": "...", "signature_verified": true},
+  "enforcement": null
+}
+```
+
+## Constitution Format
+
+Constitutions are YAML documents that define an agent's governance boundaries. They are version-controlled, cryptographically signed, and approved before enforcement.
+
+```yaml
+sanna_constitution: "1.1"
+
+identity:
+  agent_name: support-agent
+  domain: customer-support
+  description: Handles refund and billing inquiries
+
+provenance:
+  authored_by: governance-team
+  approved_by: vp-risk
+  approval_date: "2026-01-15"
+
+boundaries:
+  - id: B1
+    description: Only answer questions about products in the catalog
+    category: scope
+    severity: critical
+  - id: B2
+    description: Never promise refunds outside the 30-day window
+    category: policy
+    severity: critical
+
+invariants:
+  - id: INV_NO_FABRICATION
+    rule: Never state facts not grounded in provided context
+    enforcement: critical
+  - id: INV_MARK_INFERENCE
+    rule: Clearly mark any inference or assumption
+    enforcement: warning
+  - id: INV_NO_FALSE_CERTAINTY
+    rule: Do not express certainty beyond what evidence supports
+    enforcement: warning
+  - id: INV_PRESERVE_TENSION
+    rule: When context contains conflicting rules, surface both
+    enforcement: warning
+  - id: INV_NO_PREMATURE_COMPRESSION
+    rule: Do not over-summarize multi-faceted context
+    enforcement: warning
+
+authority_boundaries:
+  can_execute:
+    - Look up order status
+    - Search knowledge base
+  must_escalate:
+    - Issue refund over $500
+    - Override account restrictions
+  cannot_execute:
+    - Delete customer accounts
+    - Access payment credentials
+
+escalation_targets:
+  - condition: "refund over limit"
+    target:
+      type: webhook
+      url: https://ops.example.com/escalate
+
+reasoning:
+  require_justification: true
+  assurance_level: full
+```
+
 ## Custom Evaluators
 
 Register domain-specific invariant evaluators alongside the built-in C1-C5 checks:

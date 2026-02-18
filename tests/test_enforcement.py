@@ -350,7 +350,7 @@ class TestConstitutionInvariants:
 class TestPerCheckEnforcement:
     def test_halt_enforcement_raises(self):
         """C1 at halt enforcement → SannaHaltError raised."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -359,7 +359,7 @@ class TestPerCheckEnforcement:
 
     def test_warn_enforcement_warns(self):
         """C1 at warn enforcement → warning emitted, no exception."""
-        @sanna_observe(constitution_path=ALL_WARN_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_WARN_CONST)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -373,7 +373,7 @@ class TestPerCheckEnforcement:
 
     def test_log_enforcement_silent(self):
         """C1 at log enforcement → no exception, no warning."""
-        @sanna_observe(constitution_path=ALL_LOG_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_LOG_CONST)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -387,7 +387,7 @@ class TestPerCheckEnforcement:
 
     def test_mixed_enforcement_c1_halt_rest_log(self):
         """C1 at halt, rest at log → halts on C1 failure."""
-        @sanna_observe(constitution_path=C1_HALT_REST_LOG)
+        @sanna_observe(require_constitution_sig=False, constitution_path=C1_HALT_REST_LOG)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -404,7 +404,7 @@ class TestPerCheckEnforcement:
 
     def test_c1_warn_does_not_halt(self):
         """C1 at warn enforcement should NOT raise."""
-        @sanna_observe(constitution_path=C1_WARN_ONLY)
+        @sanna_observe(require_constitution_sig=False, constitution_path=C1_WARN_ONLY)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -413,7 +413,7 @@ class TestPerCheckEnforcement:
             result = agent(query="refund?", context=REFUND_CONTEXT)
 
         assert isinstance(result, SannaResult)
-        assert result.receipt["coherence_status"] == "FAIL"
+        assert result.receipt["status"] == "FAIL"
 
 
 # =============================================================================
@@ -423,7 +423,7 @@ class TestPerCheckEnforcement:
 class TestReceiptFormat:
     def test_receipt_has_triggered_by(self):
         """Each check in receipt should have triggered_by field."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -434,7 +434,7 @@ class TestReceiptFormat:
 
     def test_receipt_has_enforcement_level(self):
         """Each check in receipt should have enforcement_level field."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -445,7 +445,7 @@ class TestReceiptFormat:
 
     def test_receipt_has_constitution_version(self):
         """Each check should have constitution_version."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -454,18 +454,18 @@ class TestReceiptFormat:
             assert "constitution_version" in check
 
     def test_receipt_version_constants(self):
-        """Receipt should use v0.6.2 version constants."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        """Receipt should use current version constants."""
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
         result = agent(query="test", context=SIMPLE_CONTEXT)
-        assert result.receipt["tool_version"] == "0.12.5"
-        assert result.receipt["checks_version"] == "4"
+        assert result.receipt["tool_version"] == TOOL_VERSION
+        assert result.receipt["checks_version"] == CHECKS_VERSION
 
     def test_receipt_has_constitution_ref(self):
         """Receipt should include constitution_ref from constitution."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -479,7 +479,7 @@ class TestReceiptFormat:
 
     def test_receipt_passes_schema_validation(self):
         """Receipt from constitution-driven middleware should pass schema."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -489,7 +489,7 @@ class TestReceiptFormat:
 
     def test_halt_receipt_passes_schema_validation(self):
         """Halt receipt should also pass schema validation."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -507,7 +507,7 @@ class TestReceiptFormat:
 class TestCustomInvariants:
     def test_custom_invariant_appears_in_receipt(self):
         """Custom invariants should appear as NOT_CHECKED in receipt."""
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -520,7 +520,7 @@ class TestCustomInvariants:
 
     def test_custom_invariant_not_counted_as_failure(self):
         """Custom invariants should not count in checks_failed."""
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -532,7 +532,7 @@ class TestCustomInvariants:
 
     def test_custom_invariant_receipt_validates(self):
         """Receipt with custom invariants should pass schema validation."""
-        @sanna_observe(constitution_path=WITH_CUSTOM_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=WITH_CUSTOM_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -548,7 +548,7 @@ class TestCustomInvariants:
 class TestNoInvariants:
     def test_no_invariants_runs_no_checks(self):
         """Constitution with no invariants → empty checks array."""
-        @sanna_observe(constitution_path=NO_INVARIANTS_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=NO_INVARIANTS_CONST)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -556,11 +556,11 @@ class TestNoInvariants:
         assert result.receipt["checks"] == []
         assert result.receipt["checks_passed"] == 0
         assert result.receipt["checks_failed"] == 0
-        assert result.receipt["coherence_status"] == "PASS"
+        assert result.receipt["status"] == "PASS"
 
     def test_no_invariants_never_halts(self):
         """Without invariants, even contradictory output should not halt."""
-        @sanna_observe(constitution_path=NO_INVARIANTS_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=NO_INVARIANTS_CONST)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -570,7 +570,7 @@ class TestNoInvariants:
 
     def test_no_invariants_receipt_validates(self):
         """Receipt from no-invariants constitution should pass schema."""
-        @sanna_observe(constitution_path=NO_INVARIANTS_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=NO_INVARIANTS_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -588,7 +588,7 @@ class TestThreeConstitutions:
 
     def test_strict_halts(self):
         """Strict financial analyst: all halt → HALTED."""
-        @sanna_observe(constitution_path=STRICT_FINANCIAL)
+        @sanna_observe(require_constitution_sig=False, constitution_path=STRICT_FINANCIAL)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -596,12 +596,12 @@ class TestThreeConstitutions:
             agent(query="refund?", context=REFUND_CONTEXT)
 
         receipt = exc_info.value.receipt
-        assert receipt["coherence_status"] == "FAIL"
-        assert receipt["halt_event"]["halted"] is True
+        assert receipt["status"] == "FAIL"
+        assert receipt["enforcement"]["action"] == "halted"
 
     def test_permissive_warns(self):
         """Permissive support agent: warn enforcement → WARNED, not halted."""
-        @sanna_observe(constitution_path=PERMISSIVE_SUPPORT)
+        @sanna_observe(require_constitution_sig=False, constitution_path=PERMISSIVE_SUPPORT)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -610,14 +610,14 @@ class TestThreeConstitutions:
             result = agent(query="refund?", context=REFUND_CONTEXT)
 
         assert isinstance(result, SannaResult)
-        assert result.receipt["coherence_status"] == "FAIL"
-        assert result.receipt.get("halt_event") is None
-        mw = result.receipt["extensions"]["middleware"]
+        assert result.receipt["status"] == "FAIL"
+        assert result.receipt.get("enforcement") is None
+        mw = result.receipt["extensions"]["com.sanna.middleware"]
         assert mw["enforcement_decision"] == "WARNED"
 
     def test_research_halts_on_c1(self):
         """Research assistant: C1=halt, rest=log → HALTED on C1."""
-        @sanna_observe(constitution_path=RESEARCH_ASSISTANT)
+        @sanna_observe(require_constitution_sig=False, constitution_path=RESEARCH_ASSISTANT)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -625,10 +625,10 @@ class TestThreeConstitutions:
             agent(query="refund?", context=REFUND_CONTEXT)
 
         receipt = exc_info.value.receipt
-        assert receipt["coherence_status"] == "FAIL"
-        assert receipt["halt_event"]["halted"] is True
+        assert receipt["status"] == "FAIL"
+        assert receipt["enforcement"]["action"] == "halted"
         # Context contradiction should be the failed halt check
-        assert "sanna.context_contradiction" in receipt["halt_event"]["failed_checks"]
+        assert "sanna.context_contradiction" in receipt["enforcement"]["failed_checks"]
 
     def test_all_three_have_different_check_counts(self):
         """The three constitutions should run different numbers of checks."""
@@ -650,7 +650,7 @@ class TestThreeConstitutions:
         decisions = []
 
         # Strict: HALTED
-        @sanna_observe(constitution_path=STRICT_FINANCIAL)
+        @sanna_observe(require_constitution_sig=False, constitution_path=STRICT_FINANCIAL)
         def strict_agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -658,20 +658,20 @@ class TestThreeConstitutions:
             strict_agent(query="refund?", context=REFUND_CONTEXT)
             decisions.append("PASSED")
         except SannaHaltError as e:
-            decisions.append(e.receipt["extensions"]["middleware"]["enforcement_decision"])
+            decisions.append(e.receipt["extensions"]["com.sanna.middleware"]["enforcement_decision"])
 
         # Permissive: WARNED
-        @sanna_observe(constitution_path=PERMISSIVE_SUPPORT)
+        @sanna_observe(require_constitution_sig=False, constitution_path=PERMISSIVE_SUPPORT)
         def perm_agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
         with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
             result = perm_agent(query="refund?", context=REFUND_CONTEXT)
-            decisions.append(result.receipt["extensions"]["middleware"]["enforcement_decision"])
+            decisions.append(result.receipt["extensions"]["com.sanna.middleware"]["enforcement_decision"])
 
         # Research: HALTED
-        @sanna_observe(constitution_path=RESEARCH_ASSISTANT)
+        @sanna_observe(require_constitution_sig=False, constitution_path=RESEARCH_ASSISTANT)
         def research_agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -679,7 +679,7 @@ class TestThreeConstitutions:
             research_agent(query="refund?", context=REFUND_CONTEXT)
             decisions.append("PASSED")
         except SannaHaltError as e:
-            decisions.append(e.receipt["extensions"]["middleware"]["enforcement_decision"])
+            decisions.append(e.receipt["extensions"]["com.sanna.middleware"]["enforcement_decision"])
 
         assert decisions == ["HALTED", "WARNED", "HALTED"]
 
@@ -691,7 +691,7 @@ class TestThreeConstitutions:
 class TestFingerprintVerification:
     def test_pass_receipt_fingerprint_verifies(self):
         """Passing receipt fingerprint should verify."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -701,7 +701,7 @@ class TestFingerprintVerification:
 
     def test_halt_receipt_fingerprint_verifies(self):
         """Halt receipt fingerprint should verify."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -713,7 +713,7 @@ class TestFingerprintVerification:
 
     def test_warn_receipt_fingerprint_verifies(self):
         """Warn receipt fingerprint should verify."""
-        @sanna_observe(constitution_path=ALL_WARN_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_WARN_CONST)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -726,7 +726,7 @@ class TestFingerprintVerification:
 
     def test_tampered_triggered_by_invalidates_fingerprint(self):
         """Modifying triggered_by after generation should fail verification."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
@@ -750,7 +750,7 @@ class TestNoConstitution:
 
         result = agent(query="refund?", context=REFUND_CONTEXT)
         assert result.receipt["checks"] == []
-        assert result.receipt["coherence_status"] == "PASS"
+        assert result.receipt["status"] == "PASS"
 
     def test_no_constitution_never_halts(self):
         """Without constitution, even bad output doesn't halt."""
@@ -778,7 +778,8 @@ class TestNoConstitution:
 
 class TestVersionConstants:
     def test_tool_version(self):
-        assert TOOL_VERSION == "0.12.5"
+        from sanna.version import __version__
+        assert TOOL_VERSION == __version__
 
     def test_checks_version(self):
-        assert CHECKS_VERSION == "4"
+        assert CHECKS_VERSION == "5"

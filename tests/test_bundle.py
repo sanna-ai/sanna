@@ -59,7 +59,7 @@ def signed_receipt_path(tmp_path, keypair, signed_const_path):
     check_configs, custom_records = configure_checks(const)
 
     trace_data = _build_trace_data(
-        trace_id="bundle-test-001",
+        correlation_id="bundle-test-001",
         query="What is the refund policy?",
         context="Physical products: 30-day returns. Digital: non-refundable.",
         output="Physical products can be returned within 30 days.",
@@ -174,7 +174,7 @@ class TestCreateBundle:
     def test_create_unsigned_receipt(self, tmp_path, signed_const_path, keypair):
         _, pub_path = keypair
         # Write receipt without signature
-        receipt = {"trace_id": "test", "coherence_status": "PASS"}
+        receipt = {"correlation_id": "test", "status": "PASS"}
         receipt_path = tmp_path / "unsigned.json"
         receipt_path.write_text(json.dumps(receipt))
         with pytest.raises(ValueError, match="not signed"):
@@ -210,8 +210,8 @@ class TestVerifyBundle:
     def test_verify_result_has_receipt_summary(self, valid_bundle):
         result = verify_bundle(valid_bundle)
         assert result.receipt_summary is not None
-        assert result.receipt_summary["trace_id"] == "bundle-test-001"
-        assert result.receipt_summary["coherence_status"] == "PASS"
+        assert result.receipt_summary["correlation_id"] == "bundle-test-001"
+        assert result.receipt_summary["status"] == "PASS"
 
     def test_verify_tampered_receipt_fails_fingerprint(self, tmp_path, valid_bundle):
         # Extract, tamper a fingerprint-covered field, repackage
@@ -353,7 +353,7 @@ class TestRoundTrip:
         result = verify_bundle(bundle_path)
         assert result.valid is True
         assert all(c.passed for c in result.checks)
-        assert result.receipt_summary["trace_id"] == "bundle-test-001"
+        assert result.receipt_summary["correlation_id"] == "bundle-test-001"
 
     def test_multiple_bundles_same_key(self, tmp_path, keypair, signed_const_path):
         """Two different receipts, same constitution and key → both valid."""
@@ -364,7 +364,7 @@ class TestRoundTrip:
 
         for i in range(2):
             trace_data = _build_trace_data(
-                trace_id=f"bundle-multi-{i}",
+                correlation_id=f"bundle-multi-{i}",
                 query="Test query",
                 context="Test context",
                 output="Test output",
@@ -438,7 +438,7 @@ class TestBundleCLI:
         result = BundleVerificationResult(
             valid=True,
             checks=[BundleCheck("Test", True, "OK")],
-            receipt_summary={"trace_id": "test"},
+            receipt_summary={"correlation_id": "test"},
             errors=[],
         )
         assert result.valid is True

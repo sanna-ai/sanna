@@ -243,7 +243,7 @@ def generate_receipt_signature_vectors():
     receipt_dict = {
         "sanna_version": "0.6.4",
         "schema_version": "0.6.1",
-        "trace_id": "vector-trace-001",
+        "correlation_id": "vector-trace-001",
         "timestamp": "2025-01-01T00:00:00+00:00",
         "query_hash": "abc123",
         "context_hash": "def456",
@@ -263,7 +263,7 @@ def generate_receipt_signature_vectors():
                 "replayable": True,
             }
         ],
-        "coherence_status": "PASS",
+        "status": "PASS",
         "receipt_fingerprint": "placeholder",
         "receipt_signature": {
             "signature": "",

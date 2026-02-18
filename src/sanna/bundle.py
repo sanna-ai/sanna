@@ -412,11 +412,11 @@ def verify_bundle(
                 errors=[f"Receipt is not valid JSON: {e}"],
             )
 
-        # Build receipt summary
+        # Build receipt summary (supports both v0.13.0 and legacy field names)
         const_ref = receipt.get("constitution_ref") or {}
         receipt_summary = {
-            "trace_id": receipt.get("trace_id"),
-            "coherence_status": receipt.get("coherence_status"),
+            "correlation_id": receipt.get("correlation_id"),
+            "status": receipt.get("status"),
             "agent_name": const_ref.get("document_id", "").split("/")[0] if const_ref.get("document_id") else None,
             "constitution_version": const_ref.get("version"),
         }

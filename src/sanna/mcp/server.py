@@ -175,6 +175,8 @@ def sanna_generate_receipt(
     context: str,
     response: str,
     constitution_path: str | None = None,
+    constitution_public_key_path: str | None = None,
+    require_constitution_sig: bool = True,
 ) -> str:
     """Generate a Sanna reasoning receipt from query, context, and response.
 
@@ -190,6 +192,10 @@ def sanna_generate_receipt(
         context: The retrieved context or documents.
         response: The agent's response.
         constitution_path: Optional path to a signed constitution YAML.
+        constitution_public_key_path: Optional path to the Ed25519 public
+            key for cryptographic verification of the constitution signature.
+        require_constitution_sig: If True (default), require cryptographic
+            verification of the constitution signature.
 
     Returns:
         JSON string of the generated receipt.
@@ -212,21 +218,23 @@ def sanna_generate_receipt(
             _generate_no_invariants_receipt,
         )
 
-        trace_id = f"mcp-{uuid.uuid4().hex[:12]}"
+        correlation_id = f"mcp-{uuid.uuid4().hex[:12]}"
         trace_data = _build_trace_data(
-            trace_id=trace_id,
+            correlation_id=correlation_id,
             query=query,
             context=context,
             output=response,
         )
 
         if constitution_path is not None:
+            import os as _os
             from sanna.constitution import (
                 load_constitution,
                 constitution_to_receipt_ref,
                 SannaConstitutionError,
             )
             from sanna.enforcement import configure_checks
+            from sanna.utils.crypto_validation import is_valid_signature_structure
 
             try:
                 constitution = load_constitution(constitution_path, validate=True)
@@ -235,6 +243,21 @@ def sanna_generate_receipt(
                     "error": str(e),
                     "receipt": None,
                 })
+
+            # Resolve public key path: explicit parameter > env var (with key_id check)
+            _effective_pub_key = constitution_public_key_path
+            if not _effective_pub_key:
+                _env_key = _os.environ.get("SANNA_CONSTITUTION_PUBLIC_KEY")
+                if _env_key and _os.path.isfile(_env_key):
+                    try:
+                        from sanna.crypto import load_public_key, compute_key_id
+                        _env_pub = load_public_key(_env_key)
+                        _env_key_id = compute_key_id(_env_pub)
+                        _const_sig = constitution.provenance.signature if constitution.provenance else None
+                        if _const_sig and getattr(_const_sig, 'key_id', None) == _env_key_id:
+                            _effective_pub_key = _env_key
+                    except Exception:
+                        pass
 
             if not constitution.policy_hash:
                 return json.dumps({
@@ -245,21 +268,71 @@ def sanna_generate_receipt(
                     "receipt": None,
                 })
 
-            # Require Ed25519 signature with valid structure
-            from sanna.utils.crypto_validation import is_valid_signature_structure
+            # Reject constitutions that are hashed but not Ed25519-signed (always enforced)
             _sig = constitution.provenance.signature if constitution.provenance else None
-            if not is_valid_signature_structure(_sig):
+            _has_structural_sig = is_valid_signature_structure(_sig)
+            if not _has_structural_sig:
                 return json.dumps({
                     "error": (
                         f"Constitution signature is missing or malformed: "
                         f"{constitution_path}. Sign with: "
-                        f"sanna-sign-constitution {constitution_path} "
-                        f"--private-key <key>"
+                        f"sanna-sign-constitution {constitution_path} --private-key <key>"
                     ),
                     "receipt": None,
                 })
 
+            _sig_verified = None
+
+            if require_constitution_sig:
+                # Strict mode: require public key and cryptographic verification
+                if not _effective_pub_key:
+                    return json.dumps({
+                        "error": (
+                            f"Constitution has signature but no public key "
+                            f"configured to verify it. Provide "
+                            f"constitution_public_key_path, set "
+                            f"SANNA_CONSTITUTION_PUBLIC_KEY env var, or set "
+                            f"require_constitution_sig=False for local development."
+                        ),
+                        "receipt": None,
+                    })
+                from sanna.crypto import verify_constitution_full
+                if not verify_constitution_full(constitution, _effective_pub_key):
+                    return json.dumps({
+                        "error": (
+                            f"Constitution signature verification failed. "
+                            f"The constitution may have been tampered with. "
+                            f"Public key: {_effective_pub_key}"
+                        ),
+                        "receipt": None,
+                    })
+                _sig_verified = True
+            else:
+                # Permissive mode: verify if we can, warn otherwise
+                if _effective_pub_key:
+                    from sanna.crypto import verify_constitution_full
+                    if not verify_constitution_full(constitution, _effective_pub_key):
+                        return json.dumps({
+                            "error": (
+                                f"Constitution signature verification failed. "
+                                f"The constitution may have been tampered with. "
+                                f"Public key: {_effective_pub_key}"
+                            ),
+                            "receipt": None,
+                        })
+                    _sig_verified = True
+                else:
+                    logger.warning(
+                        "Constitution signature present but no public key "
+                        "configured to verify it: %s", constitution_path,
+                    )
+                    _sig_verified = False
+
             constitution_ref = constitution_to_receipt_ref(constitution)
+            # Add signature_verified to constitution_ref
+            if _sig_verified is not None:
+                constitution_ref["signature_verified"] = _sig_verified
+
             check_configs, custom_records = configure_checks(constitution)
             constitution_version = constitution.schema_version
 
@@ -580,7 +653,7 @@ def _query_receipts(
     if until:
         filters["until"] = until
     if halt_only:
-        filters["halt_event"] = True
+        filters["enforcement"] = True
 
     # Fetch limit+1 to detect truncation without loading entire result set
     receipts = store.query(limit=limit + 1, **filters)

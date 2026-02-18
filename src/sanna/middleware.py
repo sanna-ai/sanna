@@ -30,17 +30,18 @@ from .receipt import (
     check_c5_premature_compression,
     CheckResult,
     ConstitutionProvenance,
+    Enforcement,
     HaltEvent,
     SannaReceipt,
     TOOL_VERSION,
-    SCHEMA_VERSION,
+    SPEC_VERSION,
     CHECKS_VERSION,
     select_final_answer,
     extract_context,
     extract_query,
     FinalAnswerProvenance,
 )
-from .hashing import hash_text, hash_obj
+from .hashing import hash_text, hash_obj, EMPTY_HASH
 
 logger = logging.getLogger("sanna.middleware")
 
@@ -80,7 +81,7 @@ class SannaResult:
 
     @property
     def status(self) -> str:
-        return self.receipt.get("coherence_status", "UNKNOWN")
+        return self.receipt.get("status", "UNKNOWN")
 
     @property
     def passed(self) -> bool:
@@ -204,9 +205,9 @@ def _extract_structured_context(val: Any) -> Optional[list]:
 # TRACE CONSTRUCTION
 # =============================================================================
 
-def _build_trace_data(
+def build_trace_data(
     *,
-    trace_id: str,
+    correlation_id: str = "",
     query: str,
     context: str,
     output: str,
@@ -217,8 +218,9 @@ def _build_trace_data(
     Constructs a minimal trace with a retrieval span (for context/query)
     and a trace-level output (for the final answer).
     """
+    cid = correlation_id
     return {
-        "trace_id": trace_id,
+        "correlation_id": cid,
         "name": "sanna_observe",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "input": {"query": query},
@@ -226,7 +228,7 @@ def _build_trace_data(
         "metadata": {},
         "observations": [
             {
-                "id": f"obs-retrieval-{trace_id}",
+                "id": f"obs-retrieval-{cid}",
                 "name": "retrieval",
                 "type": "SPAN",
                 "input": {"query": query},
@@ -237,6 +239,42 @@ def _build_trace_data(
             }
         ],
     }
+
+
+# Backward-compatible alias
+_build_trace_data = build_trace_data
+
+
+def _namespace_extensions(extensions: Optional[dict]) -> dict:
+    """Convert flat extension keys to reverse-domain notation (v0.13.0).
+
+    ``"middleware"`` → ``"com.sanna.middleware"``
+    ``"gateway"`` → ``"com.sanna.gateway"``
+
+    Keys already using reverse-domain notation are passed through.
+    """
+    if not extensions:
+        return {}
+    result = {}
+    for key, value in extensions.items():
+        if key == "middleware":
+            result["com.sanna.middleware"] = value
+        elif key == "gateway":
+            gw = result.get("com.sanna.gateway", {})
+            gw.update(value)
+            result["com.sanna.gateway"] = gw
+        elif "." in key:
+            # Already namespaced — merge if key already exists (e.g.
+            # from a prior "gateway" flat key that was promoted).
+            existing = result.get(key)
+            if existing and isinstance(existing, dict) and isinstance(value, dict):
+                existing.update(value)
+            else:
+                result[key] = value
+        else:
+            # Unknown flat key — namespace under com.sanna
+            result[f"com.sanna.{key}"] = value
+    return result
 
 
 # =============================================================================
@@ -335,11 +373,12 @@ def _generate_constitution_receipt(
     constitution_ref: Optional[dict],
     constitution_version: str,
     extensions: Optional[dict] = None,
-    halt_event: Optional[HaltEvent] = None,
+    enforcement: Optional[HaltEvent] = None,
     authority_decisions: Optional[list] = None,
     escalation_events: Optional[list] = None,
     source_trust_evaluations: Optional[list] = None,
     structured_context: Optional[list] = None,
+    error_policy: str = "fail_closed",
 ) -> dict:
     """Generate a receipt using constitution-driven check configs.
 
@@ -365,20 +404,38 @@ def _generate_constitution_receipt(
                 result = cfg.check_fn(context, final_answer, enforcement=cfg.enforcement_level)
         except Exception as exc:
             if cfg.source == "custom_evaluator":
-                check_results.append({
-                    "check_id": cfg.check_id,
-                    "name": "Custom Invariant",
-                    "passed": True,
-                    "severity": "info",
-                    "evidence": None,
-                    "details": f"Evaluator error: {exc}",
-                    "triggered_by": cfg.triggered_by,
-                    "enforcement_level": cfg.enforcement_level,
-                    "constitution_version": constitution_version,
-                    "check_impl": cfg.check_impl or None,
-                    "replayable": False,
-                    "status": "ERRORED",
-                })
+                if error_policy == "fail_closed":
+                    # Fail-closed: treat error as a real failure
+                    check_results.append({
+                        "check_id": cfg.check_id,
+                        "name": "Custom Invariant",
+                        "passed": False,
+                        "severity": cfg.enforcement_level if cfg.enforcement_level in ("critical", "high", "medium", "low") else "critical",
+                        "evidence": None,
+                        "details": f"Evaluator error (fail_closed): {exc}",
+                        "triggered_by": cfg.triggered_by,
+                        "enforcement_level": cfg.enforcement_level,
+                        "constitution_version": constitution_version,
+                        "check_impl": cfg.check_impl or None,
+                        "replayable": False,
+                        "status": "FAILED",
+                    })
+                else:
+                    # Fail-open: exclude from counts via ERRORED
+                    check_results.append({
+                        "check_id": cfg.check_id,
+                        "name": "Custom Invariant",
+                        "passed": True,
+                        "severity": "info",
+                        "evidence": None,
+                        "details": f"Evaluator error (fail_open): {exc}",
+                        "triggered_by": cfg.triggered_by,
+                        "enforcement_level": cfg.enforcement_level,
+                        "constitution_version": constitution_version,
+                        "check_impl": cfg.check_impl or None,
+                        "replayable": False,
+                        "status": "ERRORED",
+                    })
                 continue
             raise
 
@@ -459,9 +516,22 @@ def _generate_constitution_receipt(
         _cref = {k: v for k, v in constitution_ref.items() if k != "constitution_approval"}
         constitution_hash_val = hash_obj(_cref)
     else:
-        constitution_hash_val = ""
-    halt_event_dict = asdict(halt_event) if halt_event else None
-    halt_hash_val = hash_obj(halt_event_dict) if halt_event_dict else ""
+        constitution_hash_val = EMPTY_HASH
+
+    # Build enforcement object
+    enforcement_dict = None
+    if enforcement is not None:
+        enforcement_obj_dict = asdict(enforcement)
+        enforcement_dict = {
+            "action": "halted" if enforcement.halted else "allowed",
+            "reason": enforcement.reason,
+            "failed_checks": enforcement.failed_checks,
+            "enforcement_mode": enforcement.enforcement_mode,
+            "timestamp": enforcement.timestamp,
+        }
+    else:
+        enforcement_obj_dict = None
+    enforcement_hash_val = hash_obj(enforcement_dict) if enforcement_dict else EMPTY_HASH
 
     # Build fingerprint from check results (include all enforcement and impl fields)
     checks_fingerprint_data = [
@@ -479,45 +549,48 @@ def _generate_constitution_receipt(
     ]
     checks_hash = hash_obj(checks_fingerprint_data)
     coverage_hash = hash_obj(evaluation_coverage)
-    fingerprint_input = f"{trace_data['trace_id']}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{halt_hash_val}|{coverage_hash}"
 
-    # v0.7.0: include authority sections in fingerprint when present
-    if authority_decisions:
-        fingerprint_input += f"|{hash_obj(authority_decisions)}"
-    if escalation_events:
-        fingerprint_input += f"|{hash_obj(escalation_events)}"
-    if source_trust_evaluations:
-        fingerprint_input += f"|{hash_obj(source_trust_evaluations)}"
+    # Unified fingerprint formula (v0.13.0) — always 12 pipe-delimited fields
+    correlation_id = trace_data.get("correlation_id", "")
+    authority_hash = hash_obj(authority_decisions) if authority_decisions else EMPTY_HASH
+    escalation_hash = hash_obj(escalation_events) if escalation_events else EMPTY_HASH
+    trust_hash = hash_obj(source_trust_evaluations) if source_trust_evaluations else EMPTY_HASH
 
-    # v0.7.0: include extensions in fingerprint when non-empty
-    if extensions:
-        fingerprint_input += f"|{hash_obj(extensions)}"
+    # Namespace extensions for v0.13.0
+    namespaced_ext = _namespace_extensions(extensions) if extensions else {}
+    extensions_hash = hash_obj(namespaced_ext) if namespaced_ext else EMPTY_HASH
 
-    receipt_fingerprint = hash_text(fingerprint_input)
+    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{enforcement_hash_val}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}"
+
+    full_fp = hash_text(fingerprint_input)
+    receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
 
     receipt_dict = {
-        "schema_version": SCHEMA_VERSION,
+        "spec_version": SPEC_VERSION,
         "tool_version": TOOL_VERSION,
         "checks_version": CHECKS_VERSION,
-        "receipt_id": hash_text(f"{trace_data['trace_id']}{datetime.now(timezone.utc).isoformat()}"),
+        "receipt_id": str(uuid.uuid4()),
         "receipt_fingerprint": receipt_fingerprint,
-        "trace_id": trace_data["trace_id"],
+        "full_fingerprint": full_fp,
+        "correlation_id": correlation_id,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "inputs": inputs,
         "outputs": outputs,
         "context_hash": context_hash,
         "output_hash": output_hash,
-        "final_answer_provenance": asdict(answer_provenance),
         "checks": check_results,
         "checks_passed": passed,
         "checks_failed": failed,
-        "coherence_status": status,
+        "status": status,
         "evaluation_coverage": evaluation_coverage,
         "constitution_ref": constitution_ref,
-        "halt_event": halt_event_dict,
     }
 
-    # v0.7.0: authority enforcement sections (only included when present)
+    # Enforcement object
+    if enforcement_dict:
+        receipt_dict["enforcement"] = enforcement_dict
+
+    # Authority enforcement sections (only included when present)
     if authority_decisions:
         receipt_dict["authority_decisions"] = authority_decisions
     if escalation_events:
@@ -525,7 +598,7 @@ def _generate_constitution_receipt(
     if source_trust_evaluations:
         receipt_dict["source_trust_evaluations"] = source_trust_evaluations
 
-    receipt_dict["extensions"] = extensions if extensions else {}
+    receipt_dict["extensions"] = namespaced_ext
 
     return receipt_dict
 
@@ -538,8 +611,9 @@ def _generate_no_invariants_receipt(
     """Generate a receipt for a constitution with no invariants.
 
     No checks run. The receipt documents that no invariants were defined.
+    Uses the unified fingerprint formula (v0.13.0).
     """
-    final_answer, answer_provenance = select_final_answer(trace_data)
+    final_answer, _answer_provenance = select_final_answer(trace_data)
     context = extract_context(trace_data)
     query_text = extract_query(trace_data)
 
@@ -554,39 +628,42 @@ def _generate_no_invariants_receipt(
         _cref = {k: v for k, v in constitution_ref.items() if k != "constitution_approval"}
         constitution_hash_val = hash_obj(_cref)
     else:
-        constitution_hash_val = ""
+        constitution_hash_val = EMPTY_HASH
 
+    # Unified fingerprint formula — always 12 pipe-delimited fields
+    correlation_id = trace_data.get("correlation_id", "")
     checks_hash = hash_obj([])
-    fingerprint_input = f"{trace_data['trace_id']}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|"
 
-    # v0.7.0: include extensions in fingerprint when non-empty
-    if extensions:
-        fingerprint_input += f"|{hash_obj(extensions)}"
+    # Namespace extensions for v0.13.0
+    namespaced_ext = _namespace_extensions(extensions) if extensions else {}
+    extensions_hash = hash_obj(namespaced_ext) if namespaced_ext else EMPTY_HASH
 
-    receipt_fingerprint = hash_text(fingerprint_input)
+    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{extensions_hash}"
+
+    full_fp = hash_text(fingerprint_input)
+    receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
 
     receipt_dict = {
-        "schema_version": SCHEMA_VERSION,
+        "spec_version": SPEC_VERSION,
         "tool_version": TOOL_VERSION,
         "checks_version": CHECKS_VERSION,
-        "receipt_id": hash_text(f"{trace_data['trace_id']}{datetime.now(timezone.utc).isoformat()}"),
+        "receipt_id": str(uuid.uuid4()),
         "receipt_fingerprint": receipt_fingerprint,
-        "trace_id": trace_data["trace_id"],
+        "full_fingerprint": full_fp,
+        "correlation_id": correlation_id,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "inputs": inputs,
         "outputs": outputs,
         "context_hash": context_hash,
         "output_hash": output_hash,
-        "final_answer_provenance": asdict(answer_provenance),
         "checks": [],
         "checks_passed": 0,
         "checks_failed": 0,
-        "coherence_status": "PASS",
+        "status": "PASS",
         "constitution_ref": constitution_ref,
-        "halt_event": None,
     }
 
-    receipt_dict["extensions"] = extensions if extensions else {}
+    receipt_dict["extensions"] = namespaced_ext
 
     return receipt_dict
 
@@ -602,7 +679,8 @@ def _write_receipt(receipt: dict, receipt_dir: str) -> Path:
     dir_path = Path(receipt_dir)
     ensure_secure_dir(dir_path)
 
-    filename = f"{receipt['receipt_id']}_{receipt['trace_id']}.json"
+    cid = receipt.get('correlation_id', 'unknown')
+    filename = f"{receipt['receipt_id']}_{cid}.json"
     filepath = dir_path / filename
 
     atomic_write_text_sync(filepath, json.dumps(receipt, indent=2))
@@ -614,6 +692,10 @@ def _write_receipt(receipt: dict, receipt_dir: str) -> Path:
 # =============================================================================
 # PRE-EXECUTION REASONING GATE
 # =============================================================================
+
+# Shared executor for sync-path reasoning gate (avoids creating per-call pools)
+import concurrent.futures as _cf
+_SYNC_EXECUTOR = _cf.ThreadPoolExecutor(max_workers=4)
 
 
 def _run_reasoning_gate(
@@ -649,16 +731,50 @@ def _run_reasoning_gate(
             enforcement_level="must_escalate",
         )
         try:
-            loop = asyncio.get_running_loop()
-            # Already inside an event loop — schedule as a task.
-            # This happens when sanna_observe wraps an async function
-            # called from within an existing event loop.
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                evaluation = pool.submit(asyncio.run, coro).result(timeout=30)
+            asyncio.get_running_loop()
+            # Already inside an event loop — offload to shared thread pool.
+            evaluation = _SYNC_EXECUTOR.submit(asyncio.run, coro).result(timeout=30)
         except RuntimeError:
             # No running loop — safe to use asyncio.run()
             evaluation = asyncio.run(coro)
+
+        return {
+            "passed": evaluation.passed,
+            "failure_reason": evaluation.failure_reason,
+            "overall_score": evaluation.overall_score,
+            "assurance": evaluation.assurance,
+        }
+    except Exception as e:
+        logger.warning("Pre-execution reasoning gate failed: %s", e)
+        return None
+
+
+async def _run_reasoning_gate_async(
+    constitution,
+    justification: str,
+    kwargs: dict,
+    func_name: str = "",
+) -> dict | None:
+    """Run reasoning pipeline asynchronously — no thread pool, no blocking.
+
+    Directly awaits the pipeline coroutine. Use this from async code paths
+    to avoid blocking the event loop.
+    """
+    try:
+        from .reasoning.pipeline import ReasoningPipeline
+    except ImportError:
+        return None
+
+    try:
+        pipeline = ReasoningPipeline(constitution)
+        if not pipeline.enabled:
+            return None
+
+        evaluation = await pipeline.evaluate(
+            tool_name=func_name,
+            args=kwargs,
+            enforcement_level="must_escalate",
+        )
 
         return {
             "passed": evaluation.passed,
@@ -683,8 +799,11 @@ def sanna_observe(
     context_param: Optional[str] = None,
     query_param: Optional[str] = None,
     constitution_path: Optional[str] = None,
+    constitution_public_key_path: Optional[str] = None,
     private_key_path: Optional[str] = None,
     identity_provider_keys: Optional[dict[str, str]] = None,
+    require_constitution_sig: bool = True,
+    error_policy: str = "fail_closed",
     strict: bool = True,
     # Legacy parameters — ignored when constitution has invariants
     on_violation: str = "halt",
@@ -703,6 +822,8 @@ def sanna_observe(
         constitution_path: Path to a Sanna constitution YAML/JSON file.
             This is the primary way to configure checks. The constitution's
             invariants drive which checks run and how they enforce.
+        constitution_public_key_path: Path to the Ed25519 public key for
+            cryptographic verification of the constitution signature.
         receipt_dir: Directory to write receipt JSON. None to skip.
         store: Optional ReceiptStore instance or db_path string. When
             provided, receipts are auto-saved after generation. Store
@@ -714,6 +835,10 @@ def sanna_observe(
             claims with signatures get status "no_key" (signature present but
             no key to verify against); claims without signatures get status
             "unverified".
+        require_constitution_sig: If True (default), require cryptographic
+            verification of the constitution signature. When True, a public
+            key must be provided and the signature must verify. Set to False
+            for local development only.
         strict: If True (default), validate constitution against JSON schema
             on load. Catches typos like ``invariant:`` instead of ``invariants:``.
         on_violation: Legacy. Used when no constitution invariants are present.
@@ -727,6 +852,8 @@ def sanna_observe(
     """
     if on_violation not in ("halt", "warn", "log"):
         raise ValueError(f"on_violation must be 'halt', 'warn', or 'log', got {on_violation!r}")
+    if error_policy not in ("fail_closed", "fail_open"):
+        raise ValueError(f"error_policy must be 'fail_closed' or 'fail_open', got {error_policy!r}")
 
     # Resolve store at decoration time
     _store_instance = None
@@ -743,25 +870,86 @@ def sanna_observe(
     check_configs = None
     custom_records = None
 
+    # Track signature verification status for receipt
+    _sig_verified = None  # None until we know
+
     if constitution_path is not None:
+        import os as _os
         from .constitution import load_constitution as _load_constitution, constitution_to_receipt_ref, SannaConstitutionError
         from .enforcement import configure_checks
+        from .utils.crypto_validation import is_valid_signature_structure
 
         loaded_constitution = _load_constitution(constitution_path, validate=strict)
+
+        # Resolve public key path: explicit parameter > env var (with key_id check)
+        _effective_pub_key = constitution_public_key_path
+        if not _effective_pub_key:
+            _env_key = _os.environ.get("SANNA_CONSTITUTION_PUBLIC_KEY")
+            if _env_key and _os.path.isfile(_env_key):
+                # Only use env var key if its key_id matches the constitution's signature key_id
+                try:
+                    from .crypto import load_public_key, compute_key_id
+                    _env_pub = load_public_key(_env_key)
+                    _env_key_id = compute_key_id(_env_pub)
+                    _const_sig = loaded_constitution.provenance.signature if loaded_constitution.provenance else None
+                    if _const_sig and getattr(_const_sig, 'key_id', None) == _env_key_id:
+                        _effective_pub_key = _env_key
+                except Exception:
+                    pass  # Env var key unreadable — ignore
         if not loaded_constitution.policy_hash:
             raise SannaConstitutionError(
                 f"Constitution is not signed (no policy hash): {constitution_path}. "
                 f"Run: sanna-sign-constitution {constitution_path}"
             )
-        # Reject constitutions that are hashed but not Ed25519-signed
-        from .utils.crypto_validation import is_valid_signature_structure
+        # Reject constitutions that are hashed but not Ed25519-signed (always enforced)
         _sig = loaded_constitution.provenance.signature if loaded_constitution.provenance else None
-        if not is_valid_signature_structure(_sig):
+        _has_structural_sig = is_valid_signature_structure(_sig)
+        if not _has_structural_sig:
             raise SannaConstitutionError(
                 f"Constitution signature is missing or malformed: {constitution_path}. "
                 f"Sign with: sanna-sign-constitution {constitution_path} --private-key <key>"
             )
+
+        if require_constitution_sig:
+            # Strict mode: require public key and cryptographic verification
+            if not _effective_pub_key:
+                raise SannaConstitutionError(
+                    f"Constitution has signature but no public key configured to "
+                    f"verify it. Provide constitution_public_key_path, set "
+                    f"SANNA_CONSTITUTION_PUBLIC_KEY env var, or set "
+                    f"require_constitution_sig=False for local development."
+                )
+            # Cryptographic verification
+            from .crypto import verify_constitution_full
+            if not verify_constitution_full(loaded_constitution, _effective_pub_key):
+                raise SannaConstitutionError(
+                    f"Constitution signature verification failed. "
+                    f"The constitution may have been tampered with. "
+                    f"Public key: {_effective_pub_key}"
+                )
+            _sig_verified = True
+        else:
+            # Permissive mode: verify if we can, warn otherwise
+            if _effective_pub_key:
+                from .crypto import verify_constitution_full
+                if not verify_constitution_full(loaded_constitution, _effective_pub_key):
+                    raise SannaConstitutionError(
+                        f"Constitution signature verification failed. "
+                        f"The constitution may have been tampered with. "
+                        f"Public key: {_effective_pub_key}"
+                    )
+                _sig_verified = True
+            else:
+                logger.warning(
+                    "Constitution signature present but no public key configured "
+                    "to verify it: %s", constitution_path,
+                )
+                _sig_verified = False
+
         constitution_ref_override = constitution_to_receipt_ref(loaded_constitution)
+        # Add signature_verified to constitution_ref
+        if _sig_verified is not None:
+            constitution_ref_override["signature_verified"] = _sig_verified
 
         # Configure checks from invariants
         check_configs, custom_records = configure_checks(loaded_constitution)
@@ -776,7 +964,7 @@ def sanna_observe(
 
     def decorator(func):
         def _pre_execution_check(kwargs):
-            """Run pre-execution reasoning gate. Returns (reasoning_result, should_halt, halt_msg)."""
+            """Run pre-execution reasoning gate (sync). Returns (reasoning_result, should_halt, halt_msg)."""
             reasoning_pre_result = None
             if loaded_constitution and loaded_constitution.reasoning:
                 justification = kwargs.get("_justification", "")
@@ -795,9 +983,29 @@ def sanna_observe(
                             )
             return reasoning_pre_result, False, ""
 
+        async def _pre_execution_check_async(kwargs):
+            """Run pre-execution reasoning gate (async). Directly awaits the pipeline."""
+            reasoning_pre_result = None
+            if loaded_constitution and loaded_constitution.reasoning:
+                justification = kwargs.get("_justification", "")
+                if justification and isinstance(justification, str):
+                    reasoning_pre_result = await _run_reasoning_gate_async(
+                        loaded_constitution, justification, kwargs,
+                        func_name=func.__name__,
+                    )
+                    if reasoning_pre_result and not reasoning_pre_result.get("passed", True):
+                        enforcement = loaded_constitution.reasoning.on_missing_justification
+                        auto_deny = loaded_constitution.reasoning.auto_deny_on_reasoning_failure
+                        if enforcement == "block" or auto_deny:
+                            return reasoning_pre_result, True, (
+                                f"Reasoning checks failed before execution: "
+                                f"{reasoning_pre_result.get('failure_reason', 'unknown')}"
+                            )
+            return reasoning_pre_result, False, ""
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            trace_id = f"sanna-{uuid.uuid4().hex[:12]}"
+            correlation_id = f"sanna-{uuid.uuid4().hex[:12]}"
 
             # 1. Capture inputs
             resolved = _resolve_inputs(func, args, kwargs, context_param, query_param)
@@ -815,19 +1023,19 @@ def sanna_observe(
 
             # Post-execution governance (shared with async path)
             return _post_execution_governance(
-                result, resolved, trace_id, execution_time_ms, func,
+                result, resolved, correlation_id, execution_time_ms, func,
             )
 
         if inspect.iscoroutinefunction(func):
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):
-                trace_id = f"sanna-{uuid.uuid4().hex[:12]}"
+                correlation_id = f"sanna-{uuid.uuid4().hex[:12]}"
 
                 # 1. Capture inputs
                 resolved = _resolve_inputs(func, args, kwargs, context_param, query_param)
 
-                # 2. Pre-execution reasoning gate
-                reasoning_pre_result, should_halt, halt_msg = _pre_execution_check(kwargs)
+                # 2. Pre-execution reasoning gate (async — no event loop blocking)
+                reasoning_pre_result, should_halt, halt_msg = await _pre_execution_check_async(kwargs)
                 if should_halt:
                     raise SannaHaltError(halt_msg, receipt=reasoning_pre_result)
 
@@ -839,21 +1047,21 @@ def sanna_observe(
 
                 # Post-execution governance (same as sync)
                 return _post_execution_governance(
-                    result, resolved, trace_id, execution_time_ms, func,
+                    result, resolved, correlation_id, execution_time_ms, func,
                 )
 
             return async_wrapper
 
         return wrapper
 
-    def _post_execution_governance(result, resolved, trace_id, execution_time_ms, func):
+    def _post_execution_governance(result, resolved, correlation_id, execution_time_ms, func):
         """Post-execution governance logic shared by sync and async wrappers."""
         # 4. Capture output
         output_str = _to_str(result)
 
         # 4. Build trace
-        trace_data = _build_trace_data(
-            trace_id=trace_id,
+        trace_data = build_trace_data(
+            correlation_id=correlation_id,
             query=resolved["query"],
             context=resolved["context"],
             output=output_str,
@@ -902,6 +1110,7 @@ def sanna_observe(
                     extensions=extensions,
                     source_trust_evaluations=source_trust_evals,
                     structured_context=resolved_structured,
+                    error_policy=error_policy,
                 )
 
                 halt_checks = []
@@ -932,10 +1141,10 @@ def sanna_observe(
                 if enforcement_decision != "PASSED":
                     extensions["middleware"]["enforcement_decision"] = enforcement_decision
 
-                    halt_event_obj = None
+                    enforcement_obj = None
                     if enforcement_decision == "HALTED":
                         failed_ids = [c["check_id"] for c in halt_checks]
-                        halt_event_obj = HaltEvent(
+                        enforcement_obj = HaltEvent(
                             halted=True,
                             reason=f"Coherence check failed: {', '.join(failed_ids)}",
                             failed_checks=failed_ids,
@@ -950,9 +1159,10 @@ def sanna_observe(
                         constitution_ref=constitution_ref_override,
                         constitution_version=constitution_version,
                         extensions=extensions,
-                        halt_event=halt_event_obj,
+                        enforcement=enforcement_obj,
                         source_trust_evaluations=source_trust_evals,
                         structured_context=resolved_structured,
+                        error_policy=error_policy,
                     )
 
         else:
@@ -1016,7 +1226,7 @@ def sanna_observe(
             warned = [c for c in receipt["checks"] if not c.get("passed") and c.get("enforcement_level") == "warn"]
             names = ", ".join(f"{c['check_id']} ({c['name']})" for c in warned)
             warnings.warn(
-                f"Sanna coherence warning: {names} — status={receipt['coherence_status']}",
+                f"Sanna coherence warning: {names} — status={receipt.get('status', 'UNKNOWN')}",
                 stacklevel=2,
             )
 

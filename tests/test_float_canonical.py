@@ -29,7 +29,7 @@ class TestFloatNormalization:
         hash1 = hash_obj(args1)
         hash2 = hash_obj(args2)
         assert hash1 == hash2
-        assert len(hash1) == 16  # default truncation
+        assert len(hash1) == 64  # full SHA-256 (v0.13.0 default)
 
     def test_canonical_json_accepts_floats(self):
         """canonical_json_bytes now accepts finite floats as JSON numbers."""

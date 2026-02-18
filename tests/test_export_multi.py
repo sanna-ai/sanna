@@ -23,9 +23,9 @@ def _ts(days_ago):
 def _make_receipt(receipt_id, agent_name, timestamp):
     return {
         "receipt_id": receipt_id,
-        "trace_id": f"trace-{receipt_id}",
+        "correlation_id": f"trace-{receipt_id}",
         "timestamp": timestamp,
-        "coherence_status": "PASS",
+        "status": "PASS",
         "checks": [
             {"check_id": "C1", "passed": True, "severity": "critical"},
         ],

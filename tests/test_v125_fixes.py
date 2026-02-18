@@ -34,15 +34,22 @@ class TestEvaluatorPromptHardening:
     """Verify _CHECK_PROMPTS use <audit> wrapping and XML escaping."""
 
     def test_all_prompts_contain_audit_tags(self):
-        """Every prompt template must include <audit> wrapper."""
+        """Every prompt template must include <audit> wrapper and trust separation."""
         from sanna.evaluators.llm import _CHECK_PROMPTS
 
         for alias, template in _CHECK_PROMPTS.items():
             assert "<audit>" in template, f"{alias} missing <audit> open tag"
             assert "</audit>" in template, f"{alias} missing </audit> close tag"
-            assert "<context>" in template, f"{alias} missing <context> tag"
-            assert "<output>" in template, f"{alias} missing <output> tag"
-            assert "<constitution>" in template, f"{alias} missing <constitution> tag"
+            assert "<audit_input>" in template, f"{alias} missing <audit_input> tag"
+            assert "<audit_output>" in template, f"{alias} missing <audit_output> tag"
+            assert "<trusted_rules>" in template, f"{alias} missing <trusted_rules> tag"
+            # Constitution must NOT be inside <audit> — it's trusted
+            audit_start = template.index("<audit>")
+            audit_end = template.index("</audit>")
+            audit_block = template[audit_start:audit_end]
+            assert "<trusted_rules>" not in audit_block, (
+                f"{alias} has constitution inside <audit> — must be outside"
+            )
 
     def test_all_prompts_contain_untrusted_warning(self):
         """Prompts must instruct the LLM to treat audit content as untrusted."""
@@ -230,9 +237,9 @@ class TestReceiptStoreHardening:
         # Force some writes to create WAL/SHM files
         receipt = {
             "receipt_id": "test123",
-            "trace_id": "t1",
+            "correlation_id": "t1",
             "timestamp": "2026-01-01T00:00:00Z",
-            "coherence_status": "PASS",
+            "status": "PASS",
             "checks": [],
         }
         store.save(receipt)
@@ -394,7 +401,7 @@ class TestEscapeAuditContent:
 class TestVersion125:
 
     def test_version_is_0_12_5(self):
-        assert sanna.__version__ == "0.12.5"
+        assert sanna.__version__ == "0.13.0"
 
     def test_tool_version_is_0_12_5(self):
-        assert TOOL_VERSION == "0.12.5"
+        assert TOOL_VERSION == "0.13.0"

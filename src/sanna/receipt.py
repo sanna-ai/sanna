@@ -4,11 +4,12 @@ Sanna Receipt generation — C1-C5 coherence checks and receipt assembly.
 Renamed from c3m_receipt. Original implementations preserved.
 """
 
+import uuid
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from typing import Optional, Any, List, Tuple
 
-from .hashing import hash_text, hash_obj
+from .hashing import hash_text, hash_obj, EMPTY_HASH
 
 
 # =============================================================================
@@ -16,8 +17,8 @@ from .hashing import hash_text, hash_obj
 # =============================================================================
 
 from .version import __version__ as TOOL_VERSION  # single source of truth
-SCHEMA_VERSION = "0.1"
-CHECKS_VERSION = "4"  # C4 contraction fix, coverage_basis_points, RFC 8785 float guard
+SPEC_VERSION = "1.0"
+CHECKS_VERSION = "5"  # v0.13.0: schema migration, fail_closed default, Sanna Canonical JSON
 
 
 # =============================================================================
@@ -30,14 +31,18 @@ class CheckResult:
     check_id: str
     name: str
     passed: bool
-    severity: str  # "info", "warning", "critical"
+    severity: str  # "info", "warning", "critical", "high", "medium", "low"
     evidence: Optional[str] = None
     details: Optional[str] = None
 
 
 @dataclass
 class FinalAnswerProvenance:
-    """Tracks where the final answer was selected from."""
+    """Tracks where the final answer was selected from.
+
+    Deprecated in v0.13.0 — kept for backward compatibility with
+    ``select_final_answer()`` but no longer emitted in receipts.
+    """
     source: str  # "trace.output", "span.output", "none"
     span_id: Optional[str] = None
     span_name: Optional[str] = None
@@ -55,7 +60,11 @@ class ConstitutionProvenance:
 
 @dataclass
 class HaltEvent:
-    """Records when execution was halted due to check failures."""
+    """Deprecated in v0.13.0 — replaced by top-level ``enforcement`` object.
+
+    Kept for backward compatibility with legacy code that constructs
+    HaltEvent instances.
+    """
     halted: bool
     reason: str
     failed_checks: list  # List of check_id strings that triggered the halt
@@ -64,29 +73,39 @@ class HaltEvent:
 
 
 @dataclass
+class Enforcement:
+    """Top-level enforcement outcome (v0.13.0+).
+
+    Records the enforcement decision for this receipt.
+    """
+    action: str  # "halted", "warned", "allowed", "escalated"
+    reason: str
+    failed_checks: list  # List of check_id strings
+    enforcement_mode: str  # "halt", "warn", "log"
+    timestamp: str
+
+
+@dataclass
 class SannaReceipt:
-    """The reasoning receipt artifact."""
-    schema_version: str
+    """The reasoning receipt artifact (v0.13.0 format)."""
+    spec_version: str
     tool_version: str
     checks_version: str
     receipt_id: str
     receipt_fingerprint: str
-    trace_id: str
+    full_fingerprint: str
+    correlation_id: str
     timestamp: str
     inputs: dict
     outputs: dict
     context_hash: str
     output_hash: str
-    final_answer_provenance: dict
     checks: list
     checks_passed: int
     checks_failed: int
-    coherence_status: str  # "PASS", "WARN", "FAIL"
+    status: str  # "PASS", "WARN", "FAIL", "PARTIAL"
     constitution_ref: Optional[dict] = None
-    halt_event: Optional[dict] = None
-
-
-# C3MReceipt alias removed in v0.12.3 — use SannaReceipt
+    enforcement: Optional[dict] = None
 
 
 # =============================================================================
@@ -550,23 +569,23 @@ def _check_c5_premature_compression(context: str, output: str, enforcement: str 
 def generate_receipt(
     trace_data: dict,
     constitution: Optional[ConstitutionProvenance] = None,
-    halt_event: Optional[HaltEvent] = None,
+    enforcement: Optional[HaltEvent] = None,
     constitution_ref_override: Optional[dict] = None,
 ) -> SannaReceipt:
     """Generate a Sanna receipt from trace data.
 
     Args:
-        trace_data: Trace data dict with trace_id, observations, etc.
+        trace_data: Trace data dict with correlation_id, observations, etc.
         constitution: Optional constitution provenance for governance tracking.
-        halt_event: Optional halt event recording enforcement action.
+        enforcement: Optional enforcement action recording.
         constitution_ref_override: Rich dict to use directly as constitution_ref
             in both the fingerprint and the receipt body. When provided, takes
             precedence over the ``constitution`` parameter (the legacy
             ConstitutionProvenance dataclass). This ensures the fingerprint is
             computed over the exact same dict that ends up in the receipt.
     """
-    # Select final answer with provenance tracking
-    final_answer, answer_provenance = select_final_answer(trace_data)
+    # Select final answer
+    final_answer, _answer_provenance = select_final_answer(trace_data)
 
     # Extract context once for all checks
     context = extract_context(trace_data)
@@ -599,7 +618,7 @@ def generate_receipt(
     inputs = {"query": query if query else None, "context": context if context else None}
     outputs = {"response": final_answer if final_answer else None}
 
-    # Canonical hashes for tamper-evidence
+    # Canonical hashes for tamper-evidence (64-hex SHA-256)
     context_hash = hash_obj(inputs)
     output_hash = hash_obj(outputs)
 
@@ -609,42 +628,61 @@ def generate_receipt(
     else:
         constitution_dict = asdict(constitution) if constitution else None
 
-    # Serialize optional blocks for fingerprint
-    halt_event_dict = asdict(halt_event) if halt_event else None
+    # Build enforcement object if provided
+    enforcement_dict = None
+    if enforcement is not None:
+        enforcement_obj_dict = asdict(enforcement)
+        enforcement_dict = {
+            "action": "halted" if enforcement.halted else "allowed",
+            "reason": enforcement.reason,
+            "failed_checks": enforcement.failed_checks,
+            "enforcement_mode": enforcement.enforcement_mode,
+            "timestamp": enforcement.timestamp,
+        }
+    else:
+        enforcement_obj_dict = None
+
     # Strip mutable constitution_approval before hashing (parity with middleware/verify).
     if constitution_dict:
         _cref = {k: v for k, v in constitution_dict.items() if k != "constitution_approval"}
         constitution_hash = hash_obj(_cref)
     else:
-        constitution_hash = ""
-    halt_hash = hash_obj(halt_event_dict) if halt_event_dict else ""
+        constitution_hash = EMPTY_HASH
+    enforcement_hash = hash_obj(enforcement_dict) if enforcement_dict else EMPTY_HASH
 
-    # Stable fingerprint for diffs/golden tests (doesn't change across runs of same trace)
-    # Include checks, constitution, and halt_event in fingerprint so tampering invalidates it
+    # Unified fingerprint formula (v0.13.0) — always 12 pipe-delimited fields
+    correlation_id = trace_data.get("correlation_id", "")
     checks_data = [{"check_id": c.check_id, "passed": c.passed, "severity": c.severity, "evidence": c.evidence} for c in checks]
     checks_hash = hash_obj(checks_data)
-    fingerprint_input = f"{trace_data['trace_id']}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash}|{halt_hash}"
-    receipt_fingerprint = hash_text(fingerprint_input)
+    coverage_hash = EMPTY_HASH
+    authority_hash = EMPTY_HASH
+    escalation_hash = EMPTY_HASH
+    trust_hash = EMPTY_HASH
+    extensions_hash = EMPTY_HASH
+
+    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}"
+    full_fp = hash_text(fingerprint_input)
+    receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
 
     return SannaReceipt(
-        schema_version=SCHEMA_VERSION,
+        spec_version=SPEC_VERSION,
         tool_version=TOOL_VERSION,
         checks_version=CHECKS_VERSION,
-        receipt_id=hash_text(f"{trace_data['trace_id']}{datetime.now(timezone.utc).isoformat()}"),
+        receipt_id=str(uuid.uuid4()),
         receipt_fingerprint=receipt_fingerprint,
-        trace_id=trace_data["trace_id"],
+        full_fingerprint=full_fp,
+        correlation_id=correlation_id,
         timestamp=datetime.now(timezone.utc).isoformat(),
         inputs=inputs,
         outputs=outputs,
         context_hash=context_hash,
         output_hash=output_hash,
-        final_answer_provenance=asdict(answer_provenance),
         checks=[asdict(c) for c in checks],
         checks_passed=passed,
         checks_failed=failed,
-        coherence_status=status,
+        status=status,
         constitution_ref=constitution_dict,
-        halt_event=halt_event_dict,
+        enforcement=enforcement_dict,
     )
 
 
@@ -663,7 +701,7 @@ def extract_trace_data(trace) -> dict:
     search_results) and synthesises a retrieval observation when context
     is found only in the trace input.
     """
-    trace_id = getattr(trace, "id", "unknown")
+    correlation_id = getattr(trace, "id", "unknown")
 
     observations_raw = getattr(trace, "observations", None) or []
     observations = []
@@ -733,7 +771,7 @@ def extract_trace_data(trace) -> dict:
     trace_output = getattr(trace, "output", None)
 
     return {
-        "trace_id": trace_id,
+        "correlation_id": correlation_id,
         "name": getattr(trace, "name", None),
         "timestamp": (
             str(getattr(trace, "timestamp", None))

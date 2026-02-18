@@ -267,6 +267,7 @@ class TestConstitutionLoading:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -290,6 +291,7 @@ class TestConstitutionLoading:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -330,6 +332,7 @@ class TestConstitutionLoading:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=str(const_path),
+                require_constitution_sig=False,
             )
             with pytest.raises(SannaConstitutionError):
                 await gw.start()
@@ -353,6 +356,7 @@ class TestCannotExecute:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -378,6 +382,7 @@ class TestCannotExecute:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -387,8 +392,8 @@ class TestCannotExecute:
                 )
                 receipt = gw.last_receipt
                 assert receipt is not None
-                assert receipt["halt_event"] is not None
-                assert receipt["halt_event"]["halted"] is True
+                assert receipt["enforcement"] is not None
+                assert receipt["enforcement"]["action"] == "halted"
             finally:
                 await gw.shutdown()
 
@@ -405,6 +410,7 @@ class TestCannotExecute:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -440,6 +446,7 @@ class TestMustEscalate:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -469,6 +476,7 @@ class TestMustEscalate:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -487,10 +495,10 @@ class TestMustEscalate:
 
         asyncio.run(_test())
 
-    def test_escalate_has_no_halt_event(
+    def test_escalate_has_no_enforcement(
         self, mock_server_path, signed_constitution,
     ):
-        """Escalation receipt has no halt_event (not the same as halt)."""
+        """Escalation receipt has no enforcement (not the same as halt)."""
         const_path, key_path, _ = signed_constitution
         async def _test():
             gw = SannaGateway(
@@ -498,6 +506,7 @@ class TestMustEscalate:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -507,7 +516,7 @@ class TestMustEscalate:
                     {"item_id": "1", "name": "new"},
                 )
                 receipt = gw.last_receipt
-                assert receipt["halt_event"] is None
+                assert receipt.get("enforcement") is None
             finally:
                 await gw.shutdown()
 
@@ -530,6 +539,7 @@ class TestCanExecute:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -554,6 +564,7 @@ class TestCanExecute:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -563,7 +574,7 @@ class TestCanExecute:
                 assert receipt is not None
                 ad = receipt["authority_decisions"]
                 assert ad[0]["decision"] == "allow"
-                assert receipt["halt_event"] is None
+                assert receipt.get("enforcement") is None
             finally:
                 await gw.shutdown()
 
@@ -580,6 +591,7 @@ class TestCanExecute:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -606,6 +618,7 @@ class TestCanExecute:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -642,24 +655,25 @@ class TestReceiptStructure:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
             try:
                 await gw._forward_call("mock_get_status", {})
                 r = gw.last_receipt
-                assert "schema_version" in r
+                assert "spec_version" in r
                 assert "tool_version" in r
                 assert "checks_version" in r
                 assert "receipt_id" in r
                 assert "receipt_fingerprint" in r
-                assert "trace_id" in r
+                assert "correlation_id" in r
                 assert "timestamp" in r
                 assert "inputs" in r
                 assert "outputs" in r
                 assert "context_hash" in r
                 assert "output_hash" in r
-                assert "coherence_status" in r
+                assert "status" in r
                 assert "constitution_ref" in r
                 assert "authority_decisions" in r
                 assert "extensions" in r
@@ -679,6 +693,7 @@ class TestReceiptStructure:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -705,13 +720,14 @@ class TestReceiptStructure:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
             try:
                 await gw._forward_call("mock_get_status", {})
                 r = gw.last_receipt
-                gw_ext = r["extensions"]["gateway"]
+                gw_ext = r["extensions"]["com.sanna.gateway"]
                 assert gw_ext["server_name"] == "mock"
                 assert gw_ext["tool_name"] == "get_status"
                 assert gw_ext["prefixed_name"] == "mock_get_status"
@@ -734,6 +750,7 @@ class TestReceiptStructure:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -763,6 +780,7 @@ class TestReceiptStructure:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -794,6 +812,7 @@ class TestReceiptStructure:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -830,6 +849,7 @@ class TestReceiptSigning:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -857,6 +877,7 @@ class TestReceiptSigning:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -880,6 +901,7 @@ class TestReceiptSigning:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
             )
             await gw.start()
             try:
@@ -908,6 +930,7 @@ class TestPolicyOverrides:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 policy_overrides={"get_status": "cannot_execute"},
             )
@@ -935,6 +958,7 @@ class TestPolicyOverrides:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 policy_overrides={"search": "must_escalate"},
             )
@@ -966,6 +990,7 @@ class TestPolicyOverrides:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 # delete_item is cannot_execute in constitution,
                 # but we override to can_execute
@@ -995,6 +1020,7 @@ class TestPolicyOverrides:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 policy_overrides={"get_status": "cannot_execute"},
             )
@@ -1026,6 +1052,7 @@ class TestConstitutionInvariants:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1054,6 +1081,7 @@ class TestConstitutionInvariants:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1078,6 +1106,7 @@ class TestConstitutionInvariants:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1085,7 +1114,7 @@ class TestConstitutionInvariants:
                 await gw._forward_call("mock_get_status", {})
                 r = gw.last_receipt
                 assert r["checks"] == []
-                assert r["coherence_status"] == "PASS"
+                assert r["status"] == "PASS"
             finally:
                 await gw.shutdown()
 
@@ -1108,6 +1137,7 @@ class TestEdgeCases:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1121,7 +1151,7 @@ class TestEdgeCases:
                 r2 = gw.last_receipt
 
                 assert r1["receipt_id"] != r2["receipt_id"]
-                assert r1["trace_id"] != r2["trace_id"]
+                assert r1["correlation_id"] != r2["correlation_id"]
             finally:
                 await gw.shutdown()
 
@@ -1138,6 +1168,7 @@ class TestEdgeCases:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1151,10 +1182,10 @@ class TestEdgeCases:
 
         asyncio.run(_test())
 
-    def test_trace_id_has_gateway_prefix(
+    def test_correlation_id_has_gateway_prefix(
         self, mock_server_path, signed_constitution,
     ):
-        """Receipt trace_id starts with 'gw-' prefix."""
+        """Receipt correlation_id starts with 'gw-' prefix."""
         const_path, key_path, _ = signed_constitution
         async def _test():
             gw = SannaGateway(
@@ -1162,12 +1193,13 @@ class TestEdgeCases:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
             try:
                 await gw._forward_call("mock_get_status", {})
-                assert gw.last_receipt["trace_id"].startswith("gw-")
+                assert gw.last_receipt["correlation_id"].startswith("gw-")
             finally:
                 await gw.shutdown()
 
@@ -1184,6 +1216,7 @@ class TestEdgeCases:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1211,6 +1244,7 @@ class TestEdgeCases:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1259,6 +1293,7 @@ class TestPolicyCascadeFallthrough:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 default_policy="can_execute",
             )
@@ -1294,6 +1329,7 @@ class TestPolicyCascadeFallthrough:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 default_policy="can_execute",
             )
@@ -1330,6 +1366,7 @@ class TestPolicyCascadeFallthrough:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 default_policy="can_execute",
             )
@@ -1365,6 +1402,7 @@ class TestPolicyCascadeFallthrough:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 default_policy="must_escalate",
             )
@@ -1400,6 +1438,7 @@ class TestPolicyCascadeFallthrough:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 default_policy="can_execute",
                 policy_overrides={"delete_item": "can_execute"},
@@ -1436,6 +1475,7 @@ class TestPolicyCascadeFallthrough:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 default_policy="can_execute",
                 policy_overrides={"get_status": "cannot_execute"},
@@ -1475,6 +1515,7 @@ class TestReceiptFidelity:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1483,9 +1524,9 @@ class TestReceiptFidelity:
                     "mock_get_status", {},
                 )
                 r = gw.last_receipt
-                gw_ext = r["extensions"]["gateway"]
+                gw_ext = r["extensions"]["com.sanna.gateway"]
                 assert "arguments_hash" in gw_ext
-                assert len(gw_ext["arguments_hash"]) == 16  # truncated SHA-256
+                assert len(gw_ext["arguments_hash"]) == 64  # full SHA-256
             finally:
                 await gw.shutdown()
 
@@ -1503,6 +1544,7 @@ class TestReceiptFidelity:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1511,9 +1553,9 @@ class TestReceiptFidelity:
                     "mock_get_status", {},
                 )
                 r = gw.last_receipt
-                gw_ext = r["extensions"]["gateway"]
+                gw_ext = r["extensions"]["com.sanna.gateway"]
                 assert "tool_output_hash" in gw_ext
-                assert len(gw_ext["tool_output_hash"]) == 16
+                assert len(gw_ext["tool_output_hash"]) == 64
             finally:
                 await gw.shutdown()
 
@@ -1531,6 +1573,7 @@ class TestReceiptFidelity:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1539,7 +1582,7 @@ class TestReceiptFidelity:
                     "mock_get_status", {},
                 )
                 r = gw.last_receipt
-                gw_ext = r["extensions"]["gateway"]
+                gw_ext = r["extensions"]["com.sanna.gateway"]
                 assert gw_ext["downstream_is_error"] is False
             finally:
                 await gw.shutdown()
@@ -1558,6 +1601,7 @@ class TestReceiptFidelity:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1565,14 +1609,14 @@ class TestReceiptFidelity:
                 await gw._forward_call(
                     "mock_search", {"query": "alpha"},
                 )
-                hash_1 = gw.last_receipt["extensions"]["gateway"][
+                hash_1 = gw.last_receipt["extensions"]["com.sanna.gateway"][
                     "arguments_hash"
                 ]
 
                 await gw._forward_call(
                     "mock_search", {"query": "beta"},
                 )
-                hash_2 = gw.last_receipt["extensions"]["gateway"][
+                hash_2 = gw.last_receipt["extensions"]["com.sanna.gateway"][
                     "arguments_hash"
                 ]
 
@@ -1594,6 +1638,7 @@ class TestReceiptFidelity:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1601,14 +1646,14 @@ class TestReceiptFidelity:
                 await gw._forward_call(
                     "mock_search", {"query": "same", "limit": 5},
                 )
-                hash_1 = gw.last_receipt["extensions"]["gateway"][
+                hash_1 = gw.last_receipt["extensions"]["com.sanna.gateway"][
                     "arguments_hash"
                 ]
 
                 await gw._forward_call(
                     "mock_search", {"query": "same", "limit": 5},
                 )
-                hash_2 = gw.last_receipt["extensions"]["gateway"][
+                hash_2 = gw.last_receipt["extensions"]["com.sanna.gateway"][
                     "arguments_hash"
                 ]
 
@@ -1630,6 +1675,7 @@ class TestReceiptFidelity:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
                 policy_overrides={"get_status": "cannot_execute"},
             )
@@ -1640,7 +1686,7 @@ class TestReceiptFidelity:
                 )
                 assert result.isError is True
                 r = gw.last_receipt
-                gw_ext = r["extensions"]["gateway"]
+                gw_ext = r["extensions"]["com.sanna.gateway"]
                 assert "arguments_hash" in gw_ext
                 assert "tool_output_hash" in gw_ext
                 # downstream_is_error is False for halt (never reached downstream)
@@ -1663,6 +1709,7 @@ class TestReceiptFidelity:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -1691,12 +1738,12 @@ class TestPublicAPIPromotion:
         """build_trace_data is importable from sanna.middleware."""
         from sanna.middleware import build_trace_data
         td = build_trace_data(
-            trace_id="test-123",
+            correlation_id="test-123",
             query="what is X?",
             context="X is Y.",
             output="X is Y.",
         )
-        assert td["trace_id"] == "test-123"
+        assert td["correlation_id"] == "test-123"
         assert td["input"]["query"] == "what is X?"
         assert td["output"]["final_answer"] == "X is Y."
 
@@ -1704,7 +1751,7 @@ class TestPublicAPIPromotion:
         """generate_constitution_receipt is importable from sanna.middleware."""
         from sanna.middleware import generate_constitution_receipt, build_trace_data
         td = build_trace_data(
-            trace_id="test-456",
+            correlation_id="test-456",
             query="q",
             context="c",
             output="o",
@@ -1716,7 +1763,7 @@ class TestPublicAPIPromotion:
             constitution_ref=None,
             constitution_version="1.0.0",
         )
-        assert receipt["trace_id"] == "test-456"
+        assert receipt["correlation_id"] == "test-456"
         assert "receipt_id" in receipt
 
     def test_build_trace_data_importable_from_middleware(self):

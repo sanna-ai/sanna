@@ -84,7 +84,7 @@ def _sign_and_save(constitution, tmp_path, priv_path, signed_by="tester"):
 def _make_trace():
     from sanna.receipt import Trace
     return Trace(
-        trace_id="test-trace-001",
+        correlation_id="test-trace-001",
         query="What is the refund policy?",
         context="Physical products can be returned within 30 days. Digital products are non-refundable.",
         response="You can return physical products within 30 days. However, digital products are non-refundable.",
@@ -156,7 +156,7 @@ class TestCoverageBasisPoints:
         ])
         signed, path = _sign_and_save(const, tmp_path, priv_path)
 
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         def agent(query, context):
             return "Answer grounded in context."
 
@@ -174,7 +174,7 @@ class TestCoverageBasisPoints:
         ])
         signed, path = _sign_and_save(const, tmp_path, priv_path)
 
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         def agent(query, context):
             return "Answer grounded in context."
 
@@ -193,7 +193,7 @@ class TestCoverageBasisPoints:
         ])
         signed, path = _sign_and_save(const, tmp_path, priv_path)
 
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         def agent(query, context):
             return "Grounded answer."
 
@@ -332,7 +332,7 @@ class TestReceiptSignatureMetadataBinding:
         const = _make_constitution()
         signed, path = _sign_and_save(const, tmp_path, priv_path)
 
-        @sanna_observe(constitution_path=str(path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path), private_key_path=str(priv_path))
         def agent(query, context):
             return "Grounded answer based on context."
 
@@ -374,7 +374,7 @@ class TestSignedConstitutionReceiptSchema:
         const = _make_constitution()
         signed, path = _sign_and_save(const, tmp_path, priv_path)
 
-        @sanna_observe(constitution_path=str(path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path), private_key_path=str(priv_path))
         def agent(query, context):
             return "Grounded answer."
 
@@ -388,7 +388,7 @@ class TestSignedConstitutionReceiptSchema:
         const = _make_constitution()
         signed, path = _sign_and_save(const, tmp_path, priv_path)
 
-        @sanna_observe(constitution_path=str(path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path), private_key_path=str(priv_path))
         def agent(query, context):
             return "Grounded answer."
 
@@ -472,7 +472,7 @@ class TestChainVerification:
         const = _make_constitution()
         signed, const_path = _sign_and_save(const, tmp_path, priv_path)
 
-        @sanna_observe(constitution_path=str(const_path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(const_path), private_key_path=str(priv_path))
         def agent(query, context):
             return "Grounded answer."
 
@@ -488,7 +488,7 @@ class TestChainVerification:
         const = _make_constitution()
         signed, const_path = _sign_and_save(const, tmp_path, priv_path)
 
-        @sanna_observe(constitution_path=str(const_path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(const_path), private_key_path=str(priv_path))
         def agent(query, context):
             return "Grounded answer."
 
@@ -509,7 +509,7 @@ class TestChainVerification:
         const = _make_constitution()
         signed, const_path = _sign_and_save(const, tmp_path, priv_path)
 
-        @sanna_observe(constitution_path=str(const_path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(const_path), private_key_path=str(priv_path))
         def agent(query, context):
             return "Grounded answer."
 
@@ -525,7 +525,7 @@ class TestChainVerification:
         (tmp_path / "c1").mkdir()
         signed1, path1 = _sign_and_save(const1, tmp_path / "c1", priv_path)
 
-        @sanna_observe(constitution_path=str(path1), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path1), private_key_path=str(priv_path))
         def agent(query, context):
             return "Grounded answer."
 
@@ -549,7 +549,7 @@ class TestChainVerification:
         const = _make_constitution()
         signed, const_path = _sign_and_save(const, tmp_path, priv_path)
 
-        @sanna_observe(constitution_path=str(const_path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(const_path), private_key_path=str(priv_path))
         def agent(query, context):
             return "Grounded answer."
 
@@ -564,14 +564,14 @@ class TestChainVerification:
 
 class TestV063Versions:
     def test_tool_version(self):
-        assert TOOL_VERSION == "0.12.5"
+        assert TOOL_VERSION == "0.13.0"
 
     def test_checks_version(self):
-        assert CHECKS_VERSION == "4"
+        assert CHECKS_VERSION == "5"
 
     def test_init_version(self):
         import sanna
-        assert sanna.__version__ == "0.12.5"
+        assert sanna.__version__ == "0.13.0"
 
 
 # =============================================================================
@@ -620,7 +620,7 @@ class TestSigningCheckDistinction:
         save_constitution(signed, path)
 
         with pytest.raises(SannaConstitutionError, match="hashed but not signed|missing or malformed"):
-            @sanna_observe(constitution_path=str(path))
+            @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
             def agent(query, context):
                 return "OK"
 
@@ -632,7 +632,7 @@ class TestSigningCheckDistinction:
         path = tmp_path / "signed.yaml"
         save_constitution(signed, path)
 
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         def agent(query, context):
             return "OK"
 
@@ -652,7 +652,7 @@ class TestSigningCheckDistinction:
             yaml.dump(data, f)
 
         with pytest.raises(SannaConstitutionError, match="not signed"):
-            @sanna_observe(constitution_path=str(path), strict=False)
+            @sanna_observe(require_constitution_sig=False, constitution_path=str(path), strict=False)
             def agent(query, context):
                 return "test"
 
@@ -666,7 +666,7 @@ class TestSigningCheckDistinction:
         signed_path = tmp_path / "signed.yaml"
         save_constitution(signed, signed_path)
 
-        @sanna_observe(constitution_path=str(signed_path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(signed_path), private_key_path=str(priv_path))
         def agent(query, context):
             return "OK"
 
@@ -716,7 +716,7 @@ class TestVerifyChainReturnType:
         path = tmp_path / "const.yaml"
         save_constitution(signed, path)
 
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         def agent(query, context):
             return "test"
 
@@ -737,7 +737,7 @@ class TestVerifyChainReturnType:
         save_constitution(signed, path)
 
         with pytest.raises(SannaConstitutionError, match="hashed but not signed|missing or malformed"):
-            @sanna_observe(constitution_path=str(path))
+            @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
             def agent(query, context):
                 return "test"
 
@@ -756,7 +756,7 @@ class TestSannaObserveAsync:
         path = tmp_path / "const.yaml"
         save_constitution(signed, path)
 
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         async def my_async_agent(query, context):
             return f"Answer to {query}"
 
@@ -775,7 +775,7 @@ class TestSannaObserveAsync:
         path = tmp_path / "const.yaml"
         save_constitution(signed, path)
 
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         def my_sync_agent(query, context):
             return f"Answer to {query}"
 
@@ -797,7 +797,7 @@ class TestSannaObserveAsync:
         path = tmp_path / "const.yaml"
         save_constitution(signed, path)
 
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         async def my_async_agent(query, context):
             return f"Async answer to {query}"
 

@@ -1079,6 +1079,7 @@ class TestMultiDownstream:
                     ),
                 ],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=priv,
             )
             await gw.start()
@@ -1087,7 +1088,7 @@ class TestMultiDownstream:
                 await gw._forward_call("alpha_get_status", {})
                 r1 = gw.last_receipt
                 assert r1 is not None
-                assert r1["extensions"]["gateway"]["server_name"] == "alpha"
+                assert r1["extensions"]["com.sanna.gateway"]["server_name"] == "alpha"
 
                 # Call beta tool — receipt should show server_name=beta
                 await gw._forward_call(
@@ -1095,7 +1096,7 @@ class TestMultiDownstream:
                 )
                 r2 = gw.last_receipt
                 assert r2 is not None
-                assert r2["extensions"]["gateway"]["server_name"] == "beta"
+                assert r2["extensions"]["com.sanna.gateway"]["server_name"] == "beta"
             finally:
                 await gw.shutdown()
 

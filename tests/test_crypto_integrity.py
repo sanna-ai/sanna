@@ -59,7 +59,7 @@ class TestFloatStringHashCollision:
 class TestRedactionDualFile:
 
     def test_redacted_receipt_separate_from_signed(self, tmp_path):
-        """Redaction enabled → TWO files: original + redacted view."""
+        """Redaction enabled → only redacted file persisted (no original)."""
         mcp = pytest.importorskip("mcp")
         from sanna.gateway.server import SannaGateway
         from sanna.gateway.config import RedactionConfig
@@ -68,7 +68,7 @@ class TestRedactionDualFile:
             "receipt_id": "dual-test-001",
             "timestamp": "2024-01-01T00:00:00+00:00",
             "inputs": {"context": "Patient SSN 123-45-6789"},
-            "outputs": {"output": "Prescribed medication"},
+            "outputs": {"response": "Prescribed medication"},
         }
 
         gw = object.__new__(SannaGateway)
@@ -83,16 +83,16 @@ class TestRedactionDualFile:
         gw._persist_receipt(receipt)
 
         receipt_dir = tmp_path / "receipts"
-        originals = list(receipt_dir.glob("*.json"))
-        # Filter out redacted files
-        originals = [f for f in originals if ".redacted." not in f.name]
+        all_files = list(receipt_dir.glob("*.json"))
+        originals = [f for f in all_files if ".redacted." not in f.name]
         redacted = list(receipt_dir.glob("*.redacted.json"))
 
-        assert len(originals) == 1, f"Expected 1 original, got {originals}"
+        # CRIT-03: only redacted file persisted, no original on disk
+        assert len(originals) == 0, f"Expected 0 originals, got {originals}"
         assert len(redacted) == 1, f"Expected 1 redacted, got {redacted}"
 
-    def test_original_receipt_contains_full_content(self, tmp_path):
-        """The primary receipt file has the original unredacted content."""
+    def test_original_receipt_not_persisted_when_redaction_enabled(self, tmp_path):
+        """No original file on disk when redaction is enabled (CRIT-03)."""
         mcp = pytest.importorskip("mcp")
         from sanna.gateway.server import SannaGateway
         from sanna.gateway.config import RedactionConfig
@@ -101,7 +101,7 @@ class TestRedactionDualFile:
             "receipt_id": "orig-test-001",
             "timestamp": "2024-01-01T00:00:00+00:00",
             "inputs": {"context": "Patient SSN 123-45-6789"},
-            "outputs": {"output": "Prescribed medication"},
+            "outputs": {"response": "Prescribed medication"},
         }
 
         gw = object.__new__(SannaGateway)
@@ -120,9 +120,12 @@ class TestRedactionDualFile:
             f for f in receipt_dir.glob("*.json")
             if ".redacted." not in f.name
         ]
-        content = json.loads(originals[0].read_text())
-        assert content["inputs"]["context"] == "Patient SSN 123-45-6789"
-        assert content["outputs"]["output"] == "Prescribed medication"
+        # Only redacted file exists — no original on disk
+        assert len(originals) == 0
+        redacted = list(receipt_dir.glob("*.redacted.json"))
+        assert len(redacted) == 1
+        content = json.loads(redacted[0].read_text())
+        assert "REDACTED" in content["inputs"]["context"]
 
     def test_redacted_view_contains_redaction_notice(self, tmp_path):
         """The .redacted.json file has the _redaction_notice field."""
@@ -134,7 +137,7 @@ class TestRedactionDualFile:
             "receipt_id": "notice-test-001",
             "timestamp": "2024-01-01T00:00:00+00:00",
             "inputs": {"context": "Secret info"},
-            "outputs": {"output": "Secret output"},
+            "outputs": {"response": "Secret output"},
         }
 
         gw = object.__new__(SannaGateway)
@@ -164,7 +167,7 @@ class TestRedactionDualFile:
             "receipt_id": "redact-test-001",
             "timestamp": "2024-01-01T00:00:00+00:00",
             "inputs": {"context": "Patient SSN 123-45-6789"},
-            "outputs": {"output": "Prescribed medication"},
+            "outputs": {"response": "Prescribed medication"},
         }
 
         gw = object.__new__(SannaGateway)
@@ -183,8 +186,8 @@ class TestRedactionDualFile:
         content = json.loads(redacted_files[0].read_text())
         assert "123-45-6789" not in content["inputs"]["context"]
         assert "REDACTED" in content["inputs"]["context"]
-        assert "Prescribed" not in content["outputs"]["output"]
-        assert "REDACTED" in content["outputs"]["output"]
+        assert "Prescribed" not in content["outputs"]["response"]
+        assert "REDACTED" in content["outputs"]["response"]
 
     def test_no_redacted_file_when_disabled(self, tmp_path):
         """No .redacted.json when redaction is disabled."""
@@ -196,7 +199,7 @@ class TestRedactionDualFile:
             "receipt_id": "disabled-test-001",
             "timestamp": "2024-01-01T00:00:00+00:00",
             "inputs": {"context": "data"},
-            "outputs": {"output": "result"},
+            "outputs": {"response": "result"},
         }
 
         gw = object.__new__(SannaGateway)
@@ -262,7 +265,7 @@ class TestRedactionConfigWarning:
 
         redaction_config = RedactionConfig(enabled=True)
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.INFO):
             from sanna.gateway.server import SannaGateway
 
             # Construct with minimal valid params
@@ -276,7 +279,7 @@ class TestRedactionConfigWarning:
                     ),
                 )
             except Exception:
-                pass  # May fail for other reasons; warning still logged
+                pass  # May fail for other reasons; info still logged
 
         assert any(
             "Redaction enabled" in r.message

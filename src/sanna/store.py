@@ -31,20 +31,20 @@ CREATE TABLE IF NOT EXISTS receipts (
     id              TEXT PRIMARY KEY,
     agent_id        TEXT,
     constitution_id TEXT,
-    trace_id        TEXT,
+    correlation_id  TEXT,
     timestamp       TEXT,
     overall_status  TEXT,
-    halt_event      INTEGER DEFAULT 0,
+    enforcement     INTEGER DEFAULT 0,
     check_statuses  TEXT,
     receipt_json    TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_receipts_agent_id ON receipts(agent_id);
 CREATE INDEX IF NOT EXISTS idx_receipts_constitution_id ON receipts(constitution_id);
-CREATE INDEX IF NOT EXISTS idx_receipts_trace_id ON receipts(trace_id);
+CREATE INDEX IF NOT EXISTS idx_receipts_correlation_id ON receipts(correlation_id);
 CREATE INDEX IF NOT EXISTS idx_receipts_timestamp ON receipts(timestamp);
 CREATE INDEX IF NOT EXISTS idx_receipts_overall_status ON receipts(overall_status);
-CREATE INDEX IF NOT EXISTS idx_receipts_halt_event ON receipts(halt_event);
+CREATE INDEX IF NOT EXISTS idx_receipts_enforcement ON receipts(enforcement);
 """
 
 
@@ -97,10 +97,12 @@ def _extract_check_statuses(receipt: dict) -> str:
 
 
 def _is_halt(receipt: dict) -> int:
-    """Determine whether receipt represents a halt event. Returns 0 or 1."""
-    halt = receipt.get("halt_event")
-    if halt and isinstance(halt, dict) and halt.get("halted"):
-        return 1
+    """Determine whether receipt represents a halt/enforcement event. Returns 0 or 1."""
+    enforcement = receipt.get("enforcement")
+    if enforcement and isinstance(enforcement, dict):
+        action = enforcement.get("action", "")
+        if action in ("halted", "escalated"):
+            return 1
     return 0
 
 
@@ -122,11 +124,25 @@ class ReceiptStore:
     """
 
     def __init__(self, db_path: str = ".sanna/receipts.db"):
+        from sanna.utils.safe_io import ensure_secure_dir, SecurityError
+
+        # HIGH-04: Refuse /tmp paths (world-writable, insecure for receipts)
+        resolved = Path(db_path).resolve()
+        _tmp_prefixes = ("/tmp", "/var/tmp", "/private/tmp")
+        if any(str(resolved).startswith(prefix) for prefix in _tmp_prefixes):
+            raise SecurityError(
+                f"Refusing to store receipts in temp directory: {db_path}. "
+                f"Use a persistent, user-owned path like ~/.sanna/receipts.db"
+            )
+
+        # HIGH-04: Bare filename → resolve to ~/.sanna/receipts/
+        if os.sep not in db_path and not db_path.startswith("."):
+            default_dir = Path.home() / ".sanna" / "receipts"
+            db_path = str(default_dir / db_path)
+
         self._db_path = db_path
         self._lock = threading.Lock()
         self._closed = False
-
-        from sanna.utils.safe_io import ensure_secure_dir
 
         db_dir = os.path.dirname(db_path)
         if db_dir:
@@ -138,6 +154,13 @@ class ReceiptStore:
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.row_factory = sqlite3.Row
+
+        # HIGH-09: Force sidecar creation with a dummy write, then harden
+        self._conn.execute("CREATE TABLE IF NOT EXISTS _wal_init (_dummy INTEGER)")
+        self._conn.execute("INSERT INTO _wal_init VALUES (1)")
+        self._conn.commit()
+        self._conn.execute("DELETE FROM _wal_init")
+        self._conn.commit()
 
         # Harden WAL/SHM sidecar files after enabling WAL mode
         self._harden_wal_sidecars(db_path)
@@ -186,9 +209,18 @@ class ReceiptStore:
                             f"{db_file} is not a regular file"
                         )
                     if st.st_uid != os.getuid():
-                        raise SecurityError(
-                            f"{db_file} is not owned by current user"
-                        )
+                        if os.environ.get("SANNA_SKIP_DB_OWNERSHIP_CHECK") == "1":
+                            logger.warning(
+                                "Skipping ownership check for %s "
+                                "(SANNA_SKIP_DB_OWNERSHIP_CHECK=1)",
+                                db_file,
+                            )
+                        else:
+                            raise SecurityError(
+                                f"{db_file} is not owned by current user. "
+                                f"Set SANNA_SKIP_DB_OWNERSHIP_CHECK=1 to bypass "
+                                f"(e.g., in Docker containers)."
+                            )
                     os.fchmod(fd, 0o600)
                 finally:
                     os.close(fd)
@@ -198,24 +230,33 @@ class ReceiptStore:
             os.close(fd)
 
     def _harden_wal_sidecars(self, db_path: str) -> None:
-        """Ensure WAL/SHM sidecar files have restricted permissions."""
+        """Ensure WAL/SHM sidecar files have restricted permissions.
+
+        Uses O_NOFOLLOW + fchmod to avoid TOCTOU race between symlink
+        check and permission change.
+        """
         if sys.platform == "win32":
             return
         for suffix in ("-wal", "-shm"):
             sidecar = Path(db_path + suffix)
             if sidecar.exists():
-                if sidecar.is_symlink():
+                try:
+                    fd = os.open(str(sidecar), os.O_RDONLY | os.O_NOFOLLOW)
+                except OSError:
                     logger.warning(
-                        "Sidecar %s is a symlink — skipping permission hardening",
+                        "Sidecar %s is a symlink or inaccessible — "
+                        "skipping permission hardening",
                         sidecar,
                     )
                     continue
                 try:
-                    os.chmod(str(sidecar), 0o600)
+                    os.fchmod(fd, 0o600)
                 except OSError as e:
                     logger.warning(
                         "Could not harden sidecar %s: %s", sidecar, e,
                     )
+                finally:
+                    os.close(fd)
 
     def _detect_json1(self) -> bool:
         """Detect whether the SQLite build has JSON1 extension support."""
@@ -257,9 +298,9 @@ class ReceiptStore:
 
         agent_id = _extract_agent_id(receipt)
         constitution_id = _extract_constitution_id(receipt)
-        trace_id = receipt.get("trace_id")
+        correlation_id = receipt.get("correlation_id")
         timestamp = receipt.get("timestamp")
-        overall_status = receipt.get("coherence_status")
+        overall_status = receipt.get("status")
         halt = _is_halt(receipt)
         check_statuses = _extract_check_statuses(receipt)
         receipt_json = json.dumps(receipt)
@@ -267,14 +308,14 @@ class ReceiptStore:
         with self._lock:
             self._conn.execute(
                 """INSERT OR REPLACE INTO receipts
-                   (id, agent_id, constitution_id, trace_id, timestamp,
-                    overall_status, halt_event, check_statuses, receipt_json)
+                   (id, agent_id, constitution_id, correlation_id, timestamp,
+                    overall_status, enforcement, check_statuses, receipt_json)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     receipt_id,
                     agent_id,
                     constitution_id,
-                    trace_id if isinstance(trace_id, str) else None,
+                    correlation_id if isinstance(correlation_id, str) else None,
                     timestamp if isinstance(timestamp, str) else None,
                     overall_status if isinstance(overall_status, str) else None,
                     halt,
@@ -299,16 +340,16 @@ class ReceiptStore:
             clauses.append("constitution_id = ?")
             params.append(filters["constitution_id"])
 
-        if "trace_id" in filters:
-            clauses.append("trace_id = ?")
-            params.append(filters["trace_id"])
+        if "correlation_id" in filters:
+            clauses.append("correlation_id = ?")
+            params.append(filters["correlation_id"])
 
         if "status" in filters:
             clauses.append("overall_status = ?")
             params.append(filters["status"])
 
-        if "halt_event" in filters and filters["halt_event"]:
-            clauses.append("halt_event = 1")
+        if "enforcement" in filters and filters["enforcement"]:
+            clauses.append("enforcement = 1")
 
         if "check_status" in filters:
             if self._has_json1:
@@ -349,7 +390,7 @@ class ReceiptStore:
         """Query receipts with combinable filters.
 
         Keyword Args:
-            agent_id, constitution_id, trace_id, status, halt_event,
+            agent_id, constitution_id, correlation_id, status, enforcement,
             check_status, since, until, limit, offset.
 
         Note: offset is only applied when limit is also provided.

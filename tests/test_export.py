@@ -30,9 +30,9 @@ def _make_receipt(agent_name, check_id, passed, ts_offset_h=0):
     ts = datetime.now(timezone.utc) - timedelta(hours=ts_offset_h)
     return {
         "receipt_id": f"r-{agent_name}-{check_id}-{ts_offset_h}-{passed}",
-        "trace_id": f"t-{ts_offset_h}",
+        "correlation_id": f"t-{ts_offset_h}",
         "timestamp": ts.isoformat(),
-        "coherence_status": "PASS" if passed else "FAIL",
+        "status": "PASS" if passed else "FAIL",
         "constitution_ref": {
             "document_id": f"{agent_name}/v1",
             "policy_hash": "abc123",

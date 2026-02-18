@@ -16,9 +16,9 @@ def _make_receipt(check_status: str = "PASS", check_id: str = "C1") -> dict:
     """Create a minimal receipt dict for testing."""
     return {
         "receipt_id": f"test-{check_id}-{check_status}",
-        "trace_id": "trace-001",
+        "correlation_id": "trace-001",
         "timestamp": "2026-01-01T00:00:00Z",
-        "coherence_status": "PASS" if check_status == "PASS" else "FAIL",
+        "status": "PASS" if check_status == "PASS" else "FAIL",
         "constitution_ref": {
             "document_id": "test-agent/1.0",
         },

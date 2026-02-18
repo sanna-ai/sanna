@@ -4,7 +4,7 @@
   "checks_version": "4",
   "receipt_id": "44609dcb203fc29d",
   "receipt_fingerprint": "08860ed4e42fbf3e",
-  "trace_id": "golden-013-authority-allow",
+  "correlation_id": "golden-013-authority-allow",
   "timestamp": "2026-02-13T01:00:00.000000+00:00",
   "inputs": {
     "query": "What users are in the database?",
@@ -51,7 +51,7 @@
   ],
   "checks_passed": 2,
   "checks_failed": 0,
-  "coherence_status": "PASS",
+  "status": "PASS",
   "evaluation_coverage": {
     "total_invariants": 2,
     "evaluated": 2,

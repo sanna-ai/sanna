@@ -16,9 +16,9 @@ def _make_receipt(receipt_id, timestamp, agent_name="ts-agent"):
     doc_id = f"{agent_name}/1.0.0"
     return {
         "receipt_id": receipt_id,
-        "trace_id": f"trace-{receipt_id}",
+        "correlation_id": f"trace-{receipt_id}",
         "timestamp": timestamp,
-        "coherence_status": "PASS",
+        "status": "PASS",
         "checks": [
             {"check_id": "C1", "name": "Context Contradiction",
              "passed": True, "severity": "critical"},
@@ -108,9 +108,9 @@ class TestDriftErroredChecks:
             ts = (now - timedelta(days=i)).isoformat()
             store.save({
                 "receipt_id": f"r{i}",
-                "trace_id": f"trace-r{i}",
+                "correlation_id": f"trace-r{i}",
                 "timestamp": ts,
-                "coherence_status": "PARTIAL",
+                "status": "PARTIAL",
                 "checks": [
                     {"check_id": "C1", "name": "C1", "passed": True,
                      "severity": "critical"},
@@ -150,9 +150,9 @@ class TestDriftErroredChecks:
             ts = (now - timedelta(days=i)).isoformat()
             store.save({
                 "receipt_id": f"r{i}",
-                "trace_id": f"trace-r{i}",
+                "correlation_id": f"trace-r{i}",
                 "timestamp": ts,
-                "coherence_status": "FAIL",
+                "status": "FAIL",
                 "checks": [
                     {"check_id": "C1", "name": "C1", "passed": False,
                      "severity": "critical"},

@@ -52,7 +52,7 @@ def _pass_receipt(**overrides) -> dict:
         "checks_version": "2",
         "receipt_id": "abc123def456",
         "receipt_fingerprint": "fedcba9876543210",
-        "trace_id": "test-trace-001",
+        "correlation_id": "test-trace-001",
         "timestamp": "2026-02-13T00:00:00+00:00",
         "inputs": {"query": "test", "context": "test context"},
         "outputs": {"response": "test response"},
@@ -65,9 +65,9 @@ def _pass_receipt(**overrides) -> dict:
         ],
         "checks_passed": 3,
         "checks_failed": 0,
-        "coherence_status": "PASS",
+        "status": "PASS",
         "constitution_ref": None,
-        "halt_event": None,
+        "enforcement": None,
         "extensions": {},
     }
     receipt.update(overrides)
@@ -77,7 +77,7 @@ def _pass_receipt(**overrides) -> dict:
 def _fail_receipt(**overrides) -> dict:
     """Receipt with FAIL status."""
     receipt = _pass_receipt(
-        coherence_status="FAIL",
+        status="FAIL",
         checks=[
             {"check_id": "C1", "name": "Context Contradiction", "passed": False, "severity": "critical", "evidence": "Fabricated claim"},
             {"check_id": "C2", "name": "Mark Inferences", "passed": True, "severity": "info", "evidence": None},
@@ -119,7 +119,7 @@ class TestPassReceipt:
         attrs = dict(span.attributes)
 
         assert attrs["sanna.receipt.id"] == "test-trace-001"
-        assert attrs["sanna.coherence_status"] == "PASS"
+        assert attrs["sanna.status"] == "PASS"
         assert attrs["sanna.check.c1.status"] == "pass"
         assert attrs["sanna.check.c2.status"] == "pass"
         assert attrs["sanna.check.c3.status"] == "pass"
@@ -158,7 +158,7 @@ class TestFailReceipt:
 
     def test_halt_status_error(self, tracer_and_exporter):
         tracer, exporter, provider = tracer_and_exporter
-        receipt = _fail_receipt(coherence_status="HALT")
+        receipt = _fail_receipt(status="HALT")
 
         receipt_to_span(receipt, tracer)
         provider.force_flush()
@@ -325,7 +325,7 @@ class TestContentHash:
     def test_content_hash_changes_on_modification(self):
         receipt = _pass_receipt()
         hash1 = _content_hash(receipt)
-        receipt["coherence_status"] = "FAIL"
+        receipt["status"] = "FAIL"
         hash2 = _content_hash(receipt)
         assert hash1 != hash2
 
@@ -427,7 +427,7 @@ class TestBackwardCompatibility:
             "checks_version": "2",
             "receipt_id": "legacy123",
             "receipt_fingerprint": "abcdef1234567890",
-            "trace_id": "legacy-trace-001",
+            "correlation_id": "legacy-trace-001",
             "timestamp": "2026-01-01T00:00:00+00:00",
             "inputs": {"query": "test", "context": "old context"},
             "outputs": {"response": "old response"},
@@ -438,9 +438,9 @@ class TestBackwardCompatibility:
             ],
             "checks_passed": 1,
             "checks_failed": 0,
-            "coherence_status": "PASS",
+            "status": "PASS",
             "constitution_ref": None,
-            "halt_event": None,
+            "enforcement": None,
         }
 
         receipt_to_span(receipt, tracer)
@@ -449,7 +449,7 @@ class TestBackwardCompatibility:
         span = exporter.get_finished_spans()[0]
         attrs = dict(span.attributes)
         assert attrs["sanna.receipt.id"] == "legacy-trace-001"
-        assert attrs["sanna.coherence_status"] == "PASS"
+        assert attrs["sanna.status"] == "PASS"
         assert attrs["sanna.authority.decision"] == ""
         assert attrs["sanna.escalation.triggered"] is False
         assert attrs["sanna.source_trust.flags"] == 0

@@ -374,7 +374,7 @@ class TestWriteSiteMigration:
         from sanna.middleware import _write_receipt
         receipt = {
             "receipt_id": "test-001",
-            "trace_id": "trace-001",
+            "correlation_id": "trace-001",
             "data": "test",
         }
         filepath = _write_receipt(receipt, str(tmp_path / "receipts"))

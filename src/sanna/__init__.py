@@ -108,8 +108,9 @@ def __getattr__(name: str):
         "ConstitutionProvenance": "sanna.receipt",
         "HaltEvent": "sanna.receipt",
         "TOOL_VERSION": "sanna.receipt",
-        "SCHEMA_VERSION": "sanna.receipt",
+        "SPEC_VERSION": "sanna.receipt",
         "CHECKS_VERSION": "sanna.receipt",
+        "Enforcement": "sanna.receipt",
         "extract_trace_data": "sanna.receipt",
         # verify.py
         "load_schema": "sanna.verify",

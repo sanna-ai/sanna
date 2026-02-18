@@ -2,11 +2,23 @@
 
 Covers: v2 receipt generation, triad determinism, hashing, signing,
 backward compatibility with v1 receipts, validation, and canonical JSON.
+
+Updated for v0.13.0 schema migration:
+- Receipt Triad hashes are bare 64-hex strings (no ``sha256:`` prefix).
+- ``schema_version`` → ``spec_version``
+- ``correlation_id`` field (renamed from legacy trace_id)
+- field renamed to ``status``
+- ``enforcement`` field
+- ``CHECKS_VERSION`` is now ``"5"``
+- ``receipt_id`` is UUID v4
+- ``full_fingerprint`` is new required field
+- Extensions use reverse-domain notation (``com.sanna.gateway``).
 """
 
 import asyncio
 import hashlib
 import json
+import re
 import sys
 import textwrap
 
@@ -181,8 +193,8 @@ class TestReceiptTriad:
         """None justification hashes as empty string."""
         triad_none = compute_receipt_triad("search", {"query": "x"}, None)
         triad_empty = compute_receipt_triad("search", {"query": "x"}, "")
-        # Both None and "" should produce the same reasoning hash
-        expected = "sha256:" + hashlib.sha256(b"").hexdigest()
+        # Both None and "" should produce the same reasoning hash (bare 64-hex)
+        expected = hashlib.sha256(b"").hexdigest()
         assert triad_none.reasoning_hash == expected
         assert triad_empty.reasoning_hash == expected
 
@@ -196,19 +208,19 @@ class TestReceiptTriad:
 
         assert triad_with.input_hash == triad_without.input_hash
 
-    def test_triad_hashes_have_prefix(self):
-        """All triad hashes start with 'sha256:'."""
+    def test_triad_hashes_are_bare_hex(self):
+        """All triad hashes are bare 64-hex strings (no sha256: prefix)."""
         triad = compute_receipt_triad("tool", {"a": 1}, "reason")
-        assert triad.input_hash.startswith("sha256:")
-        assert triad.reasoning_hash.startswith("sha256:")
-        assert triad.action_hash.startswith("sha256:")
+        hex_pattern = re.compile(r"^[a-f0-9]{64}$")
+        assert hex_pattern.match(triad.input_hash), f"input_hash not bare hex: {triad.input_hash}"
+        assert hex_pattern.match(triad.reasoning_hash), f"reasoning_hash not bare hex: {triad.reasoning_hash}"
+        assert hex_pattern.match(triad.action_hash), f"action_hash not bare hex: {triad.action_hash}"
 
     def test_triad_hashes_are_full_length(self):
-        """Triad hashes are full SHA-256 (64 hex chars after prefix)."""
+        """Triad hashes are full SHA-256 (64 hex chars, bare)."""
         triad = compute_receipt_triad("tool", {"a": 1}, "reason")
         for h in [triad.input_hash, triad.reasoning_hash, triad.action_hash]:
-            hex_part = h.split(":")[1]
-            assert len(hex_part) == 64
+            assert len(h) == 64, f"Expected 64 hex chars, got {len(h)}: {h}"
 
     def test_different_tools_different_hashes(self):
         """Different tool names produce different input hashes."""
@@ -221,7 +233,7 @@ class TestReceiptTriad:
         triad = compute_receipt_triad(
             "search", {"threshold": 0.7, "query": "test"}, None,
         )
-        assert triad.input_hash.startswith("sha256:")
+        assert re.match(r"^[a-f0-9]{64}$", triad.input_hash)
 
 
 # =============================================================================
@@ -337,12 +349,12 @@ class TestDataclasses:
     def test_receipt_triad_to_dict(self):
         """ReceiptTriad serializes to dict correctly."""
         triad = ReceiptTriad(
-            input_hash="sha256:abc",
-            reasoning_hash="sha256:def",
-            action_hash="sha256:abc",
+            input_hash="a" * 64,
+            reasoning_hash="b" * 64,
+            action_hash="a" * 64,
         )
         d = receipt_triad_to_dict(triad)
-        assert d["input_hash"] == "sha256:abc"
+        assert d["input_hash"] == "a" * 64
         assert d["context_limitation"] == "gateway_boundary"
 
     def test_reasoning_evaluation_to_dict(self):
@@ -386,9 +398,9 @@ class TestDataclasses:
     def test_gateway_receipt_v2_to_dict(self):
         """Full GatewayReceiptV2 serializes correctly."""
         triad = ReceiptTriad(
-            input_hash="sha256:aaa",
-            reasoning_hash="sha256:bbb",
-            action_hash="sha256:aaa",
+            input_hash="a" * 64,
+            reasoning_hash="b" * 64,
+            action_hash="a" * 64,
         )
         receipt = GatewayReceiptV2(
             receipt_version="2.0",
@@ -404,7 +416,7 @@ class TestDataclasses:
         )
         d = gateway_receipt_v2_to_dict(receipt)
         assert d["receipt_version"] == "2.0"
-        assert d["receipt_triad"]["input_hash"] == "sha256:aaa"
+        assert d["receipt_triad"]["input_hash"] == "a" * 64
         assert d["action"]["tool"] == "search"
         assert d["action"]["args_hash"] == "abc123"
         assert d["enforcement"]["level"] == "can_execute"
@@ -414,9 +426,9 @@ class TestDataclasses:
     def test_gateway_receipt_v2_with_all_fields(self):
         """GatewayReceiptV2 with all optional fields."""
         triad = ReceiptTriad(
-            input_hash="sha256:aaa",
-            reasoning_hash="sha256:bbb",
-            action_hash="sha256:aaa",
+            input_hash="a" * 64,
+            reasoning_hash="b" * 64,
+            action_hash="a" * 64,
         )
         check = GatewayCheckResult(
             check_id="glc_minimum_substance",
@@ -487,6 +499,7 @@ class TestGatewayReceiptV2Generation:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -497,31 +510,36 @@ class TestGatewayReceiptV2Generation:
                 receipt = gw.last_receipt
                 assert receipt is not None
 
-                # v1 fields still present
+                # v0.13.0 field names
                 assert "receipt_id" in receipt
                 assert "receipt_fingerprint" in receipt
+                assert "full_fingerprint" in receipt
+                assert "correlation_id" in receipt
+                assert "spec_version" in receipt
+                assert "status" in receipt
                 assert "extensions" in receipt
 
-                # v2 extensions present
-                gw_v2 = receipt["extensions"]["gateway_v2"]
-                assert gw_v2["receipt_version"] == "2.0"
+                # v2 extensions present under reverse-domain key
+                gw_ext = receipt["extensions"]["com.sanna.gateway"]
+                assert gw_ext["receipt_version"] == "2.0"
 
-                # Receipt triad present
-                triad = gw_v2["receipt_triad"]
-                assert triad["input_hash"].startswith("sha256:")
-                assert triad["reasoning_hash"].startswith("sha256:")
-                assert triad["action_hash"].startswith("sha256:")
+                # Receipt triad present (bare 64-hex hashes)
+                triad = gw_ext["receipt_triad"]
+                hex_pat = re.compile(r"^[a-f0-9]{64}$")
+                assert hex_pat.match(triad["input_hash"]), f"input_hash not bare hex: {triad['input_hash']}"
+                assert hex_pat.match(triad["reasoning_hash"]), f"reasoning_hash not bare hex: {triad['reasoning_hash']}"
+                assert hex_pat.match(triad["action_hash"]), f"action_hash not bare hex: {triad['action_hash']}"
                 assert triad["context_limitation"] == "gateway_boundary"
                 assert triad["input_hash"] == triad["action_hash"]
 
                 # Action record present
-                action = gw_v2["action"]
+                action = gw_ext["action"]
                 assert action["tool"] == "search"
                 assert action["args_hash"]  # non-empty hash
                 assert action["justification_stripped"] is False
 
                 # Enforcement record present
-                enforcement = gw_v2["enforcement"]
+                enforcement = gw_ext["enforcement"]
                 assert enforcement["level"] == "can_execute"
                 assert enforcement["constitution_version"] == "0.1.0"
                 assert len(enforcement["constitution_hash"]) == 64
@@ -542,6 +560,7 @@ class TestGatewayReceiptV2Generation:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -555,17 +574,17 @@ class TestGatewayReceiptV2Generation:
                     },
                 )
                 receipt = gw.last_receipt
-                gw_v2 = receipt["extensions"]["gateway_v2"]
+                gw_ext = receipt["extensions"]["com.sanna.gateway"]
 
                 # Justification stripped flag set
-                assert gw_v2["action"]["justification_stripped"] is True
+                assert gw_ext["action"]["justification_stripped"] is True
 
                 # Action uses args_hash (raw args not stored)
-                assert "args_hash" in gw_v2["action"]
+                assert "args_hash" in gw_ext["action"]
 
-                # Reasoning hash is NOT the empty-string hash
-                empty_hash = "sha256:" + hashlib.sha256(b"").hexdigest()
-                assert gw_v2["receipt_triad"]["reasoning_hash"] != empty_hash
+                # Reasoning hash is NOT the empty-string hash (bare 64-hex)
+                empty_hash = hashlib.sha256(b"").hexdigest()
+                assert gw_ext["receipt_triad"]["reasoning_hash"] != empty_hash
             finally:
                 await gw.shutdown()
 
@@ -583,6 +602,7 @@ class TestGatewayReceiptV2Generation:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -592,8 +612,8 @@ class TestGatewayReceiptV2Generation:
                 )
                 receipt = gw.last_receipt
                 assert receipt is not None
-                gw_v2 = receipt["extensions"]["gateway_v2"]
-                assert gw_v2["enforcement"]["level"] == "cannot_execute"
+                gw_ext = receipt["extensions"]["com.sanna.gateway"]
+                assert gw_ext["enforcement"]["level"] == "cannot_execute"
             finally:
                 await gw.shutdown()
 
@@ -611,6 +631,7 @@ class TestGatewayReceiptV2Generation:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -618,12 +639,12 @@ class TestGatewayReceiptV2Generation:
                 await gw._forward_call(
                     "mock_search", {"query": "test", "limit": 5},
                 )
-                triad1 = gw.last_receipt["extensions"]["gateway_v2"]["receipt_triad"]
+                triad1 = gw.last_receipt["extensions"]["com.sanna.gateway"]["receipt_triad"]
 
                 await gw._forward_call(
                     "mock_search", {"query": "test", "limit": 5},
                 )
-                triad2 = gw.last_receipt["extensions"]["gateway_v2"]["receipt_triad"]
+                triad2 = gw.last_receipt["extensions"]["com.sanna.gateway"]["receipt_triad"]
 
                 assert triad1["input_hash"] == triad2["input_hash"]
                 assert triad1["reasoning_hash"] == triad2["reasoning_hash"]
@@ -651,6 +672,7 @@ class TestSignatureVerification:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -686,6 +708,7 @@ class TestSignatureVerification:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -726,6 +749,7 @@ class TestBackwardCompatibility:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -735,16 +759,19 @@ class TestBackwardCompatibility:
                 )
                 receipt = gw.last_receipt
 
-                # v1 fields still present and valid
-                assert receipt["schema_version"] == "0.1"
+                # v0.13.0 field names
+                assert receipt["spec_version"] == "1.0"
                 assert "receipt_id" in receipt
                 assert "receipt_fingerprint" in receipt
+                assert "full_fingerprint" in receipt
+                assert "correlation_id" in receipt
                 assert "context_hash" in receipt
                 assert "output_hash" in receipt
+                assert "status" in receipt
 
-                # v1 gateway extensions still present
-                assert "gateway" in receipt["extensions"]
-                assert receipt["extensions"]["gateway"]["tool_name"] == "search"
+                # Gateway extensions under reverse-domain key
+                assert "com.sanna.gateway" in receipt["extensions"]
+                assert receipt["extensions"]["com.sanna.gateway"]["tool_name"] == "search"
 
                 # Full verification passes
                 result = verify_receipt(receipt, schema)
@@ -771,6 +798,7 @@ class TestBackwardCompatibility:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -781,21 +809,19 @@ class TestBackwardCompatibility:
                 receipt = gw.last_receipt
                 extensions = receipt["extensions"]
 
-                # Both v1 and v2 gateway sections present
-                assert "gateway" in extensions
-                assert "gateway_v2" in extensions
+                # v0.13.0: gateway and gateway_v2 merged into com.sanna.gateway
+                assert "com.sanna.gateway" in extensions
+                gw_ext = extensions["com.sanna.gateway"]
 
-                # v1 fields intact
-                gw_v1 = extensions["gateway"]
-                assert "server_name" in gw_v1
-                assert "arguments_hash" in gw_v1
-                assert "tool_output_hash" in gw_v1
+                # v1 fields intact (merged into same namespace)
+                assert "server_name" in gw_ext
+                assert "arguments_hash" in gw_ext
+                assert "tool_output_hash" in gw_ext
 
-                # v2 fields present
-                gw_v2 = extensions["gateway_v2"]
-                assert "receipt_triad" in gw_v2
-                assert "action" in gw_v2
-                assert "enforcement" in gw_v2
+                # v2 fields present (merged into same namespace)
+                assert "receipt_triad" in gw_ext
+                assert "action" in gw_ext
+                assert "enforcement" in gw_ext
             finally:
                 await gw.shutdown()
 

@@ -15,7 +15,7 @@ from sanna.receipt import (
     check_c3_false_certainty, check_c4_conflict_collapse,
     check_c5_premature_compression, select_final_answer,
     extract_context, extract_query, find_snippet,
-    TOOL_VERSION, SCHEMA_VERSION, CHECKS_VERSION,
+    TOOL_VERSION, SPEC_VERSION, CHECKS_VERSION,
 )
 from sanna.verify import (
     verify_receipt, load_schema, VerificationResult,
@@ -54,10 +54,20 @@ class TestHashing:
     def test_hash_text_different_inputs(self):
         assert hash_text("hello") != hash_text("world")
 
-    def test_hash_text_16_hex_chars(self):
+    def test_hash_text_64_hex_chars(self):
+        """hash_text() returns full 64-hex SHA-256 by default (v0.13.0+)."""
         h = hash_text("test")
+        assert len(h) == 64
+        assert all(c in "0123456789abcdef" for c in h)
+
+    def test_hash_text_truncate_16(self):
+        """hash_text(s, truncate=16) returns 16-hex for backward compatibility."""
+        h = hash_text("test", truncate=16)
         assert len(h) == 16
         assert all(c in "0123456789abcdef" for c in h)
+        # Truncated form is a prefix of the full hash
+        full = hash_text("test")
+        assert full[:16] == h
 
     def test_hash_obj_deterministic(self):
         obj = {"b": 2, "a": 1}
@@ -235,7 +245,7 @@ class TestC5PrematureCompression:
 class TestReceiptGeneration:
     def make_trace(self, context="Some context.", output="Some output.", query="question?"):
         return {
-            "trace_id": "test-trace-001",
+            "correlation_id": "test-trace-001",
             "name": "test",
             "timestamp": "2026-01-01T00:00:00Z",
             "input": {"query": query},
@@ -258,16 +268,17 @@ class TestReceiptGeneration:
     def test_receipt_has_required_fields(self):
         receipt = generate_receipt(self.make_trace())
         d = asdict(receipt)
-        for field in ["schema_version", "tool_version", "checks_version",
-                       "receipt_id", "receipt_fingerprint", "trace_id",
+        for field in ["spec_version", "tool_version", "checks_version",
+                       "receipt_id", "receipt_fingerprint", "full_fingerprint",
+                       "correlation_id",
                        "timestamp", "inputs", "outputs", "context_hash",
-                       "output_hash", "final_answer_provenance", "checks",
-                       "checks_passed", "checks_failed", "coherence_status"]:
+                       "output_hash", "checks",
+                       "checks_passed", "checks_failed", "status"]:
             assert field in d, f"Missing field: {field}"
 
     def test_receipt_versions(self):
         receipt = generate_receipt(self.make_trace())
-        assert receipt.schema_version == SCHEMA_VERSION
+        assert receipt.spec_version == SPEC_VERSION
         assert receipt.tool_version == TOOL_VERSION
         assert receipt.checks_version == CHECKS_VERSION
 
@@ -286,23 +297,32 @@ class TestReceiptGeneration:
         r2 = generate_receipt(trace)
         assert r1.receipt_fingerprint == r2.receipt_fingerprint
 
-    def test_receipt_id_changes(self):
-        """Receipt ID includes timestamp, should change between runs."""
+    def test_receipt_id_is_uuid4(self):
+        """Receipt ID is UUID v4 (v0.13.0+)."""
+        import re
         trace = self.make_trace()
         r1 = generate_receipt(trace)
         r2 = generate_receipt(trace)
-        # May or may not differ (depends on timing), but both should be valid hex
-        assert len(r1.receipt_id) == 16
-        assert len(r2.receipt_id) == 16
+        uuid4_re = re.compile(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        )
+        assert uuid4_re.match(r1.receipt_id), f"Not UUID v4: {r1.receipt_id}"
+        assert uuid4_re.match(r2.receipt_id), f"Not UUID v4: {r2.receipt_id}"
 
     def test_hash_format(self):
+        """v0.13.0: receipt_id=UUID4, fingerprint=16-hex, full_fingerprint/hashes=64-hex."""
         receipt = generate_receipt(self.make_trace())
         import re
+        uuid4_re = re.compile(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        )
         hex16 = re.compile(r"^[a-f0-9]{16}$")
-        assert hex16.match(receipt.receipt_id)
+        hex64 = re.compile(r"^[a-f0-9]{64}$")
+        assert uuid4_re.match(receipt.receipt_id)
         assert hex16.match(receipt.receipt_fingerprint)
-        assert hex16.match(receipt.context_hash)
-        assert hex16.match(receipt.output_hash)
+        assert hex64.match(receipt.full_fingerprint)
+        assert hex64.match(receipt.context_hash)
+        assert hex64.match(receipt.output_hash)
 
 
 # =============================================================================
@@ -312,7 +332,7 @@ class TestReceiptGeneration:
 class TestSelectFinalAnswer:
     def test_trace_output_preferred(self):
         trace = {
-            "trace_id": "test",
+            "correlation_id": "test",
             "output": {"final_answer": "From trace"},
             "observations": [
                 {
@@ -331,7 +351,7 @@ class TestSelectFinalAnswer:
 
     def test_span_output_fallback(self):
         trace = {
-            "trace_id": "test",
+            "correlation_id": "test",
             "output": None,
             "observations": [
                 {
@@ -349,7 +369,7 @@ class TestSelectFinalAnswer:
         assert prov.source == "span.output"
 
     def test_no_answer_found(self):
-        trace = {"trace_id": "test", "output": None, "observations": []}
+        trace = {"correlation_id": "test", "output": None, "observations": []}
         answer, prov = select_final_answer(trace)
         assert answer == ""
         assert prov.source == "none"
@@ -393,11 +413,29 @@ class TestExtractionHelpers:
 # =============================================================================
 
 class TestVerifier:
-    def test_valid_receipt(self):
+    """Verifier tests using golden receipts (old format).
+
+    Golden receipts use the legacy schema (schema_version,
+    status) so they cannot pass v1.0 JSON schema validation.
+    These tests exercise the individual backward-compatible verification
+    functions (fingerprint, content hashes, status, counts) directly.
+    """
+
+    def test_valid_receipt_legacy_components(self):
+        """Legacy golden receipt passes all backward-compatible verification steps."""
         receipt = load_golden("002_pass_simple_qa.json")
-        result = verify_receipt(receipt, SCHEMA)
-        assert result.valid
-        assert result.exit_code == 0
+        # Fingerprint
+        fp_match, _, _ = verify_fingerprint(receipt)
+        assert fp_match, "Legacy fingerprint should match"
+        # Content hashes
+        assert verify_content_hashes(receipt) == []
+        # Hash format (legacy 16-hex)
+        assert verify_hash_format(receipt) == []
+        # Status consistency
+        status_match, _, _ = verify_status_consistency(receipt)
+        assert status_match
+        # Check counts
+        assert verify_check_counts(receipt) == []
 
     def test_schema_invalid(self):
         receipt = {"not": "a valid receipt"}
@@ -408,31 +446,30 @@ class TestVerifier:
     def test_fingerprint_mismatch(self):
         receipt = load_golden("002_pass_simple_qa.json")
         receipt["receipt_fingerprint"] = "0000000000000000"
-        result = verify_receipt(receipt, SCHEMA)
-        assert not result.valid
-        assert result.exit_code == 3
+        match, computed, expected = verify_fingerprint(receipt)
+        assert not match
 
     def test_content_tamper_detected(self):
         receipt = load_golden("002_pass_simple_qa.json")
         receipt["outputs"]["response"] = "TAMPERED CONTENT"
-        result = verify_receipt(receipt, SCHEMA)
-        assert not result.valid
-        assert result.exit_code == 3
-        assert any("tampered" in e.lower() for e in result.errors)
+        errors = verify_content_hashes(receipt)
+        assert len(errors) > 0
+        assert any("tampered" in e.lower() for e in errors)
 
     def test_status_consistency_mismatch(self):
         receipt = load_golden("002_pass_simple_qa.json")
-        receipt["coherence_status"] = "FAIL"  # Should be PASS
-        result = verify_receipt(receipt, SCHEMA)
-        assert not result.valid
-        assert result.exit_code == 4
+        receipt["status"] = "FAIL"  # Should be PASS
+        match, computed, expected = verify_status_consistency(receipt)
+        assert not match
+        assert computed == "PASS"
+        assert expected == "FAIL"
 
     def test_check_count_mismatch(self):
         receipt = load_golden("002_pass_simple_qa.json")
         receipt["checks_passed"] = 0  # Wrong
-        result = verify_receipt(receipt, SCHEMA)
-        assert not result.valid
-        assert result.exit_code == 4
+        errors = verify_check_counts(receipt)
+        assert len(errors) > 0
+        assert any("checks_passed" in e for e in errors)
 
 
 class TestVerifyFingerprint:
@@ -451,23 +488,24 @@ class TestVerifyFingerprint:
 
 class TestVerifyStatusConsistency:
     def test_pass_status(self):
-        receipt = {"checks": [{"passed": True, "severity": "info"}], "coherence_status": "PASS"}
+        receipt = {"checks": [{"passed": True, "severity": "info"}], "status": "PASS"}
         match, computed, expected = verify_status_consistency(receipt)
         assert match
 
     def test_warn_status(self):
-        receipt = {"checks": [{"passed": False, "severity": "warning"}], "coherence_status": "WARN"}
+        receipt = {"checks": [{"passed": False, "severity": "warning"}], "status": "WARN"}
         match, computed, expected = verify_status_consistency(receipt)
         assert match
 
     def test_fail_status(self):
-        receipt = {"checks": [{"passed": False, "severity": "critical"}], "coherence_status": "FAIL"}
+        receipt = {"checks": [{"passed": False, "severity": "critical"}], "status": "FAIL"}
         match, computed, expected = verify_status_consistency(receipt)
         assert match
 
 
 class TestVerifyHashFormat:
-    def test_valid_hashes(self):
+    def test_valid_hashes_legacy(self):
+        """Legacy receipts (no spec_version/correlation_id) accept 16-hex hashes."""
         receipt = {
             "receipt_id": "abcdef0123456789",
             "receipt_fingerprint": "0123456789abcdef",
@@ -476,7 +514,20 @@ class TestVerifyHashFormat:
         }
         assert verify_hash_format(receipt) == []
 
-    def test_invalid_hash_length(self):
+    def test_valid_hashes_v013(self):
+        """v0.13.0 receipts: receipt_id=UUID4, fingerprint=16-hex, hashes=64-hex."""
+        receipt = {
+            "spec_version": "1.0",
+            "correlation_id": "sanna-test",
+            "receipt_id": "12345678-1234-4123-8123-123456789abc",
+            "receipt_fingerprint": "0123456789abcdef",
+            "full_fingerprint": "a" * 64,
+            "context_hash": "b" * 64,
+            "output_hash": "c" * 64,
+        }
+        assert verify_hash_format(receipt) == []
+
+    def test_invalid_hash_length_legacy(self):
         receipt = {
             "receipt_id": "short",
             "receipt_fingerprint": "0123456789abcdef",
@@ -487,26 +538,60 @@ class TestVerifyHashFormat:
         assert len(errors) == 1
         assert "receipt_id" in errors[0]
 
+    def test_invalid_hash_format_v013(self):
+        """v0.13.0: receipt_id must be UUID v4."""
+        receipt = {
+            "spec_version": "1.0",
+            "correlation_id": "sanna-test",
+            "receipt_id": "not-a-uuid",
+            "receipt_fingerprint": "0123456789abcdef",
+            "context_hash": "b" * 64,
+            "output_hash": "c" * 64,
+        }
+        errors = verify_hash_format(receipt)
+        assert len(errors) >= 1
+        assert any("receipt_id" in e for e in errors)
+
 
 # =============================================================================
 # GOLDEN RECEIPT TESTS
 # =============================================================================
 
 class TestGoldenReceipts:
-    """Verify all golden receipts pass the verifier."""
+    """Verify all golden receipts pass backward-compatible verification.
+
+    Golden receipts use the pre-v0.13.0 format (schema_version,
+    status, final_answer_provenance).  They are NOT
+    updated for v1.0 — they test legacy backward compatibility.  We verify
+    them using the individual verification functions that support both formats
+    (fingerprint, content hashes, status consistency, check counts).
+    """
 
     @pytest.mark.parametrize("filename", all_golden_receipts())
     def test_golden_receipt_valid(self, filename):
         receipt = load_golden(filename)
-        result = verify_receipt(receipt, SCHEMA)
-        assert result.valid, f"{filename}: {result.errors}"
-        assert result.exit_code == 0
+        # Fingerprint verification (legacy path)
+        fp_match, fp_computed, fp_expected = verify_fingerprint(receipt)
+        assert fp_match, f"{filename}: fingerprint mismatch (computed {fp_computed}, expected {fp_expected})"
+        # Content hash verification (auto-detects 16-hex legacy length)
+        content_errors = verify_content_hashes(receipt)
+        assert content_errors == [], f"{filename}: {content_errors}"
+        # Hash format verification (legacy 16-hex path)
+        hash_errors = verify_hash_format(receipt)
+        assert hash_errors == [], f"{filename}: {hash_errors}"
+        # Status consistency
+        status_match, _, _ = verify_status_consistency(receipt)
+        assert status_match, f"{filename}: status mismatch"
+        # Check counts
+        count_errors = verify_check_counts(receipt)
+        assert count_errors == [], f"{filename}: {count_errors}"
 
     def test_tampered_receipt_detected(self):
+        """Tampered receipt has modified outputs so content hash should mismatch."""
         receipt = load_golden("999_tampered.json")
-        result = verify_receipt(receipt, SCHEMA)
-        assert not result.valid
-        assert result.exit_code == 3
+        content_errors = verify_content_hashes(receipt)
+        assert len(content_errors) > 0, "Tampered receipt should have content hash errors"
+        assert any("tampered" in e.lower() for e in content_errors)
 
     def test_golden_receipt_count(self):
         """Ensure we have the expected number of golden receipts."""
@@ -521,7 +606,7 @@ class TestGoldenReceipts:
     ])
     def test_golden_expected_status(self, filename, expected_status):
         receipt = load_golden(filename)
-        assert receipt["coherence_status"] == expected_status
+        assert receipt["status"] == expected_status
 
     def test_golden_fail_c1_has_evidence(self):
         receipt = load_golden("001_fail_c1_refund.json")
@@ -531,6 +616,7 @@ class TestGoldenReceipts:
         assert len(c1["evidence"]) > 0
 
     def test_golden_span_provenance(self):
+        """Legacy golden receipts have final_answer_provenance (removed in v0.13.0)."""
         receipt = load_golden("011_pass_span_provenance.json")
         prov = receipt["final_answer_provenance"]
         assert prov["source"] == "span.output"
@@ -549,7 +635,7 @@ class TestGoldenReceipts:
 class TestEdgeCases:
     def test_empty_trace(self):
         trace = {
-            "trace_id": "empty",
+            "correlation_id": "empty",
             "name": "empty",
             "timestamp": None,
             "input": None,
@@ -558,12 +644,12 @@ class TestEdgeCases:
             "observations": [],
         }
         receipt = generate_receipt(trace)
-        assert receipt.coherence_status == "PASS"
+        assert receipt.status == "PASS"
         assert receipt.checks_passed == 5
 
     def test_unicode_content(self):
         trace = {
-            "trace_id": "unicode-test",
+            "correlation_id": "unicode-test",
             "name": "unicode",
             "timestamp": None,
             "input": None,
@@ -591,7 +677,7 @@ class TestEdgeCases:
         long_context = "x" * 100000
         long_output = "y" * 100000
         trace = {
-            "trace_id": "long-test",
+            "correlation_id": "long-test",
             "name": "long",
             "timestamp": None,
             "input": None,
@@ -610,4 +696,4 @@ class TestEdgeCases:
         }
         receipt = generate_receipt(trace)
         assert receipt.context_hash is not None
-        assert len(receipt.context_hash) == 16
+        assert len(receipt.context_hash) == 64

@@ -15,5 +15,11 @@ def escape_audit_content(text: str) -> str:
     break out of the ``<audit>`` wrapper in LLM prompts.
 
     Escapes ``&``, ``<``, and ``>`` to their XML entity equivalents.
+
+    Handles ``None`` (returns ``""``) and non-string types (coerced via ``str()``).
     """
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')

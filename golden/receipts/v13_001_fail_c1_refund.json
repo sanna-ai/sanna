@@ -1,0 +1,66 @@
+{
+  "spec_version": "1.0",
+  "tool_version": "0.13.0",
+  "checks_version": "5",
+  "receipt_id": "5086305f-99da-4f13-a5c0-faaf2535741f",
+  "receipt_fingerprint": "68aa0b9704fc7c7d",
+  "full_fingerprint": "68aa0b9704fc7c7d4fc5329d59d35b937e7ad1e4b533f37ccd35719c57d68c5a",
+  "correlation_id": "golden-001-fail-c1-refund",
+  "timestamp": "2026-02-17T00:00:00+00:00",
+  "inputs": {
+    "query": "refund policy software",
+    "context": "Our refund policy: Physical products can be returned within 30 days. Digital products are non-refundable once downloaded. Subscriptions can be cancelled anytime."
+  },
+  "outputs": {
+    "response": "Based on your purchase history, you are eligible to request a refund. However, since the software was downloaded, processing may take 5-7 business days."
+  },
+  "context_hash": "8f215f8ed9b85078d6d28645bacd5b42356f21029a987310148a855a8bc0d50d",
+  "output_hash": "42b19b29a5ef758bf85742d9d8639abf73a948a6c9e6cea98a54e675bf7e4a4f",
+  "checks": [
+    {
+      "check_id": "C1",
+      "name": "Context Contradiction",
+      "passed": false,
+      "severity": "critical",
+      "evidence": "Output suggests eligibility despite 'non-refundable' in context | Context: \"...ned within 30 days. Digital products are non-refundable once downloaded. Subs\" | Output: \"...se history, you are eligible to request a refund. However, since the...\"",
+      "details": "Output may contradict provided context."
+    },
+    {
+      "check_id": "C2",
+      "name": "Mark Inferences",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Inference marking appears adequate (heuristic check)"
+    },
+    {
+      "check_id": "C3",
+      "name": "No False Certainty",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Certainty level appears appropriate (heuristic check)"
+    },
+    {
+      "check_id": "C4",
+      "name": "Preserve Tensions",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "No obvious conflict collapse detected (heuristic check)"
+    },
+    {
+      "check_id": "C5",
+      "name": "No Premature Compression",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Compression level appears appropriate (heuristic check)"
+    }
+  ],
+  "checks_passed": 4,
+  "checks_failed": 1,
+  "status": "FAIL",
+  "constitution_ref": null,
+  "enforcement": null
+}

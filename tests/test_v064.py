@@ -157,7 +157,7 @@ class TestStrictSchemaValidation:
             yaml.dump(bad_yaml, f)
 
         with pytest.raises((SannaConstitutionError, ValueError)):
-            @sanna_observe(constitution_path=str(path), strict=True)
+            @sanna_observe(require_constitution_sig=False, constitution_path=str(path), strict=True)
             def agent(query, context):
                 return "answer"
 
@@ -170,7 +170,7 @@ class TestStrictSchemaValidation:
         save_constitution(signed, path)
 
         with pytest.raises(SannaConstitutionError, match="hashed but not signed|missing or malformed"):
-            @sanna_observe(constitution_path=str(path), strict=False)
+            @sanna_observe(require_constitution_sig=False, constitution_path=str(path), strict=False)
             def agent(query, context):
                 return "Grounded answer."
 
@@ -182,7 +182,7 @@ class TestStrictSchemaValidation:
         path = tmp_path / "constitution.yaml"
         save_constitution(signed, path)
 
-        @sanna_observe(constitution_path=str(path), strict=False)
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path), strict=False)
         def agent(query, context):
             return "Grounded answer."
 
@@ -268,7 +268,7 @@ class TestChainVerificationSignatureBinding:
         signed_b, path_b = _sign_and_save(const, tmp_path / "cb", priv_b, signed_by="signer-b")
 
         # Generate receipt using constitution A
-        @sanna_observe(constitution_path=str(path_a), private_key_path=str(priv_a))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path_a), private_key_path=str(priv_a))
         def agent(query, context):
             return "Grounded answer."
 
@@ -289,7 +289,7 @@ class TestChainVerificationSignatureBinding:
         save_constitution(signed, path)
 
         with pytest.raises(SannaConstitutionError, match="hashed but not signed|missing or malformed"):
-            @sanna_observe(constitution_path=str(path))
+            @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
             def agent(query, context):
                 return "Grounded answer."
 
@@ -299,7 +299,7 @@ class TestChainVerificationSignatureBinding:
         const = _make_constitution()
         signed, path = _sign_and_save(const, tmp_path, priv_path)
 
-        @sanna_observe(constitution_path=str(path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path), private_key_path=str(priv_path))
         def agent(query, context):
             return "Grounded answer."
 
@@ -355,7 +355,7 @@ class TestFloatSanitization:
         const = _make_constitution()
         signed, path = _sign_and_save(const, tmp_path, priv_path)
 
-        @sanna_observe(constitution_path=str(path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path), private_key_path=str(priv_path))
         def agent(query, context):
             return "Grounded answer."
 
@@ -376,7 +376,7 @@ class TestFloatSanitization:
         const = _make_constitution()
         signed, path = _sign_and_save(const, tmp_path, priv_path)
 
-        @sanna_observe(constitution_path=str(path), private_key_path=str(priv_path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path), private_key_path=str(priv_path))
         def agent(query, context):
             return "Grounded answer."
 
@@ -421,14 +421,14 @@ class TestPrivateKeyPermissions:
 
 class TestV064Versions:
     def test_tool_version(self):
-        assert TOOL_VERSION == "0.12.5"
+        assert TOOL_VERSION == "0.13.0"
 
     def test_checks_version(self):
-        assert CHECKS_VERSION == "4"
+        assert CHECKS_VERSION == "5"
 
     def test_init_version(self):
         import sanna
-        assert sanna.__version__ == "0.12.5"
+        assert sanna.__version__ == "0.13.0"
 
     def test_sanitize_for_signing_exported(self):
         """sanitize_for_signing should be importable from sanna.crypto."""

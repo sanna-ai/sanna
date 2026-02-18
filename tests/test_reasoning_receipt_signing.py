@@ -178,6 +178,7 @@ class TestGlc005ReceiptSigning:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -213,7 +214,7 @@ class TestGlc005ReceiptSigning:
                 )
 
                 # Verify reasoning evaluation is in receipt
-                gw_v2 = receipt["extensions"]["gateway_v2"]
+                gw_v2 = receipt["extensions"]["com.sanna.gateway"]
                 assert "reasoning_evaluation" in gw_v2
 
                 reasoning = gw_v2["reasoning_evaluation"]
@@ -256,6 +257,7 @@ class TestGlc005ReceiptSigning:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -281,7 +283,7 @@ class TestGlc005ReceiptSigning:
                 )
 
                 # Reasoning should show failure (score below threshold)
-                gw_v2 = receipt["extensions"]["gateway_v2"]
+                gw_v2 = receipt["extensions"]["com.sanna.gateway"]
                 reasoning = gw_v2["reasoning_evaluation"]
                 assert reasoning["passed"] is False
                 assert reasoning["assurance"] == "partial"
@@ -327,6 +329,7 @@ class TestGlc005ReceiptSigning:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -379,6 +382,7 @@ class TestGlc005ReceiptSigning:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -431,6 +435,7 @@ class TestGlc005ReceiptSigning:
                 command=sys.executable,
                 args=[mock_server_path],
                 constitution_path=const_path,
+                require_constitution_sig=False,
                 signing_key_path=key_path,
             )
             await gw.start()
@@ -452,7 +457,7 @@ class TestGlc005ReceiptSigning:
                 assert verify_receipt_signature(receipt, pub_key_path)
 
                 # Tamper with reasoning evaluation
-                gw_v2 = receipt["extensions"]["gateway_v2"]
+                gw_v2 = receipt["extensions"]["com.sanna.gateway"]
                 gw_v2["reasoning_evaluation"]["passed"] = False
 
                 # Verification must now fail

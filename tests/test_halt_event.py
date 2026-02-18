@@ -1,7 +1,8 @@
 """
-Tests for HaltEvent — enforcement action recording in receipts.
+Tests for enforcement action recording in receipts.
 
 v0.6.0: Middleware tests updated to use constitution-driven enforcement.
+v0.13.0: enforcement field, status field renamed, correlation_id.
 """
 
 import json
@@ -15,6 +16,7 @@ from sanna.receipt import (
     generate_receipt,
     ConstitutionProvenance,
     HaltEvent,
+    Enforcement,
     SannaReceipt,
 )
 from sanna.hashing import hash_text, hash_obj
@@ -44,7 +46,7 @@ SIMPLE_OUTPUT = "The capital of France is Paris."
 def make_trace(**overrides):
     """Build a minimal trace dict."""
     trace = {
-        "trace_id": "test-halt-001",
+        "correlation_id": "test-halt-001",
         "name": "halt-test",
         "timestamp": "2026-01-01T00:00:00Z",
         "input": {"query": "test?"},
@@ -67,7 +69,7 @@ def make_trace(**overrides):
     return trace
 
 
-def make_halt_event():
+def make_enforcement():
     """Build a sample HaltEvent."""
     return HaltEvent(
         halted=True,
@@ -79,74 +81,74 @@ def make_halt_event():
 
 
 class TestHaltEvent:
-    def test_receipt_without_halt_event(self):
-        """Receipt without halt_event should have halt_event=None."""
+    def test_receipt_without_enforcement(self):
+        """Receipt without enforcement should have enforcement=None."""
         receipt = generate_receipt(make_trace())
-        assert receipt.halt_event is None
+        assert receipt.enforcement is None
 
-    def test_receipt_with_halt_event(self):
-        """Receipt with halt_event should include halt_event dict."""
-        halt_event = make_halt_event()
-        receipt = generate_receipt(make_trace(), halt_event=halt_event)
-        assert receipt.halt_event is not None
-        assert receipt.halt_event["halted"] is True
-        assert "C1" in receipt.halt_event["failed_checks"]
-        assert receipt.halt_event["enforcement_mode"] == "halt"
+    def test_receipt_with_enforcement(self):
+        """Receipt with enforcement should produce enforcement dict."""
+        enforcement_obj = make_enforcement()
+        receipt = generate_receipt(make_trace(), enforcement=enforcement_obj)
+        assert receipt.enforcement is not None
+        assert receipt.enforcement["action"] == "halted"
+        assert "C1" in receipt.enforcement["failed_checks"]
+        assert receipt.enforcement["enforcement_mode"] == "halt"
 
-    def test_halt_event_changes_fingerprint(self):
-        """Adding a halt_event should change the fingerprint."""
+    def test_enforcement_changes_fingerprint(self):
+        """Adding enforcement should change the fingerprint."""
         trace = make_trace()
         r_without = generate_receipt(trace)
-        r_with = generate_receipt(trace, halt_event=make_halt_event())
+        r_with = generate_receipt(trace, enforcement=make_enforcement())
         assert r_without.receipt_fingerprint != r_with.receipt_fingerprint
 
-    def test_halt_event_receipt_validates(self):
-        """Receipt with halt_event should pass schema + fingerprint verification."""
-        receipt = generate_receipt(make_trace(), halt_event=make_halt_event())
+    def test_enforcement_receipt_validates(self):
+        """Receipt with enforcement should pass schema + fingerprint verification."""
+        receipt = generate_receipt(make_trace(), enforcement=make_enforcement())
         receipt_dict = asdict(receipt)
         result = verify_receipt(receipt_dict, SCHEMA)
         assert result.valid, f"Validation failed: {result.errors}"
         assert result.exit_code == 0
 
-    def test_halt_event_fingerprint_verification(self):
-        """Fingerprint should verify correctly with halt_event included."""
-        receipt = generate_receipt(make_trace(), halt_event=make_halt_event())
+    def test_enforcement_fingerprint_verification(self):
+        """Fingerprint should verify correctly with enforcement included."""
+        receipt = generate_receipt(make_trace(), enforcement=make_enforcement())
         receipt_dict = asdict(receipt)
         match, computed, expected = verify_fingerprint(receipt_dict)
         assert match, f"Fingerprint mismatch: {computed} != {expected}"
 
-    def test_tampering_halt_event_invalidates_fingerprint(self):
-        """Modifying halt_event after generation should fail verification."""
-        receipt = generate_receipt(make_trace(), halt_event=make_halt_event())
+    def test_tampering_enforcement_invalidates_fingerprint(self):
+        """Modifying enforcement after generation should fail verification."""
+        receipt = generate_receipt(make_trace(), enforcement=make_enforcement())
         receipt_dict = asdict(receipt)
-        receipt_dict["halt_event"]["halted"] = False
+        receipt_dict["enforcement"]["action"] = "allowed"
         match, _, _ = verify_fingerprint(receipt_dict)
         assert not match
 
-    def test_both_constitution_and_halt_event(self):
-        """Receipt with both constitution and halt_event should verify."""
+    def test_both_constitution_and_enforcement(self):
+        """Receipt with both constitution and enforcement should verify."""
         constitution = ConstitutionProvenance(
             document_id="policy-v2",
             policy_hash=hash_text("content"),
             version="2.0",
         )
-        halt_event = make_halt_event()
+        enforcement_obj = make_enforcement()
         receipt = generate_receipt(
-            make_trace(), constitution=constitution, halt_event=halt_event,
+            make_trace(), constitution=constitution, enforcement=enforcement_obj,
         )
         receipt_dict = asdict(receipt)
         result = verify_receipt(receipt_dict, SCHEMA)
         assert result.valid, f"Validation failed: {result.errors}"
         assert receipt_dict["constitution_ref"] is not None
-        assert receipt_dict["halt_event"] is not None
+        assert receipt_dict["enforcement"] is not None
 
 
-class TestVerifierHaltWarning:
-    def test_fail_without_halt_event_warns(self):
-        """Verifier should warn when FAIL + critical failure but no halt_event."""
+class TestVerifierEnforcementWarning:
+    def test_fail_without_enforcement_warns(self):
+        """Verifier should warn when FAIL + critical failure but no enforcement."""
         # Use the refund contradiction trace that produces a FAIL
         trace = {
-            "trace_id": "test-fail-no-halt",
+            "correlation_id": "test-fail-no-halt",
             "name": "fail-no-halt",
             "timestamp": "2026-01-01T00:00:00Z",
             "input": {"query": "refund?"},
@@ -164,16 +166,16 @@ class TestVerifierHaltWarning:
             ],
         }
         receipt = generate_receipt(trace)
-        assert receipt.coherence_status == "FAIL"
+        assert receipt.status == "FAIL"
         receipt_dict = asdict(receipt)
         result = verify_receipt(receipt_dict, SCHEMA)
         assert result.valid  # Still valid, just warns
-        assert any("halt_event" in w for w in result.warnings)
+        assert any("enforcement" in w for w in result.warnings)
 
-    def test_fail_with_halt_event_no_warning(self):
-        """Verifier should NOT warn when FAIL has halt_event recorded."""
+    def test_fail_with_enforcement_no_warning(self):
+        """Verifier should NOT warn when FAIL has enforcement recorded."""
         trace = {
-            "trace_id": "test-fail-with-halt",
+            "correlation_id": "test-fail-with-halt",
             "name": "fail-with-halt",
             "timestamp": "2026-01-01T00:00:00Z",
             "input": {"query": "refund?"},
@@ -190,25 +192,25 @@ class TestVerifierHaltWarning:
                 }
             ],
         }
-        halt_event = HaltEvent(
+        enforcement_obj = HaltEvent(
             halted=True,
             reason="C1 critical failure",
             failed_checks=["C1"],
             timestamp=datetime.now(timezone.utc).isoformat(),
             enforcement_mode="halt",
         )
-        receipt = generate_receipt(trace, halt_event=halt_event)
-        assert receipt.coherence_status == "FAIL"
+        receipt = generate_receipt(trace, enforcement=enforcement_obj)
+        assert receipt.status == "FAIL"
         receipt_dict = asdict(receipt)
         result = verify_receipt(receipt_dict, SCHEMA)
         assert result.valid
-        assert not any("halt_event" in w for w in result.warnings)
+        assert not any("enforcement" in w for w in result.warnings)
 
 
-class TestMiddlewareHaltEvent:
-    def test_halt_creates_halt_event(self):
-        """@sanna_observe with halt constitution should auto-create halt_event."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+class TestMiddlewareEnforcement:
+    def test_halt_creates_enforcement(self):
+        """@sanna_observe with halt constitution should auto-create enforcement."""
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -216,14 +218,14 @@ class TestMiddlewareHaltEvent:
             agent(query="refund?", context=REFUND_CONTEXT)
 
         receipt = exc_info.value.receipt
-        assert receipt["halt_event"] is not None
-        assert receipt["halt_event"]["halted"] is True
-        assert "sanna.context_contradiction" in receipt["halt_event"]["failed_checks"]
-        assert receipt["halt_event"]["enforcement_mode"] == "halt"
+        assert receipt["enforcement"] is not None
+        assert receipt["enforcement"]["action"] == "halted"
+        assert "sanna.context_contradiction" in receipt["enforcement"]["failed_checks"]
+        assert receipt["enforcement"]["enforcement_mode"] == "halt"
 
-    def test_halt_receipt_with_halt_event_verifies(self):
-        """Receipt with auto-created halt_event should pass verification."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+    def test_halt_receipt_with_enforcement_verifies(self):
+        """Receipt with auto-created enforcement should pass verification."""
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -234,18 +236,18 @@ class TestMiddlewareHaltEvent:
         result = verify_receipt(receipt, SCHEMA)
         assert result.valid, f"Validation failed: {result.errors}"
 
-    def test_pass_no_halt_event(self):
-        """Passing agent should NOT have a halt_event."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+    def test_pass_no_enforcement(self):
+        """Passing agent should NOT have enforcement."""
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return SIMPLE_OUTPUT
 
         result = agent(query="test", context=SIMPLE_CONTEXT)
-        assert result.receipt.get("halt_event") is None
+        assert result.receipt.get("enforcement") is None
 
-    def test_warn_no_halt_event(self):
-        """Warn mode should NOT create a halt_event (only halt mode does)."""
-        @sanna_observe(constitution_path=ALL_WARN_CONST)
+    def test_warn_no_halt_enforcement(self):
+        """Warn mode should NOT create a halted enforcement (only halt mode does)."""
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_WARN_CONST)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -253,11 +255,14 @@ class TestMiddlewareHaltEvent:
             warnings.simplefilter("always")
             result = agent(query="refund?", context=REFUND_CONTEXT)
 
-        assert result.receipt.get("halt_event") is None
+        # Warn mode does not produce a "halted" enforcement action
+        enforcement = result.receipt.get("enforcement")
+        if enforcement is not None:
+            assert enforcement["action"] != "halted"
 
     def test_middleware_with_constitution_and_halt(self):
         """Middleware with constitution should include both in halt receipt."""
-        @sanna_observe(constitution_path=ALL_HALT_CONST)
+        @sanna_observe(require_constitution_sig=False, constitution_path=ALL_HALT_CONST)
         def agent(query: str, context: str) -> str:
             return REFUND_BAD_OUTPUT
 
@@ -266,8 +271,8 @@ class TestMiddlewareHaltEvent:
 
         receipt = exc_info.value.receipt
         assert receipt["constitution_ref"] is not None
-        assert receipt["halt_event"] is not None
-        assert receipt["halt_event"]["halted"] is True
+        assert receipt["enforcement"] is not None
+        assert receipt["enforcement"]["action"] == "halted"
 
         result = verify_receipt(receipt, SCHEMA)
         assert result.valid, f"Validation failed: {result.errors}"

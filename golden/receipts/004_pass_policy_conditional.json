@@ -4,7 +4,7 @@
   "checks_version": "2",
   "receipt_id": "eb7ff95d477b6f97",
   "receipt_fingerprint": "d63ff1f53cd02f59",
-  "trace_id": "golden-004-pass-policy-conditional",
+  "correlation_id": "golden-004-pass-policy-conditional",
   "timestamp": "2026-02-13T00:37:54.689591+00:00",
   "inputs": {
     "query": "premium plan discount eligibility",
@@ -65,7 +65,7 @@
   ],
   "checks_passed": 5,
   "checks_failed": 0,
-  "coherence_status": "PASS",
+  "status": "PASS",
   "constitution_ref": null,
   "halt_event": null
 }

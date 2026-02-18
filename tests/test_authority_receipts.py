@@ -38,9 +38,9 @@ GOLDEN_DIR = Path(__file__).parent.parent / "golden" / "receipts"
 # HELPERS
 # =============================================================================
 
-def _make_trace_data(trace_id: str = "test-trace-001") -> dict:
+def _make_trace_data(correlation_id: str = "test-trace-001") -> dict:
     return _build_trace_data(
-        trace_id=trace_id,
+        correlation_id=correlation_id,
         query="What is the capital of France?",
         context="France is a country in Europe. Its capital is Paris.",
         output="The capital of France is Paris.",
@@ -377,17 +377,17 @@ class TestFingerprintIntegrity:
 # =============================================================================
 
 class TestVerifierBackwardCompat:
-    def test_v06x_golden_receipt_still_verifies(self):
-        """Old golden receipts without authority sections must still verify."""
-        path = GOLDEN_DIR / "002_pass_simple_qa.json"
+    def test_v13_golden_receipt_verifies(self):
+        """v0.13.0 golden receipt passes full schema validation."""
+        path = GOLDEN_DIR / "v13_002_pass_simple_qa.json"
         if not path.exists():
-            pytest.skip("Golden receipt not found")
+            pytest.skip("v0.13.0 golden receipt not found")
 
         receipt = json.loads(path.read_text())
         schema = load_schema()
         result = verify_receipt(receipt, schema)
 
-        assert result.valid, f"Old golden receipt failed: {result.errors}"
+        assert result.valid, f"v0.13.0 golden receipt failed: {result.errors}"
 
     def test_v06x_receipt_without_new_sections_verifies(self):
         """A receipt generated without authority sections should verify."""
@@ -397,17 +397,13 @@ class TestVerifierBackwardCompat:
 
         assert result.valid, f"Receipt without new sections failed: {result.errors}"
 
-    def test_all_existing_golden_receipts_still_verify(self):
-        """All existing golden receipts must continue to verify."""
+    def test_all_v13_golden_receipts_verify(self):
+        """All v0.13.0 golden receipts must pass full schema validation."""
         schema = load_schema()
-        for path in sorted(GOLDEN_DIR.glob("*.json")):
+        for path in sorted(GOLDEN_DIR.glob("v13_*.json")):
             receipt = json.loads(path.read_text())
             result = verify_receipt(receipt, schema)
-
-            if path.name == "999_tampered.json":
-                assert not result.valid, "Tampered receipt should not verify"
-            else:
-                assert result.valid, f"Golden receipt {path.name} failed: {result.errors}"
+            assert result.valid, f"v0.13.0 golden receipt {path.name} failed: {result.errors}"
 
 
 # =============================================================================

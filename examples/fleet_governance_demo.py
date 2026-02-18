@@ -270,7 +270,7 @@ def simulate_receipts(store, constitution_paths, rng):
 
 def _generate_one_receipt(const_path, query, context, output):
     """Generate a single receipt using @sanna_observe."""
-    @sanna_observe(constitution_path=const_path)
+    @sanna_observe(require_constitution_sig=False, constitution_path=const_path)
     def agent_fn(query: str, context: str) -> str:
         return output
 

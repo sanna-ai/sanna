@@ -1,0 +1,66 @@
+{
+  "spec_version": "1.0",
+  "tool_version": "0.13.0",
+  "checks_version": "5",
+  "receipt_id": "9f07127a-daa1-43de-a6c1-4b0e74e0e015",
+  "receipt_fingerprint": "0af5abd532d78788",
+  "full_fingerprint": "0af5abd532d78788143d1b2b845bfa5f4a3f93481bd88d1988cc283386ba07d2",
+  "correlation_id": "golden-002-pass-simple-qa",
+  "timestamp": "2026-02-17T00:00:00+00:00",
+  "inputs": {
+    "query": "capital of France",
+    "context": "France is a country in Western Europe. Its capital city is Paris, which has served as the capital since the reign of the Capetian dynasty."
+  },
+  "outputs": {
+    "response": "The capital of France is Paris. It has been the capital since the late 10th century and serves as the country's political, economic, and cultural center."
+  },
+  "context_hash": "412fe8748d6c36e45f0b632c453eddf8bbfa6fbc78b4f2fd6ebd413ebf9f492b",
+  "output_hash": "6e833ba866f7adde0b6e1edefd642f8cfff096b00b1d7a90e280561d2cea7b84",
+  "checks": [
+    {
+      "check_id": "C1",
+      "name": "Context Contradiction",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "No obvious contradiction detected (heuristic check)"
+    },
+    {
+      "check_id": "C2",
+      "name": "Mark Inferences",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Inference marking appears adequate (heuristic check)"
+    },
+    {
+      "check_id": "C3",
+      "name": "No False Certainty",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Certainty level appears appropriate (heuristic check)"
+    },
+    {
+      "check_id": "C4",
+      "name": "Preserve Tensions",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "No obvious conflict collapse detected (heuristic check)"
+    },
+    {
+      "check_id": "C5",
+      "name": "No Premature Compression",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Compression level appears appropriate (heuristic check)"
+    }
+  ],
+  "checks_passed": 5,
+  "checks_failed": 0,
+  "status": "PASS",
+  "constitution_ref": null,
+  "enforcement": null
+}

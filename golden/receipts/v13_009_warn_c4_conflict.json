@@ -1,0 +1,66 @@
+{
+  "spec_version": "1.0",
+  "tool_version": "0.13.0",
+  "checks_version": "5",
+  "receipt_id": "ee6678da-61a3-4083-acf4-412ad0be20f1",
+  "receipt_fingerprint": "7b4d06e836514eef",
+  "full_fingerprint": "7b4d06e836514eef26ab96f5c62b193d036c92b45d966ef7025d75539ff93aca",
+  "correlation_id": "golden-009-warn-c4-conflict",
+  "timestamp": "2026-02-17T00:00:00+00:00",
+  "inputs": {
+    "query": "license transfer policy",
+    "context": "License transfers are permitted for enterprise accounts. Individual licenses cannot be transferred. Enterprise transfer requires manager approval. All transfers are non-refundable."
+  },
+  "outputs": {
+    "response": "Yes, you can transfer your license to another person. Contact support with the new user's details."
+  },
+  "context_hash": "61f251eafde908f8ba2bd47b7055bf1ded33590c1b6a00ed25edf145e75c9f47",
+  "output_hash": "5a50eb24ad1a32594f3d5926987e54eb1334aed42b389cdbcfeed3e0471f1f8d",
+  "checks": [
+    {
+      "check_id": "C1",
+      "name": "Context Contradiction",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "No obvious contradiction detected (heuristic check)"
+    },
+    {
+      "check_id": "C2",
+      "name": "Mark Inferences",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Inference marking appears adequate (heuristic check)"
+    },
+    {
+      "check_id": "C3",
+      "name": "No False Certainty",
+      "passed": false,
+      "severity": "warning",
+      "evidence": "Confident claim without acknowledging conditions: \"you can\"",
+      "details": "Output confidence may exceed evidence support"
+    },
+    {
+      "check_id": "C4",
+      "name": "Preserve Tensions",
+      "passed": false,
+      "severity": "warning",
+      "evidence": "Context contains conflicting rules not reflected in output",
+      "details": "Output may have collapsed policy tensions"
+    },
+    {
+      "check_id": "C5",
+      "name": "No Premature Compression",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Compression level appears appropriate (heuristic check)"
+    }
+  ],
+  "checks_passed": 3,
+  "checks_failed": 2,
+  "status": "WARN",
+  "constitution_ref": null,
+  "enforcement": null
+}

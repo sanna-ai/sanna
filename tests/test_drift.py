@@ -48,9 +48,9 @@ def _make_receipt(
     doc_id = f"{agent_name}/{constitution_version}"
     return {
         "receipt_id": receipt_id,
-        "trace_id": f"trace-{receipt_id}",
+        "correlation_id": f"trace-{receipt_id}",
         "timestamp": timestamp,
-        "coherence_status": "PASS" if all(c.get("passed", True) for c in checks) else "FAIL",
+        "status": "PASS" if all(c.get("passed", True) for c in checks) else "FAIL",
         "checks": checks,
         "checks_passed": sum(1 for c in checks if c.get("passed")),
         "checks_failed": sum(1 for c in checks if not c.get("passed")),

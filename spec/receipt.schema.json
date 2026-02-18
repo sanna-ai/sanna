@@ -1,59 +1,64 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://sanna.dev/schemas/receipt/v0.1.json",
+  "$id": "https://sanna.dev/schemas/receipt/v1.0.json",
   "title": "Sanna Reasoning Receipt",
-  "description": "Schema for Sanna reasoning receipts - artifacts that capture AI reasoning provenance and consistency check results",
+  "description": "Schema for Sanna reasoning receipts v1.0 — artifacts that capture AI reasoning provenance, constitution enforcement, and consistency check results",
   "type": "object",
   "required": [
-    "schema_version",
+    "spec_version",
     "tool_version",
     "checks_version",
     "receipt_id",
     "receipt_fingerprint",
-    "trace_id",
+    "full_fingerprint",
+    "correlation_id",
     "timestamp",
     "inputs",
     "outputs",
     "context_hash",
     "output_hash",
-    "final_answer_provenance",
     "checks",
     "checks_passed",
     "checks_failed",
-    "coherence_status"
+    "status"
   ],
   "properties": {
-    "schema_version": {
+    "spec_version": {
       "type": "string",
-      "description": "Schema version (breaking changes only)",
+      "description": "Specification version. See spec/sanna-specification-v1.0.md",
       "pattern": "^[0-9]+\\.[0-9]+$",
-      "examples": ["0.1"]
+      "examples": ["1.0"]
     },
     "tool_version": {
       "type": "string",
       "description": "Tool version that generated this receipt",
       "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
-      "examples": ["0.6.1"]
+      "examples": ["0.13.0"]
     },
     "checks_version": {
       "type": "string",
-      "description": "Version of check logic (increment when check behavior changes)",
+      "description": "Version of check evaluation schema (increment when check semantics change)",
       "pattern": "^[0-9]+$",
-      "examples": ["3"]
+      "examples": ["5"]
     },
     "receipt_id": {
       "type": "string",
-      "description": "Unique identifier for this receipt instance (changes per run)",
-      "pattern": "^[a-f0-9]{16}$"
+      "description": "Unique identifier for this receipt instance (UUID v4)",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     },
     "receipt_fingerprint": {
       "type": "string",
-      "description": "Stable identifier for this trace content (same across runs of same trace)",
+      "description": "Truncated 16-hex SHA-256 fingerprint (human-readable). Same content produces same fingerprint across runs.",
       "pattern": "^[a-f0-9]{16}$"
     },
-    "trace_id": {
+    "full_fingerprint": {
       "type": "string",
-      "description": "Source trace identifier from observability platform",
+      "description": "Full 64-hex SHA-256 fingerprint (programmatic verification)",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "correlation_id": {
+      "type": "string",
+      "description": "Correlation identifier with path prefix (sanna-, mcp-, gw-)",
       "minLength": 1
     },
     "timestamp": {
@@ -89,37 +94,13 @@
     },
     "context_hash": {
       "type": "string",
-      "description": "SHA256 hash (truncated) of canonicalized inputs",
-      "pattern": "^[a-f0-9]{16}$"
+      "description": "Full 64-hex SHA-256 of Sanna Canonical JSON of inputs",
+      "pattern": "^[a-f0-9]{64}$"
     },
     "output_hash": {
       "type": "string",
-      "description": "SHA256 hash (truncated) of canonicalized outputs",
-      "pattern": "^[a-f0-9]{16}$"
-    },
-    "final_answer_provenance": {
-      "type": "object",
-      "description": "Tracks where the final answer was selected from in multi-step traces",
-      "required": ["source"],
-      "properties": {
-        "source": {
-          "type": "string",
-          "description": "Where the final answer came from",
-          "enum": ["trace.output", "span.output", "none"]
-        },
-        "span_id": {
-          "type": ["string", "null"],
-          "description": "ID of the span if source is span.output"
-        },
-        "span_name": {
-          "type": ["string", "null"],
-          "description": "Name of the span if source is span.output"
-        },
-        "field": {
-          "type": ["string", "null"],
-          "description": "Field name where answer was found"
-        }
-      }
+      "description": "Full 64-hex SHA-256 of Sanna Canonical JSON of outputs",
+      "pattern": "^[a-f0-9]{64}$"
     },
     "checks": {
       "type": "array",
@@ -138,7 +119,7 @@
       "description": "Number of checks that failed",
       "minimum": 0
     },
-    "coherence_status": {
+    "status": {
       "type": "string",
       "description": "Overall status derived from check results",
       "enum": ["PASS", "WARN", "FAIL", "PARTIAL"]
@@ -192,54 +173,30 @@
         },
         "source": {
           "type": ["string", "null"],
-          "description": "Where the constitution was loaded from (e.g., 'policy-repo', 'compliance-api')"
+          "description": "Where the constitution was loaded from"
         },
         "approved_by": {
           "oneOf": [
-            {
-              "type": "array",
-              "items": {"type": "string"},
-              "minItems": 1
-            },
-            {
-              "type": "string",
-              "minLength": 1
-            },
-            {
-              "type": "null"
-            }
+            {"type": "array", "items": {"type": "string"}, "minItems": 1},
+            {"type": "string", "minLength": 1},
+            {"type": "null"}
           ],
           "description": "Email(s) of constitution approver(s)"
         },
-        "approval_date": {
-          "type": ["string", "null"],
-          "description": "ISO 8601 date when the constitution was approved"
-        },
-        "approval_method": {
-          "type": ["string", "null"],
-          "description": "How approval was obtained (e.g., 'github-pr-review', 'manual-sign-off')"
-        },
-        "signature": {
-          "type": ["string", "null"],
-          "description": "Base64-encoded Ed25519 signature of the constitution"
-        },
-        "key_id": {
-          "type": ["string", "null"],
-          "description": "Full SHA-256 fingerprint of the signing public key (64 hex chars)",
-          "pattern": "^[a-f0-9]{64}$"
-        },
-        "signed_by": {
-          "type": ["string", "null"],
-          "description": "Identity of the constitution signer"
-        },
-        "signed_at": {
-          "type": ["string", "null"],
-          "description": "ISO 8601 timestamp when the constitution was signed"
-        },
-        "scheme": {
-          "type": ["string", "null"],
-          "description": "Signature scheme identifier",
-          "enum": ["constitution_sig_v1", null]
+        "approval_date": {"type": ["string", "null"]},
+        "approval_method": {"type": ["string", "null"]},
+        "signature": {"type": ["string", "null"]},
+        "key_id": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "signed_by": {"type": ["string", "null"]},
+        "signed_at": {"type": ["string", "null"]},
+        "scheme": {"type": ["string", "null"], "enum": ["constitution_sig_v1", null]},
+        "signature_verified": {
+          "description": "Whether the constitution signature was verified at receipt generation time",
+          "oneOf": [
+            {"type": "boolean"},
+            {"type": "string", "enum": ["no_signature"]},
+            {"type": "null"}
+          ]
         },
         "constitution_approval": {
           "description": "Approval status from the constitution's approval chain",
@@ -248,31 +205,12 @@
               "type": "object",
               "description": "Full approval record when constitution is approved",
               "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": ["approved", "pending", "revoked"]
-                },
-                "approver_id": {
-                  "type": "string",
-                  "description": "Email or identifier of the approver"
-                },
-                "approver_role": {
-                  "type": "string",
-                  "description": "Human-readable role of the approver"
-                },
-                "approved_at": {
-                  "type": "string",
-                  "description": "ISO 8601 timestamp when approval was granted"
-                },
-                "constitution_version": {
-                  "type": "string",
-                  "description": "Human-readable constitution version"
-                },
-                "content_hash": {
-                  "type": "string",
-                  "description": "SHA-256 hash of constitution content at time of approval",
-                  "pattern": "^[a-f0-9]{64}$"
-                }
+                "status": {"type": "string", "enum": ["approved", "pending", "revoked"]},
+                "approver_id": {"type": "string"},
+                "approver_role": {"type": "string"},
+                "approved_at": {"type": "string"},
+                "constitution_version": {"type": "string"},
+                "content_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
               },
               "required": ["status", "approver_id", "approver_role", "approved_at", "constitution_version", "content_hash"],
               "additionalProperties": false
@@ -281,51 +219,45 @@
               "type": "object",
               "description": "Minimal record when constitution is unapproved",
               "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": ["unapproved"]
-                }
+                "status": {"type": "string", "enum": ["unapproved"]}
               },
               "required": ["status"],
               "additionalProperties": false
             },
-            {
-              "type": "null"
-            }
+            {"type": "null"}
           ]
         }
       },
       "additionalProperties": false
     },
-    "halt_event": {
+    "enforcement": {
       "type": ["object", "null"],
-      "description": "Records when execution was halted due to check failures",
-      "required": ["halted", "reason", "failed_checks", "timestamp", "enforcement_mode"],
+      "description": "Enforcement outcome for this receipt. Present when a constitution is loaded.",
+      "required": ["action", "reason", "failed_checks", "enforcement_mode", "timestamp"],
       "properties": {
-        "halted": {
-          "type": "boolean",
-          "description": "Whether execution was halted"
+        "action": {
+          "type": "string",
+          "description": "Enforcement outcome",
+          "enum": ["halted", "warned", "allowed", "escalated"]
         },
         "reason": {
           "type": "string",
-          "description": "Human-readable reason for the halt"
+          "description": "Human-readable reason for the enforcement action"
         },
         "failed_checks": {
           "type": "array",
-          "description": "Check IDs that triggered the halt",
-          "items": {
-            "type": "string"
-          }
-        },
-        "timestamp": {
-          "type": "string",
-          "description": "ISO 8601 timestamp when the halt occurred",
-          "format": "date-time"
+          "description": "Check IDs that triggered the enforcement",
+          "items": {"type": "string"}
         },
         "enforcement_mode": {
           "type": "string",
-          "description": "The enforcement mode that was active",
+          "description": "The configured enforcement level",
           "enum": ["halt", "warn", "log"]
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "ISO 8601 timestamp",
+          "format": "date-time"
         }
       },
       "additionalProperties": false
@@ -334,60 +266,52 @@
       "type": ["object", "null"],
       "description": "Ed25519 cryptographic signature of the receipt",
       "properties": {
-        "signature": {
-          "type": "string",
-          "description": "Base64-encoded Ed25519 signature"
-        },
-        "key_id": {
-          "type": "string",
-          "description": "Full SHA-256 fingerprint of the signing public key (64 hex chars)",
-          "pattern": "^[a-f0-9]{64}$"
-        },
-        "signed_by": {
-          "type": "string",
-          "description": "Identity of the signer"
-        },
-        "signed_at": {
-          "type": "string",
-          "description": "ISO 8601 timestamp when the receipt was signed"
-        },
-        "scheme": {
-          "type": "string",
-          "description": "Signature scheme identifier",
-          "enum": ["receipt_sig_v1"]
-        }
+        "signature": {"type": "string"},
+        "key_id": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "signed_by": {"type": "string"},
+        "signed_at": {"type": "string"},
+        "scheme": {"type": "string", "enum": ["receipt_sig_v1"]}
       },
       "additionalProperties": false
     },
-    "enforcement_decision": {
-      "type": ["string", "null"],
-      "description": "Top-level enforcement decision",
-      "enum": ["PASSED", "WARNED", "HALTED", "LOGGED", null]
-    },
     "authority_decisions": {
       "type": ["array", "null"],
-      "description": "Authority boundary enforcement decisions for actions evaluated during this trace",
-      "items": {
-        "$ref": "#/$defs/AuthorityDecisionRecord"
-      }
+      "description": "Authority boundary enforcement decisions",
+      "items": {"$ref": "#/$defs/AuthorityDecisionRecord"}
     },
     "escalation_events": {
       "type": ["array", "null"],
       "description": "Escalation events triggered by authority boundary enforcement",
-      "items": {
-        "$ref": "#/$defs/EscalationEventRecord"
-      }
+      "items": {"$ref": "#/$defs/EscalationEventRecord"}
     },
     "source_trust_evaluations": {
       "type": ["array", "null"],
-      "description": "Trust tier evaluations for data sources used in this trace",
-      "items": {
-        "$ref": "#/$defs/SourceTrustRecord"
-      }
+      "description": "Trust tier evaluations for data sources",
+      "items": {"$ref": "#/$defs/SourceTrustRecord"}
+    },
+    "input_hash": {
+      "type": ["string", "null"],
+      "description": "Receipt Triad: SHA-256 of action context at governance boundary",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "reasoning_hash": {
+      "type": ["string", "null"],
+      "description": "Receipt Triad: SHA-256 of agent justification",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "action_hash": {
+      "type": ["string", "null"],
+      "description": "Receipt Triad: SHA-256 of tool call and arguments",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "assurance": {
+      "type": ["string", "null"],
+      "description": "Receipt Triad assurance level. MUST be present when any triad hash is present.",
+      "enum": ["full", "partial", null]
     },
     "extensions": {
       "type": "object",
-      "description": "Optional vendor-specific metadata. Ignored by verifier but preserved in receipt.",
+      "description": "Reverse-domain-namespaced vendor metadata. Verifiers MUST ignore unknown extensions.",
       "additionalProperties": true
     },
     "identity_verification": {
@@ -409,10 +333,7 @@
                   "provider": {"type": "string"},
                   "claim_type": {"type": "string"},
                   "credential_id": {"type": "string"},
-                  "status": {
-                    "type": "string",
-                    "enum": ["verified", "unverified", "failed", "expired", "no_key"]
-                  }
+                  "status": {"type": "string", "enum": ["verified", "unverified", "failed", "expired", "no_key"]}
                 },
                 "required": ["provider", "claim_type", "credential_id", "status"]
               }
@@ -433,7 +354,7 @@
       "properties": {
         "check_id": {
           "type": "string",
-          "description": "Check identifier (sanna.* for standard, INV_CUSTOM_* for custom, C1-C5 legacy)",
+          "description": "Check identifier (sanna.* for standard, INV_* for custom, C1-C5 legacy)",
           "pattern": "^(C[1-5]|INV_.+|sanna\\..+)$"
         },
         "name": {
@@ -448,7 +369,7 @@
         "severity": {
           "type": "string",
           "description": "Severity level if check fails",
-          "enum": ["info", "warning", "critical"]
+          "enum": ["info", "warning", "critical", "high", "medium", "low"]
         },
         "evidence": {
           "type": ["string", "null"],
@@ -460,7 +381,7 @@
         },
         "triggered_by": {
           "type": ["string", "null"],
-          "description": "Invariant ID that triggered this check (e.g., 'INV_NO_FABRICATION')"
+          "description": "Invariant ID that triggered this check"
         },
         "enforcement_level": {
           "type": ["string", "null"],
@@ -473,12 +394,12 @@
         },
         "status": {
           "type": ["string", "null"],
-          "description": "For custom invariants: NOT_CHECKED or ERRORED",
-          "enum": ["NOT_CHECKED", "ERRORED", null]
+          "description": "Check status: NOT_CHECKED, ERRORED, or FAILED",
+          "enum": ["NOT_CHECKED", "ERRORED", "FAILED", null]
         },
         "reason": {
           "type": ["string", "null"],
-          "description": "For custom invariants: explanation of why not evaluated"
+          "description": "Explanation of status"
         },
         "check_impl": {
           "type": ["string", "null"],
@@ -486,7 +407,7 @@
         },
         "replayable": {
           "type": ["boolean", "null"],
-          "description": "Whether this check is deterministically replayable (true for built-in, false for custom/external)"
+          "description": "Whether this check is deterministically replayable"
         }
       },
       "additionalProperties": false
@@ -496,45 +417,17 @@
       "description": "Record of an authority boundary enforcement decision",
       "required": ["action", "decision", "reason", "boundary_type", "timestamp"],
       "properties": {
-        "action": {
-          "type": "string",
-          "description": "Name of the action that was evaluated"
-        },
-        "params": {
-          "type": "object",
-          "description": "Parameters of the action",
-          "additionalProperties": true
-        },
-        "decision": {
-          "type": "string",
-          "description": "Enforcement outcome",
-          "enum": ["halt", "allow", "escalate"]
-        },
-        "reason": {
-          "type": "string",
-          "description": "Human-readable explanation of the decision"
-        },
-        "boundary_type": {
-          "type": "string",
-          "description": "Which boundary tier matched",
-          "enum": ["cannot_execute", "must_escalate", "can_execute", "uncategorized"]
-        },
+        "action": {"type": "string"},
+        "params": {"type": "object", "additionalProperties": true},
+        "decision": {"type": "string", "enum": ["halt", "allow", "escalate"]},
+        "reason": {"type": "string"},
+        "boundary_type": {"type": "string", "enum": ["cannot_execute", "must_escalate", "can_execute", "uncategorized"]},
         "escalation_target": {
           "type": ["object", "null"],
-          "description": "Resolved escalation target (only for escalate decisions)",
-          "properties": {
-            "type": {
-              "type": "string",
-              "enum": ["log", "webhook", "callback"]
-            }
-          },
+          "properties": {"type": {"type": "string", "enum": ["log", "webhook", "callback"]}},
           "additionalProperties": false
         },
-        "timestamp": {
-          "type": "string",
-          "description": "ISO 8601 timestamp when the decision was made",
-          "format": "date-time"
-        }
+        "timestamp": {"type": "string", "format": "date-time"}
       },
       "additionalProperties": false
     },
@@ -543,33 +436,12 @@
       "description": "Record of an escalation event execution",
       "required": ["action", "condition", "target_type", "success", "timestamp"],
       "properties": {
-        "action": {
-          "type": "string",
-          "description": "Name of the action that triggered escalation"
-        },
-        "condition": {
-          "type": "string",
-          "description": "Escalation condition that matched"
-        },
-        "target_type": {
-          "type": "string",
-          "description": "Type of escalation target",
-          "enum": ["log", "webhook", "callback"]
-        },
-        "success": {
-          "type": "boolean",
-          "description": "Whether the escalation completed successfully"
-        },
-        "details": {
-          "type": ["object", "null"],
-          "description": "Structured details from the escalation execution",
-          "additionalProperties": true
-        },
-        "timestamp": {
-          "type": "string",
-          "description": "ISO 8601 timestamp when the escalation was executed",
-          "format": "date-time"
-        }
+        "action": {"type": "string"},
+        "condition": {"type": "string"},
+        "target_type": {"type": "string", "enum": ["log", "webhook", "callback"]},
+        "success": {"type": "boolean"},
+        "details": {"type": ["object", "null"], "additionalProperties": true},
+        "timestamp": {"type": "string", "format": "date-time"}
       },
       "additionalProperties": false
     },
@@ -578,28 +450,11 @@
       "description": "Trust tier evaluation for a data source",
       "required": ["source_name", "trust_tier", "evaluated_at"],
       "properties": {
-        "source_name": {
-          "type": "string",
-          "description": "Identifier for the data source"
-        },
-        "trust_tier": {
-          "type": "string",
-          "description": "Trust classification from constitution trusted_sources",
-          "enum": ["tier_1", "tier_2", "tier_3", "untrusted", "unclassified"]
-        },
-        "evaluated_at": {
-          "type": "string",
-          "description": "ISO 8601 timestamp of the evaluation",
-          "format": "date-time"
-        },
-        "verification_flag": {
-          "type": ["boolean", "null"],
-          "description": "Whether this source requires verification (true for tier_2)"
-        },
-        "context_used": {
-          "type": ["boolean", "null"],
-          "description": "Whether this source's context was used in C1 evaluation"
-        }
+        "source_name": {"type": "string"},
+        "trust_tier": {"type": "string", "enum": ["tier_1", "tier_2", "tier_3", "untrusted", "unclassified"]},
+        "evaluated_at": {"type": "string", "format": "date-time"},
+        "verification_flag": {"type": ["boolean", "null"]},
+        "context_used": {"type": ["boolean", "null"]}
       },
       "additionalProperties": false
     }

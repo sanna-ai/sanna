@@ -393,7 +393,7 @@ class TestConstitutionSignatureVerification:
     def test_no_public_key_startup_succeeds(
         self, mock_server_path, signed_constitution, gateway_key,
     ):
-        """No public key configured -> current behavior, startup succeeds."""
+        """No public key + require_constitution_sig=False -> succeeds with warning."""
         const_path, _, _ = signed_constitution
         gw_key_path, _ = gateway_key
 
@@ -404,6 +404,7 @@ class TestConstitutionSignatureVerification:
                 args=[mock_server_path],
                 constitution_path=const_path,
                 signing_key_path=str(gw_key_path),
+                require_constitution_sig=False,
                 # No constitution_public_key_path
             )
             await gw.start()

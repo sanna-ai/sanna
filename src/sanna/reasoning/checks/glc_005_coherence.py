@@ -60,8 +60,8 @@ class LLMCoherenceCheck(Check):
 
         details = None
         if not passed:
-            # Convert to basis points for signing compatibility (RFC 8785
-            # canonical JSON rejects floats; use rounding not truncation)
+            # Convert to basis points for Sanna Canonical JSON compatibility
+            # (integers preferred over floats; use rounding not truncation)
             details = {
                 "score_bp": int(round(score * 10000)),
                 "threshold_bp": int(round(self.score_threshold * 10000)),

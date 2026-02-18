@@ -530,6 +530,7 @@ class TestReceiptIntegration:
         save_constitution(signed_const, path)
 
         @sanna_observe(
+            require_constitution_sig=False,
             constitution_path=str(path),
             identity_provider_keys={key_id: str(pub)},
         )
@@ -554,7 +555,7 @@ class TestReceiptIntegration:
         path = tmp_path / "const.yaml"
         save_constitution(signed_const, path)
 
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         def agent(query, context):
             return f"Answer: {context}"
 
@@ -579,6 +580,7 @@ class TestReceiptIntegration:
 
         # Run with provider keys (verified)
         @sanna_observe(
+            require_constitution_sig=False,
             constitution_path=str(path),
             identity_provider_keys={key_id: str(pub)},
         )
@@ -586,7 +588,7 @@ class TestReceiptIntegration:
             return f"Answer: {context}"
 
         # Run without provider keys (unverified)
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         def agent_unverified(query, context):
             return f"Answer: {context}"
 
@@ -622,6 +624,7 @@ class TestReceiptIntegration:
         save_constitution(signed_const, path)
 
         @sanna_observe(
+            require_constitution_sig=False,
             constitution_path=str(path),
             identity_provider_keys={key_id: str(pub)},
         )
@@ -645,7 +648,7 @@ class TestReceiptIntegration:
         save_constitution(signed_const, path)
 
         # No provider keys — claims should be unverified
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         def agent(query, context):
             return f"Answer: {context}"
 
@@ -704,6 +707,7 @@ class TestCLIIdentity:
         save_constitution(signed_const, path)
 
         @sanna_observe(
+            require_constitution_sig=False,
             constitution_path=str(path),
             identity_provider_keys={key_id: str(pub)},
         )
@@ -850,9 +854,10 @@ class TestBundleIdentity:
         signed_const = sign_constitution(const, private_key_path=str(author_priv))
         path = tmp_path / "const.yaml"
         save_constitution(signed_const, path)
-        approve_constitution(path, approver_priv, "bob@test.com", "VP", "1")
+        approve_constitution(path, approver_priv, "bob@test.com", "VP", "1", verify_author_sig=False)
 
         @sanna_observe(
+            require_constitution_sig=False,
             constitution_path=str(path),
             private_key_path=str(author_priv),
             identity_provider_keys={key_id: str(author_pub)},
@@ -896,9 +901,10 @@ class TestBundleIdentity:
         signed_const = sign_constitution(const, private_key_path=str(author_priv))
         path = tmp_path / "const.yaml"
         save_constitution(signed_const, path)
-        approve_constitution(path, approver_priv, "bob@test.com", "VP", "1")
+        approve_constitution(path, approver_priv, "bob@test.com", "VP", "1", verify_author_sig=False)
 
         @sanna_observe(
+            require_constitution_sig=False,
             constitution_path=str(path),
             private_key_path=str(author_priv),
         )
@@ -945,7 +951,7 @@ class TestVerifyReporting:
         path = tmp_path / "const.yaml"
         save_constitution(signed_const, path)
 
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         def agent(query, context):
             return f"Answer: {context}"
 
@@ -972,6 +978,7 @@ class TestVerifyReporting:
         save_constitution(signed_const, path)
 
         @sanna_observe(
+            require_constitution_sig=False,
             constitution_path=str(path),
             identity_provider_keys={key_id: str(pub)},
         )

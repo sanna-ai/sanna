@@ -4,7 +4,7 @@
   "checks_version": "2",
   "receipt_id": "0bad1b213e764495",
   "receipt_fingerprint": "046097b1923106f7",
-  "trace_id": "golden-008-fail-c1-factual",
+  "correlation_id": "golden-008-fail-c1-factual",
   "timestamp": "2026-02-13T00:37:54.690808+00:00",
   "inputs": {
     "query": "digital game refund policy",
@@ -65,7 +65,7 @@
   ],
   "checks_passed": 1,
   "checks_failed": 4,
-  "coherence_status": "FAIL",
+  "status": "FAIL",
   "constitution_ref": null,
   "halt_event": null
 }

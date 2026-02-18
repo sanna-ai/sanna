@@ -127,8 +127,13 @@ class GatewayConfig:
     escalation_persist_path: str = ""
     approval_requires_reason: bool = False
     token_delivery: list[str] = field(
-        default_factory=lambda: ["file", "stderr"],
+        default_factory=lambda: ["stderr"],
     )
+    # CRIT-01: webhook delivery + configurable token expiry
+    approval_webhook_url: str = ""
+    token_expiry_seconds: int = 900
+    # Block H: constitution signature verification
+    require_constitution_sig: bool = True
     # Block G: PII redaction
     redaction: RedactionConfig = field(
         default_factory=RedactionConfig,
@@ -226,6 +231,11 @@ def load_gateway_config(config_path: str) -> GatewayConfig:
                 f"(resolved to {constitution_public_key_path})"
             )
 
+    # Optional: require cryptographic constitution signature verification
+    require_constitution_sig = bool(
+        gw_raw.get("require_constitution_sig", True)
+    )
+
     receipt_store = ""
     receipt_store_raw = gw_raw.get("receipt_store")
     if receipt_store_raw:
@@ -264,8 +274,8 @@ def load_gateway_config(config_path: str) -> GatewayConfig:
         gw_raw.get("approval_requires_reason", False),
     )
 
-    _valid_delivery = {"stderr", "file", "log", "callback"}
-    token_delivery_raw = gw_raw.get("token_delivery", ["file", "stderr"])
+    _valid_delivery = {"stderr", "file", "log", "callback", "webhook"}
+    token_delivery_raw = gw_raw.get("token_delivery", ["stderr"])
     if isinstance(token_delivery_raw, str):
         token_delivery_raw = [token_delivery_raw]
     token_delivery = [str(d) for d in token_delivery_raw]
@@ -275,6 +285,33 @@ def load_gateway_config(config_path: str) -> GatewayConfig:
                 f"Invalid token_delivery method: '{d}'. "
                 f"Must be one of: {', '.join(sorted(_valid_delivery))}"
             )
+
+    # CRIT-01: file delivery requires explicit opt-in
+    if "file" in token_delivery:
+        if os.environ.get("SANNA_INSECURE_FILE_TOKENS") != "1":
+            raise GatewayConfigError(
+                "File-based token delivery is insecure. Agents with "
+                "file-reading tools can self-approve escalations. Set "
+                "SANNA_INSECURE_FILE_TOKENS=1 to acknowledge this risk."
+            )
+
+    # CRIT-01: webhook URL + token expiry
+    approval_webhook_url = str(gw_raw.get("approval_webhook_url", ""))
+    if "webhook" in token_delivery and not approval_webhook_url:
+        raise GatewayConfigError(
+            "approval_webhook_url is required when token_delivery "
+            "includes 'webhook'"
+        )
+    if approval_webhook_url:
+        validate_webhook_url(approval_webhook_url)
+
+    token_expiry_seconds = int(
+        gw_raw.get("token_expiry_seconds", 900),
+    )
+    if token_expiry_seconds < 1:
+        raise GatewayConfigError(
+            "token_expiry_seconds must be a positive integer"
+        )
 
     # -- redaction section --
     redaction = RedactionConfig()
@@ -286,6 +323,10 @@ def load_gateway_config(config_path: str) -> GatewayConfig:
             raise GatewayConfigError(
                 f"Invalid redaction mode: '{redaction_mode}'. "
                 f"Must be 'hash_only' or 'pattern_redact'."
+            )
+        if redaction_mode == "pattern_redact":
+            raise GatewayConfigError(
+                "pattern_redact mode is not yet implemented. Use hash_only."
             )
         redaction_fields_raw = redaction_raw.get(
             "fields", ["arguments", "result_text"],
@@ -325,6 +366,7 @@ def load_gateway_config(config_path: str) -> GatewayConfig:
         constitution_path=constitution_path,
         signing_key_path=signing_key_path,
         constitution_public_key_path=constitution_public_key_path,
+        require_constitution_sig=require_constitution_sig,
         receipt_store=receipt_store,
         escalation_timeout=escalation_timeout,
         max_pending_escalations=max_pending_escalations,
@@ -334,6 +376,8 @@ def load_gateway_config(config_path: str) -> GatewayConfig:
         escalation_persist_path=escalation_persist_path,
         approval_requires_reason=approval_requires_reason,
         token_delivery=token_delivery,
+        approval_webhook_url=approval_webhook_url,
+        token_expiry_seconds=token_expiry_seconds,
         redaction=redaction,
         receipt_store_mode=receipt_store_mode,
     )
@@ -470,6 +514,92 @@ def _resolve_path(raw_path: str, config_dir: Path) -> str:
     if not expanded.is_absolute():
         expanded = config_dir / expanded
     return str(expanded.resolve())
+
+
+# ---------------------------------------------------------------------------
+# CRIT-01: Webhook URL SSRF validation
+# ---------------------------------------------------------------------------
+
+def validate_webhook_url(url: str) -> None:
+    """Validate a webhook URL, rejecting SSRF-prone targets.
+
+    Rejects:
+    - Non-HTTP(S) schemes
+    - localhost / 127.0.0.0/8
+    - RFC 1918 addresses (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+    - Link-local (169.254.0.0/16)
+    - Cloud metadata endpoints (169.254.169.254)
+
+    Raises:
+        GatewayConfigError: If the URL fails SSRF validation.
+    """
+    import ipaddress
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+    except Exception as exc:
+        raise GatewayConfigError(
+            f"Invalid webhook URL: {exc}"
+        ) from exc
+
+    # Scheme check
+    if parsed.scheme not in ("http", "https"):
+        raise GatewayConfigError(
+            f"Webhook URL must use http or https scheme, "
+            f"got '{parsed.scheme}'"
+        )
+
+    hostname = parsed.hostname or ""
+    if not hostname:
+        raise GatewayConfigError(
+            "Webhook URL has no hostname"
+        )
+
+    # Localhost check (hostname string)
+    if hostname.lower() in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        raise GatewayConfigError(
+            f"Webhook URL must not point to localhost: {hostname}"
+        )
+
+    # Try to parse as IP address for range checks
+    try:
+        addr = ipaddress.ip_address(hostname)
+    except ValueError:
+        # Not an IP literal — hostname is acceptable
+        return
+
+    # Loopback
+    if addr.is_loopback:
+        raise GatewayConfigError(
+            f"Webhook URL must not point to loopback address: {addr}"
+        )
+
+    # Cloud metadata endpoint (169.254.169.254) — checked before
+    # link-local and private since it is a subset of both ranges
+    _metadata_addrs = {
+        ipaddress.ip_address("169.254.169.254"),
+        ipaddress.ip_address("fd00::c0a8:a9fe"),  # IPv6 alias
+    }
+    if addr in _metadata_addrs:
+        raise GatewayConfigError(
+            f"Webhook URL must not point to cloud metadata endpoint: "
+            f"{addr}"
+        )
+
+    # Link-local (169.254.0.0/16 or fe80::/10) — checked before
+    # is_private since link-local is a subset of private in Python
+    if addr.is_link_local:
+        raise GatewayConfigError(
+            f"Webhook URL must not point to link-local address: {addr}"
+        )
+
+    # Private / RFC 1918
+    if addr.is_private:
+        raise GatewayConfigError(
+            f"Webhook URL must not point to private/RFC-1918 address: "
+            f"{addr}"
+        )
 
 
 # ---------------------------------------------------------------------------

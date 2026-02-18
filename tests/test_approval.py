@@ -557,11 +557,11 @@ class TestConstitutionToDictApproval:
 
 
 # =============================================================================
-# Block 2: approve_constitution() function tests
+# Block 2: approve_constitution(, verify_author_sig=False) function tests
 # =============================================================================
 
 class TestApproveConstitution:
-    """Tests for the approve_constitution() function."""
+    """Tests for the approve_constitution(, verify_author_sig=False) function."""
 
     @pytest.fixture
     def signed_constitution_path(self, tmp_path, sample_constitution, keypair):
@@ -585,14 +585,14 @@ class TestApproveConstitution:
         save_constitution(sample_constitution, path)
         priv, _ = generate_keypair(tmp_path / "keys")
         with pytest.raises(SannaConstitutionError, match="must be signed"):
-            approve_constitution(path, priv, "jane@co.com", "VP Risk", "1")
+            approve_constitution(path, priv, "jane@co.com", "VP Risk", "1", verify_author_sig=False)
 
     def test_approve_signed_constitution_succeeds(self, signed_constitution_path, approver_keypair):
         """Approving a signed constitution produces a valid ApprovalRecord."""
         from sanna.constitution import approve_constitution
         path, _, _ = signed_constitution_path
         approver_priv, _ = approver_keypair
-        record = approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1")
+        record = approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1", verify_author_sig=False)
         assert record.status == "approved"
         assert record.approver_id == "jane@co.com"
         assert record.approver_role == "VP Risk"
@@ -609,7 +609,7 @@ class TestApproveConstitution:
         from sanna.hashing import canonical_json_bytes
         path, _, _ = signed_constitution_path
         approver_priv, approver_pub = approver_keypair
-        record = approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1")
+        record = approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1", verify_author_sig=False)
         # Reconstruct signable dict and verify
         signable = _approval_record_to_signable_dict(record)
         data = canonical_json_bytes(signable)
@@ -621,7 +621,7 @@ class TestApproveConstitution:
         from sanna.constitution import approve_constitution, compute_content_hash, load_constitution
         path, _, _ = signed_constitution_path
         approver_priv, _ = approver_keypair
-        record = approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1")
+        record = approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1", verify_author_sig=False)
         # Reload and verify
         reloaded = load_constitution(str(path))
         expected_hash = compute_content_hash(reloaded)
@@ -632,7 +632,7 @@ class TestApproveConstitution:
         from sanna.constitution import approve_constitution, load_constitution
         path, _, _ = signed_constitution_path
         approver_priv, _ = approver_keypair
-        approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1")
+        approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1", verify_author_sig=False)
         reloaded = load_constitution(str(path))
         assert reloaded.approval is not None
         assert reloaded.approval.is_approved is True
@@ -645,7 +645,7 @@ class TestApproveConstitution:
         before = load_constitution(str(path))
         original_sig = before.provenance.signature.value
         approver_priv, _ = approver_keypair
-        approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1")
+        approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1", verify_author_sig=False)
         after = load_constitution(str(path))
         assert after.provenance.signature.value == original_sig
 
@@ -656,11 +656,11 @@ class TestApproveConstitution:
         path, _, _ = signed_constitution_path
         approver_priv, _ = approver_keypair
         # First approval
-        record1 = approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1")
+        record1 = approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1", verify_author_sig=False)
         # Second approval should warn
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            record2 = approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "2")
+            record2 = approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "2", verify_author_sig=False)
             overwrite_warnings = [x for x in w if "Overwriting" in str(x.message)]
             assert len(overwrite_warnings) >= 1
         assert record2.previous_version_hash == record1.content_hash
@@ -673,34 +673,34 @@ class TestApproveConstitution:
         path, author_priv, _ = signed_constitution_path
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            approve_constitution(path, author_priv, "author@co.com", "Author", "1")
+            approve_constitution(path, author_priv, "author@co.com", "Author", "1", verify_author_sig=False)
             same_key_warnings = [x for x in w if "identical" in str(x.message)]
             assert len(same_key_warnings) >= 1
 
     def test_missing_constitution_file_raises(self, tmp_path, approver_keypair=None):
-        """approve_constitution() should raise when constitution file doesn't exist."""
+        """approve_constitution(, verify_author_sig=False) should raise when constitution file doesn't exist."""
         from sanna.constitution import approve_constitution
         priv, _ = generate_keypair(tmp_path / "keys")
         with pytest.raises(FileNotFoundError):
             approve_constitution(
                 tmp_path / "nonexistent.yaml", priv, "x@x.com", "role", "1"
-            )
+            , verify_author_sig=False)
 
     def test_missing_approver_key_raises(self, signed_constitution_path):
-        """approve_constitution() should raise when approver key file doesn't exist."""
+        """approve_constitution(, verify_author_sig=False) should raise when approver key file doesn't exist."""
         from sanna.constitution import approve_constitution
         path, _, _ = signed_constitution_path
         with pytest.raises(FileNotFoundError):
             approve_constitution(
                 path, "/nonexistent/key.pem", "x@x.com", "role", "1"
-            )
+            , verify_author_sig=False)
 
     def test_approval_approved_at_is_iso8601(self, signed_constitution_path, approver_keypair):
         """approved_at should be a valid ISO 8601 timestamp."""
         from sanna.constitution import approve_constitution
         path, _, _ = signed_constitution_path
         approver_priv, _ = approver_keypair
-        record = approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1")
+        record = approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1", verify_author_sig=False)
         # Should be parseable as ISO 8601
         from datetime import datetime
         dt = datetime.fromisoformat(record.approved_at.replace("Z", "+00:00"))
@@ -761,7 +761,7 @@ class TestApproveConstitution:
         from sanna.hashing import canonical_json_bytes
         path, _, _ = signed_constitution_path
         approver_priv, approver_pub = approver_keypair
-        record = approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1")
+        record = approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1", verify_author_sig=False)
         # Tamper with signature
         signable = _approval_record_to_signable_dict(record)
         data = canonical_json_bytes(signable)
@@ -774,7 +774,7 @@ class TestApproveConstitution:
         from sanna.constitution import approve_constitution, load_constitution
         path, _, _ = signed_constitution_path
         approver_priv, _ = approver_keypair
-        approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "3.1")
+        approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "3.1", verify_author_sig=False)
         loaded = load_constitution(str(path))
         assert loaded.approval is not None
         assert loaded.approval.is_approved is True
@@ -821,7 +821,7 @@ class TestApproveConstitutionCLI:
     def test_cli_succeeds_with_valid_args(self, signed_constitution_file, approver_keys, monkeypatch):
         """CLI should exit 0 with valid arguments."""
         from sanna.cli import approve_constitution_cmd
-        path, _, _ = signed_constitution_file
+        path, _, pub = signed_constitution_file
         approver_priv, _ = approver_keys
         monkeypatch.setattr("sys.argv", [
             "sanna-approve-constitution",
@@ -830,6 +830,8 @@ class TestApproveConstitutionCLI:
             "--approver-id", "cli-approver@co.com",
             "--approver-role", "CISO",
             "--version", "1.0",
+            "--author-public-key", str(pub),
+            "--non-interactive",
         ])
         result = approve_constitution_cmd()
         assert result == 0
@@ -856,6 +858,7 @@ class TestApproveConstitutionCLI:
             "--approver-id", "x@x.com",
             "--approver-role", "role",
             "--version", "1",
+            "--non-interactive",
         ])
         result = approve_constitution_cmd()
         assert result == 1
@@ -871,6 +874,7 @@ class TestApproveConstitutionCLI:
             "--approver-id", "x@x.com",
             "--approver-role", "role",
             "--version", "1",
+            "--non-interactive",
         ])
         result = approve_constitution_cmd()
         assert result == 1
@@ -878,7 +882,7 @@ class TestApproveConstitutionCLI:
     def test_cli_writes_approval_to_file(self, signed_constitution_file, approver_keys, monkeypatch):
         """After CLI approval, the file should have the approval block."""
         from sanna.cli import approve_constitution_cmd
-        path, _, _ = signed_constitution_file
+        path, _, pub = signed_constitution_file
         approver_priv, _ = approver_keys
         monkeypatch.setattr("sys.argv", [
             "sanna-approve-constitution",
@@ -887,6 +891,8 @@ class TestApproveConstitutionCLI:
             "--approver-id", "cli-approver@co.com",
             "--approver-role", "CISO",
             "--version", "2.0",
+            "--author-public-key", str(pub),
+            "--non-interactive",
         ])
         approve_constitution_cmd()
         loaded = load_constitution(str(path))
@@ -924,7 +930,7 @@ class TestConstitutionRefApproval:
         signed = sign_constitution(const, private_key_path=str(author_priv))
         path = tmp_path / "approved.yaml"
         save_constitution(signed, path)
-        approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1.0")
+        approve_constitution(path, approver_priv, "jane@co.com", "VP Risk", "1.0", verify_author_sig=False)
         return path, author_priv, author_pub, approver_priv, approver_pub
 
     def test_receipt_ref_includes_approval(self, signed_and_approved):
@@ -964,7 +970,7 @@ class TestConstitutionRefApproval:
         from sanna.middleware import sanna_observe
         path = signed_and_approved[0]
 
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         def agent(query, context):
             return "The answer is grounded in context."
 
@@ -992,7 +998,7 @@ class TestConstitutionRefApproval:
         path = tmp_path / "unsigned_approval.yaml"
         save_constitution(signed, path)
 
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         def agent(query, context):
             return "The answer is grounded in context."
 
@@ -1007,7 +1013,7 @@ class TestConstitutionRefApproval:
         from sanna.verify import verify_fingerprint
         path = signed_and_approved[0]
 
-        @sanna_observe(constitution_path=str(path))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(path))
         def agent(query, context):
             return "The answer is grounded in context."
 
@@ -1046,9 +1052,9 @@ class TestApprovalVerification:
         signed = sign_constitution(const, private_key_path=str(author_priv))
         const_path = tmp_path / "lifecycle.yaml"
         save_constitution(signed, const_path)
-        approve_constitution(const_path, approver_priv, "jane@co.com", "VP Risk", "1")
+        approve_constitution(const_path, approver_priv, "jane@co.com", "VP Risk", "1", verify_author_sig=False)
 
-        @sanna_observe(constitution_path=str(const_path), private_key_path=str(author_priv))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(const_path), private_key_path=str(author_priv))
         def agent(query, context):
             return "The answer is grounded in context."
 
@@ -1300,7 +1306,7 @@ class TestApprovalVerification:
         signed = sign_constitution(const, private_key_path=str(author_priv))
         const_path = tmp_path / "warn.yaml"
         save_constitution(signed, const_path)
-        approve_constitution(const_path, approver_priv, "jane@co.com", "VP Risk", "1")
+        approve_constitution(const_path, approver_priv, "jane@co.com", "VP Risk", "1", verify_author_sig=False)
         loaded = load_constitution(str(const_path))
         receipt = {"constitution_ref": {}}
         # No approver key provided
@@ -1341,7 +1347,7 @@ class TestFingerprintExcludesApproval:
         unapproved_path = tmp_path / "unapproved.yaml"
         save_constitution(signed, unapproved_path)
 
-        @sanna_observe(constitution_path=str(unapproved_path), private_key_path=str(author_priv))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(unapproved_path), private_key_path=str(author_priv))
         def agent_before(query, context):
             return "The answer is grounded in context."
 
@@ -1351,16 +1357,16 @@ class TestFingerprintExcludesApproval:
         # Now approve and generate a new receipt with SAME inputs
         approved_path = tmp_path / "approved.yaml"
         save_constitution(signed, approved_path)
-        approve_constitution(approved_path, approver_priv, "jane@co.com", "VP Risk", "1")
+        approve_constitution(approved_path, approver_priv, "jane@co.com", "VP Risk", "1", verify_author_sig=False)
 
-        @sanna_observe(constitution_path=str(approved_path), private_key_path=str(author_priv))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(approved_path), private_key_path=str(author_priv))
         def agent_after(query, context):
             return "The answer is grounded in context."
 
         r_after = agent_after(query="test?", context="Context about testing.")
         fp_after = r_after.receipt["receipt_fingerprint"]
 
-        # The fingerprints should differ because trace_id differs, but the
+        # The fingerprints should differ because correlation_id differs, but the
         # constitution_hash component should be the same.  Verify by checking
         # that the fingerprint still validates in both cases.
         match_before, _, _ = verify_fingerprint(r_before.receipt)
@@ -1371,7 +1377,7 @@ class TestFingerprintExcludesApproval:
     def test_verify_fingerprint_with_constitution_approval_in_ref(self):
         """Manually injecting constitution_approval into constitution_ref does not break fingerprint."""
         from sanna.verify import verify_fingerprint
-        from sanna.hashing import hash_obj, hash_text
+        from sanna.hashing import hash_obj, hash_text, EMPTY_HASH
 
         # Build a minimal receipt with constitution_ref including constitution_approval
         checks = [{"check_id": "C1", "passed": True, "severity": "low", "evidence": "ok"}]
@@ -1385,8 +1391,9 @@ class TestFingerprintExcludesApproval:
                 "content_hash": "b" * 64,
             },
         }
-        # Compute expected fingerprint (should strip constitution_approval)
-        trace_id = "test-trace-123"
+        # Compute expected fingerprint using v0.13.0 unified 12-field formula
+        # (should strip constitution_approval from constitution_ref before hashing)
+        correlation_id = "test-trace-123"
         inputs = {"query": "q", "context": "c"}
         outputs = {"response": "r"}
         context_hash = hash_obj(inputs)
@@ -1395,16 +1402,22 @@ class TestFingerprintExcludesApproval:
         _cref = {k: v for k, v in constitution_ref.items() if k != "constitution_approval"}
         const_hash = hash_obj(_cref)
 
-        fp_input = f"{trace_id}|{context_hash}|{output_hash}|4|{checks_hash}|{const_hash}|"
-        expected_fp = hash_text(fp_input)
+        # v0.13.0: 12 pipe-delimited fields, absent optional fields use EMPTY_HASH
+        fp_input = (
+            f"{correlation_id}|{context_hash}|{output_hash}|5|{checks_hash}|{const_hash}"
+            f"|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}"
+        )
+        full_fp = hash_text(fp_input)
+        short_fp = hash_text(fp_input, truncate=16)
 
         receipt = {
-            "schema_version": "0.1",
-            "tool_version": "0.12.2",
-            "checks_version": "4",
+            "spec_version": "1.0",
+            "tool_version": "0.13.0",
+            "checks_version": "5",
             "receipt_id": "test-id",
-            "receipt_fingerprint": expected_fp,
-            "trace_id": trace_id,
+            "receipt_fingerprint": short_fp,
+            "full_fingerprint": full_fp,
+            "correlation_id": correlation_id,
             "timestamp": "2026-01-01T00:00:00Z",
             "inputs": inputs,
             "outputs": outputs,
@@ -1413,7 +1426,7 @@ class TestFingerprintExcludesApproval:
             "checks": checks,
             "checks_passed": 1,
             "checks_failed": 0,
-            "coherence_status": "PASS",
+            "status": "PASS",
             "constitution_ref": constitution_ref,
         }
 
@@ -1446,7 +1459,7 @@ class TestReceiptAlwaysCarriesApprovalStatus:
         const_path = tmp_path / "unapproved.yaml"
         save_constitution(signed, const_path)
 
-        @sanna_observe(constitution_path=str(const_path), private_key_path=str(author_priv))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(const_path), private_key_path=str(author_priv))
         def agent(query, context):
             return "The answer is grounded in context."
 
@@ -1476,9 +1489,9 @@ class TestReceiptAlwaysCarriesApprovalStatus:
         signed = sign_constitution(const, private_key_path=str(author_priv))
         const_path = tmp_path / "approved.yaml"
         save_constitution(signed, const_path)
-        approve_constitution(const_path, approver_priv, "jane@co.com", "VP Risk", "1")
+        approve_constitution(const_path, approver_priv, "jane@co.com", "VP Risk", "1", verify_author_sig=False)
 
-        @sanna_observe(constitution_path=str(const_path), private_key_path=str(author_priv))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(const_path), private_key_path=str(author_priv))
         def agent(query, context):
             return "The answer is grounded in context."
 
@@ -1509,7 +1522,7 @@ class TestReceiptAlwaysCarriesApprovalStatus:
         const_path = tmp_path / "schema.yaml"
         save_constitution(signed, const_path)
 
-        @sanna_observe(constitution_path=str(const_path), private_key_path=str(author_priv))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(const_path), private_key_path=str(author_priv))
         def agent(query, context):
             return "The answer is grounded in context."
 

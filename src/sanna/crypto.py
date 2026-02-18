@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
@@ -45,7 +46,13 @@ def sanitize_for_signing(obj, path: str = "$"):
     Returns a new object tree — the original is not mutated.
     """
     if isinstance(obj, float):
-        if obj == int(obj) and not (obj != obj):  # exclude NaN
+        import math
+        if not math.isfinite(obj):
+            raise TypeError(
+                f"Float value {obj!r} at path {path} is not finite (NaN or Infinity). "
+                f"Use integer basis points or string representation."
+            )
+        if obj == int(obj):
             return int(obj)
         raise TypeError(
             f"Float value {obj!r} at path {path} cannot be signed. "
@@ -86,7 +93,8 @@ def generate_keypair(
     Returns (private_key_path, public_key_path).
     """
     output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    from sanna.utils.safe_io import ensure_secure_dir
+    ensure_secure_dir(str(output_dir), 0o700)
 
     private_key = Ed25519PrivateKey.generate()
     public_key = private_key.public_key()
@@ -193,7 +201,7 @@ def verify_signature(data: bytes, signature_b64: str, public_key: Ed25519PublicK
         signature = base64.b64decode(sig_clean, validate=True)
         public_key.verify(signature, data)
         return True
-    except (binascii.Error, ValueError, Exception):
+    except (binascii.Error, ValueError, InvalidSignature):
         return False
 
 

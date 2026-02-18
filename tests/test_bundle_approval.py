@@ -53,10 +53,10 @@ def approved_bundle_setup(tmp_path):
     signed = sign_constitution(const, private_key_path=str(author_priv))
     const_path = tmp_path / "approved.yaml"
     save_constitution(signed, const_path)
-    approve_constitution(const_path, approver_priv, "jane@co.com", "VP Risk", "1.0")
+    approve_constitution(const_path, approver_priv, "jane@co.com", "VP Risk", "1.0", verify_author_sig=False)
 
     # Generate receipt
-    @sanna_observe(constitution_path=str(const_path), private_key_path=str(author_priv))
+    @sanna_observe(require_constitution_sig=False, constitution_path=str(const_path), private_key_path=str(author_priv))
     def agent(query, context):
         return "The answer is grounded in context."
 
@@ -93,7 +93,7 @@ def unapproved_bundle_setup(tmp_path):
     const_path = tmp_path / "unapproved.yaml"
     save_constitution(signed, const_path)
 
-    @sanna_observe(constitution_path=str(const_path), private_key_path=str(author_priv))
+    @sanna_observe(require_constitution_sig=False, constitution_path=str(const_path), private_key_path=str(author_priv))
     def agent(query, context):
         return "The answer is grounded in context."
 
@@ -439,7 +439,7 @@ class TestBundleKeyResolution:
         save_constitution(signed, const_path)
 
         # Receipt signed by receipt_priv (different key)
-        @sanna_observe(constitution_path=str(const_path), private_key_path=str(receipt_priv))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(const_path), private_key_path=str(receipt_priv))
         def agent(query, context):
             return "Answer grounded in context."
 
@@ -480,7 +480,7 @@ class TestBundleKeyResolution:
         const_path = tmp_path / "keyres.yaml"
         save_constitution(signed, const_path)
 
-        @sanna_observe(constitution_path=str(const_path), private_key_path=str(receipt_priv))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(const_path), private_key_path=str(receipt_priv))
         def agent(query, context):
             return "Answer grounded in context."
 
@@ -523,7 +523,7 @@ class TestBundleKeyResolution:
         const_path = tmp_path / "nokey.yaml"
         save_constitution(signed, const_path)
 
-        @sanna_observe(constitution_path=str(const_path), private_key_path=str(receipt_priv))
+        @sanna_observe(require_constitution_sig=False, constitution_path=str(const_path), private_key_path=str(receipt_priv))
         def agent(query, context):
             return "Answer grounded in context."
 

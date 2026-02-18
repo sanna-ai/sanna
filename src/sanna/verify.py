@@ -19,13 +19,13 @@ from typing import Optional
 
 from jsonschema import validate, ValidationError
 
-from .hashing import hash_text, hash_obj
+from .hashing import hash_text, hash_obj, EMPTY_HASH
 
 # Statuses that represent non-evaluated checks (excluded from pass/fail counting)
 _NON_EVALUATED = {"NOT_CHECKED", "ERRORED"}
 
-# Pattern for Receipt Triad hash values: "sha256:" + 64 hex chars
-_TRIAD_HASH_PATTERN = re.compile(r"^sha256:[a-f0-9]{64}$")
+# Pattern for Receipt Triad hash values: bare 64 hex chars (v0.13.0+)
+_TRIAD_HASH_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 
 
 # =============================================================================
@@ -37,7 +37,7 @@ class TriadVerification:
     """Result of Receipt Triad hash verification.
 
     Attributes:
-        present: Whether the receipt contains a gateway_v2 receipt_triad.
+        present: Whether the receipt contains a gateway receipt_triad.
         input_hash_valid: Format check passed for input_hash.
         reasoning_hash_valid: Format check passed for reasoning_hash.
         action_hash_valid: Format check passed for action_hash.
@@ -88,7 +88,7 @@ def verify_receipt_triad(receipt: dict) -> TriadVerification:
     result = TriadVerification()
 
     extensions = receipt.get("extensions") or {}
-    gw_v2 = extensions.get("gateway_v2") or {}
+    gw_v2 = extensions.get("com.sanna.gateway") or {}
     triad = gw_v2.get("receipt_triad")
 
     if not triad or not isinstance(triad, dict):
@@ -251,16 +251,98 @@ def verify_fingerprint(receipt: dict) -> tuple:
     """
     Verify receipt_fingerprint matches recomputed value.
 
+    Supports both v0.13.0 (unified 12-field formula) and legacy
+    (variable-length) fingerprint formats.
+
     Returns (matches, computed, expected)
     """
-    trace_id = receipt.get("trace_id", "")
+    # Detect v0.13.0 format — use spec_version or full_fingerprint as indicators
+    # (correlation_id alone is not sufficient since legacy receipts may also use it)
+    is_v013 = "spec_version" in receipt or "full_fingerprint" in receipt
+
+    if is_v013:
+        return _verify_fingerprint_v013(receipt)
+    else:
+        return _verify_fingerprint_legacy(receipt)
+
+
+def _verify_fingerprint_v013(receipt: dict) -> tuple:
+    """Unified v0.13.0 fingerprint verification (12-field formula)."""
+    correlation_id = receipt.get("correlation_id", "")
     context_hash = receipt.get("context_hash", "")
     output_hash = receipt.get("output_hash", "")
     checks_version = receipt.get("checks_version", "")
 
-    # Include checks in fingerprint so tampering with check results is detected
     checks = receipt.get("checks", [])
-    # v0.6.1: include check_impl and replayable in fingerprint if present
+    has_enforcement_fields = any(c.get("triggered_by") is not None for c in checks)
+    if has_enforcement_fields:
+        checks_data = [
+            {
+                "check_id": c.get("check_id", ""),
+                "passed": c.get("passed"),
+                "severity": c.get("severity", ""),
+                "evidence": c.get("evidence"),
+                "triggered_by": c.get("triggered_by"),
+                "enforcement_level": c.get("enforcement_level"),
+                "check_impl": c.get("check_impl"),
+                "replayable": c.get("replayable"),
+            }
+            for c in checks
+        ]
+    else:
+        checks_data = [{"check_id": c.get("check_id", ""), "passed": c.get("passed"), "severity": c.get("severity", ""), "evidence": c.get("evidence")} for c in checks]
+    checks_hash = hash_obj(checks_data)
+
+    constitution_ref = receipt.get("constitution_ref")
+    if constitution_ref:
+        _cref = {k: v for k, v in constitution_ref.items() if k != "constitution_approval"}
+        constitution_hash = hash_obj(_cref)
+    else:
+        constitution_hash = EMPTY_HASH
+
+    enforcement = receipt.get("enforcement")
+    enforcement_hash = hash_obj(enforcement) if enforcement else EMPTY_HASH
+
+    evaluation_coverage = receipt.get("evaluation_coverage")
+    coverage_hash = hash_obj(evaluation_coverage) if evaluation_coverage else EMPTY_HASH
+
+    authority_decisions = receipt.get("authority_decisions")
+    authority_hash = hash_obj(authority_decisions) if authority_decisions else EMPTY_HASH
+
+    escalation_events = receipt.get("escalation_events")
+    escalation_hash = hash_obj(escalation_events) if escalation_events else EMPTY_HASH
+
+    source_trust_evaluations = receipt.get("source_trust_evaluations")
+    trust_hash = hash_obj(source_trust_evaluations) if source_trust_evaluations else EMPTY_HASH
+
+    extensions = receipt.get("extensions")
+    extensions_hash = hash_obj(extensions) if extensions else EMPTY_HASH
+
+    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}"
+
+    computed_full = hash_text(fingerprint_input)
+    computed_short = hash_text(fingerprint_input, truncate=16)
+    expected = receipt.get("receipt_fingerprint", "")
+
+    # v0.13.0: receipt_fingerprint is 16-hex truncation
+    matches = computed_short == expected
+
+    # Also check full_fingerprint if present
+    expected_full = receipt.get("full_fingerprint", "")
+    if expected_full and computed_full != expected_full:
+        matches = False
+
+    return (matches, computed_short, expected)
+
+
+def _verify_fingerprint_legacy(receipt: dict) -> tuple:
+    """Legacy fingerprint verification (variable-length formula)."""
+    correlation_id = receipt.get("correlation_id", "")
+    context_hash = receipt.get("context_hash", "")
+    output_hash = receipt.get("output_hash", "")
+    checks_version = receipt.get("checks_version", "")
+
+    checks = receipt.get("checks", [])
     has_v061_fields = any(c.get("check_impl") is not None or c.get("replayable") is not None for c in checks)
     has_enforcement_fields = any(c.get("triggered_by") is not None for c in checks)
     if has_v061_fields:
@@ -291,44 +373,39 @@ def verify_fingerprint(receipt: dict) -> tuple:
         ]
     else:
         checks_data = [{"check_id": c.get("check_id", ""), "passed": c.get("passed"), "severity": c.get("severity", ""), "evidence": c.get("evidence")} for c in checks]
-    checks_hash = hash_obj(checks_data)
+    checks_hash = hash_obj(checks_data, truncate=16)
 
-    # Include constitution_ref, halt_event, and evaluation_coverage in fingerprint
     constitution_ref = receipt.get("constitution_ref")
-    halt_event = receipt.get("halt_event")
+    enforcement = receipt.get("enforcement")
     evaluation_coverage = receipt.get("evaluation_coverage")
-    # Strip mutable constitution_approval before hashing (parity with middleware.py).
     if constitution_ref:
         _cref = {k: v for k, v in constitution_ref.items() if k != "constitution_approval"}
-        constitution_hash = hash_obj(_cref)
+        constitution_hash = hash_obj(_cref, truncate=16)
     else:
         constitution_hash = ""
-    halt_hash = hash_obj(halt_event) if halt_event else ""
+    halt_hash = hash_obj(enforcement, truncate=16) if enforcement else ""
 
-    # v0.6.1: include evaluation_coverage in fingerprint if present
     if evaluation_coverage is not None:
-        coverage_hash = hash_obj(evaluation_coverage)
-        fingerprint_input = f"{trace_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{halt_hash}|{coverage_hash}"
+        coverage_hash = hash_obj(evaluation_coverage, truncate=16)
+        fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{halt_hash}|{coverage_hash}"
     else:
-        fingerprint_input = f"{trace_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{halt_hash}"
+        fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{halt_hash}"
 
-    # v0.7.0: include authority sections in fingerprint when present
     authority_decisions = receipt.get("authority_decisions")
     escalation_events = receipt.get("escalation_events")
     source_trust_evaluations = receipt.get("source_trust_evaluations")
     if authority_decisions:
-        fingerprint_input += f"|{hash_obj(authority_decisions)}"
+        fingerprint_input += f"|{hash_obj(authority_decisions, truncate=16)}"
     if escalation_events:
-        fingerprint_input += f"|{hash_obj(escalation_events)}"
+        fingerprint_input += f"|{hash_obj(escalation_events, truncate=16)}"
     if source_trust_evaluations:
-        fingerprint_input += f"|{hash_obj(source_trust_evaluations)}"
+        fingerprint_input += f"|{hash_obj(source_trust_evaluations, truncate=16)}"
 
-    # v0.7.0: include extensions in fingerprint when non-empty
     extensions = receipt.get("extensions")
     if extensions:
-        fingerprint_input += f"|{hash_obj(extensions)}"
+        fingerprint_input += f"|{hash_obj(extensions, truncate=16)}"
 
-    computed = hash_text(fingerprint_input)
+    computed = hash_text(fingerprint_input, truncate=16)
     expected = receipt.get("receipt_fingerprint", "")
 
     return (computed == expected, computed, expected)
@@ -336,7 +413,7 @@ def verify_fingerprint(receipt: dict) -> tuple:
 
 def verify_status_consistency(receipt: dict) -> tuple:
     """
-    Verify coherence_status matches check outcomes.
+    Verify status matches check outcomes.
 
     Rules:
     - FAIL if any severity=critical check failed
@@ -362,7 +439,7 @@ def verify_status_consistency(receipt: dict) -> tuple:
     else:
         computed = "PASS"
 
-    expected = receipt.get("coherence_status", "")
+    expected = receipt.get("status", "")
     return (computed == expected, computed, expected)
 
 
@@ -386,35 +463,75 @@ def verify_check_counts(receipt: dict) -> list:
 
 
 def verify_hash_format(receipt: dict) -> list:
-    """Verify hash fields have correct format (16 hex chars)."""
-    errors = []
-    hash_fields = ["receipt_id", "receipt_fingerprint", "context_hash", "output_hash"]
-    hex_pattern = re.compile(r"^[a-f0-9]{16}$")
+    """Verify hash fields have correct format.
 
-    for field in hash_fields:
-        value = receipt.get(field, "")
-        if not hex_pattern.match(value):
-            errors.append(f"{field} has invalid format: '{value}' (expected 16 hex chars)")
+    v0.13.0: receipt_id is UUID v4, hashes are 64-hex,
+    receipt_fingerprint is 16-hex.
+    Legacy: all fields are 16-hex.
+    """
+    errors = []
+    is_v013 = "spec_version" in receipt or "full_fingerprint" in receipt
+
+    if is_v013:
+        # v0.13.0 format
+        uuid_pattern = re.compile(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        )
+        hex64_pattern = re.compile(r"^[a-f0-9]{64}$")
+        hex16_pattern = re.compile(r"^[a-f0-9]{16}$")
+
+        # receipt_id: UUID v4
+        rid = receipt.get("receipt_id", "")
+        if not uuid_pattern.match(rid):
+            errors.append(f"receipt_id has invalid format: '{rid}' (expected UUID v4)")
+
+        # receipt_fingerprint: 16 hex
+        fp = receipt.get("receipt_fingerprint", "")
+        if not hex16_pattern.match(fp):
+            errors.append(f"receipt_fingerprint has invalid format: '{fp}' (expected 16 hex chars)")
+
+        # full_fingerprint: 64 hex
+        ffp = receipt.get("full_fingerprint", "")
+        if ffp and not hex64_pattern.match(ffp):
+            errors.append(f"full_fingerprint has invalid format: '{ffp}' (expected 64 hex chars)")
+
+        # content hashes: 64 hex
+        for field in ["context_hash", "output_hash"]:
+            value = receipt.get(field, "")
+            if not hex64_pattern.match(value):
+                errors.append(f"{field} has invalid format: '{value}' (expected 64 hex chars)")
+    else:
+        # Legacy format: all 16-hex
+        hex_pattern = re.compile(r"^[a-f0-9]{16}$")
+        for field in ["receipt_id", "receipt_fingerprint", "context_hash", "output_hash"]:
+            value = receipt.get(field, "")
+            if not hex_pattern.match(value):
+                errors.append(f"{field} has invalid format: '{value}' (expected 16 hex chars)")
 
     return errors
 
 
 def verify_content_hashes(receipt: dict) -> list:
-    """Verify context_hash and output_hash match actual content."""
+    """Verify context_hash and output_hash match actual content.
+
+    Auto-detects hash length (16-hex legacy or 64-hex v0.13.0+).
+    """
     errors = []
 
     inputs = receipt.get("inputs", {})
     outputs = receipt.get("outputs", {})
 
-    computed_context_hash = hash_obj(inputs)
     stored_context_hash = receipt.get("context_hash", "")
+    stored_output_hash = receipt.get("output_hash", "")
 
+    # Detect hash length from stored hashes
+    truncate = 16 if len(stored_context_hash) == 16 else 64
+
+    computed_context_hash = hash_obj(inputs, truncate=truncate)
     if computed_context_hash != stored_context_hash:
         errors.append(f"context_hash mismatch: computed {computed_context_hash}, stored {stored_context_hash} (inputs may have been tampered)")
 
-    computed_output_hash = hash_obj(outputs)
-    stored_output_hash = receipt.get("output_hash", "")
-
+    computed_output_hash = hash_obj(outputs, truncate=truncate)
     if computed_output_hash != stored_output_hash:
         errors.append(f"output_hash mismatch: computed {computed_output_hash}, stored {stored_output_hash} (outputs may have been tampered)")
 
@@ -704,11 +821,13 @@ def verify_receipt(
     count_errors = verify_check_counts(receipt)
     errors.extend(count_errors)
 
-    # 6. Governance warning: FAIL with critical failure but no halt_event
+    # 6. Governance warning: FAIL with critical failure but no enforcement
     checks = receipt.get("checks", [])
     has_critical_fail = any(not c.get("passed") and c.get("severity") == "critical" for c in checks)
-    if receipt.get("coherence_status") == "FAIL" and has_critical_fail and not receipt.get("halt_event"):
-        warnings.append("Receipt has FAIL status with critical check failure but no halt_event recorded")
+    receipt_status = receipt.get("status", "")
+    has_enforcement = receipt.get("enforcement") is not None
+    if receipt_status == "FAIL" and has_critical_fail and not has_enforcement:
+        warnings.append("Receipt has FAIL status with critical check failure but no enforcement recorded")
 
     # 7. Receipt signature verification (if public key provided)
     if public_key_path:

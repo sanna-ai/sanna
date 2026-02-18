@@ -53,7 +53,7 @@ def _make_receipt(tmp_path):
     const_path = tmp_path / "constitution.yaml"
     save_constitution(signed, const_path)
 
-    @sanna_observe(constitution_path=str(const_path), private_key_path=str(priv_path))
+    @sanna_observe(require_constitution_sig=False, constitution_path=str(const_path), private_key_path=str(priv_path))
     def agent(query, context):
         return "Grounded answer."
 

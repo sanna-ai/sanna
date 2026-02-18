@@ -1,10 +1,11 @@
 {
-  "schema_version": "0.1",
-  "tool_version": "0.7.0",
-  "checks_version": "2",
-  "receipt_id": "902df874c755cf63",
-  "receipt_fingerprint": "37de8fb7742d2c33",
-  "trace_id": "golden-012-pass-extensions",
+  "spec_version": "1.0",
+  "tool_version": "0.13.0",
+  "checks_version": "5",
+  "receipt_id": "7af82754-6bc2-49e4-809c-67c00b260db1",
+  "receipt_fingerprint": "d6f817dc2592d7e5",
+  "full_fingerprint": "d6f817dc2592d7e5a30563b59c8a050d4b03f9fcba4c37c74a1b6b16001595f6",
+  "correlation_id": "golden-012-pass-extensions",
   "timestamp": "2026-02-13T00:37:54.691936+00:00",
   "inputs": {
     "query": "store hours",
@@ -13,14 +14,8 @@
   "outputs": {
     "response": "Based on the information provided, the store closes at 9 PM on weekdays and 6 PM on weekends."
   },
-  "context_hash": "c27f092c74a8a59d",
-  "output_hash": "bb8094695eb952cf",
-  "final_answer_provenance": {
-    "source": "trace.output",
-    "span_id": null,
-    "span_name": null,
-    "field": "final_answer"
-  },
+  "context_hash": "c27f092c74a8a59dd79c9349a074065ac4ad035145104339de3d1ee4b9392540",
+  "output_hash": "bb8094695eb952cfbd52071b44509ee172b5aaea3a57abf7c9bd78a70c5811b8",
   "checks": [
     {
       "check_id": "C1",
@@ -65,9 +60,9 @@
   ],
   "checks_passed": 4,
   "checks_failed": 1,
-  "coherence_status": "WARN",
+  "status": "WARN",
   "constitution_ref": null,
-  "halt_event": null,
+  "enforcement": null,
   "extensions": {
     "vendor": "test-vendor",
     "pipeline_id": "pipe-123",
