@@ -484,13 +484,14 @@ class EscalationStore:
             while True:
                 await _asyncio.sleep(interval_seconds)
                 try:
-                    purged = self.purge_expired()
-                    if purged:
-                        logger.info(
-                            "Purged %d expired escalation(s)", purged,
-                        )
-                    if self._persist_path:
-                        await self._save_to_disk_async()
+                    async with self._lock:
+                        purged = self.purge_expired()
+                        if purged:
+                            logger.info(
+                                "Purged %d expired escalation(s)", purged,
+                            )
+                        if self._persist_path:
+                            await self._save_to_disk_async()
                 except Exception:
                     logger.warning(
                         "Escalation purge/persist cycle failed",

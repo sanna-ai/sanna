@@ -3,7 +3,7 @@
 **Status:** Released
 **Version:** 1.0.2
 **Date:** 2026-02-17
-**Reference implementation:** sanna v0.13.0
+**Reference implementation:** sanna v0.13.2
 
 ---
 
@@ -327,7 +327,10 @@ redaction marker in the tool call arguments. Implementations MUST
 handle this by:
 
 1. Serializing the entire dict to a JSON string using
-   `json.dumps(value, sort_keys=True)`.
+   `json.dumps(value, sort_keys=True)`. Cross-language implementations
+   MUST replicate Python's default serialization with separators
+   `(', ', ': ')` — i.e., one space after each comma and one space
+   after each colon.
 2. Applying a fresh redaction marker to the serialized JSON string.
 
 This prevents an attacker from injecting a crafted `original_hash`
@@ -1229,7 +1232,7 @@ conformance.
 |-------------|-------------|---------|
 | 1.0 | 0.13.0 | Initial specification. Field renames: `schema_version` to `spec_version`, `trace_id` to `correlation_id`, `coherence_status` to `status`, `halt_event` to `enforcement`. Added `full_fingerprint`. UUID v4 receipt IDs. Full 64-hex content hashes. 12-field fingerprint formula. Custom evaluator fail-closed default. |
 | 1.0.1 | 0.13.0 | 28 precision fixes from cross-platform security review. Key ID uses raw Ed25519 bytes (not DER). NFC normalization documented. Float rejection in signing contexts. hash_text default truncation corrected to 64. Status computation handles all severity levels. Receipt Triad hashing byte-precise. HMAC token format documented. Threat model added. Schemas for authority_decisions, escalation_events, source_trust_evaluations, identity_verification documented. Key file encoding specified. correlation_id pipe constraint. checks_hash ordering and null key rules. |
-| 1.0.2 | 0.13.1 | 7 cross-platform review fixes. Redaction Marker schema (Section 2.11): marker structure, original_hash computation, pre-existing marker injection guard, file naming convention, hash recomputation rules. Authority Name Normalization algorithm (Appendix D): NFKC + camelCase splitting + separator normalization + casefold + dot-join, with 16 test vectors, matching semantics, and separatorless fallback. HMAC token binding corrections (Section 8.2): `esc_` prefix on escalation IDs, Python-default separators for args_digest (not Sanna Canonical JSON), original tool name (not normalized). Canonical JSON cross-language guidance (Section 3.1): Go HTML-escaping warning, float rejection clarified for Go/Rust number parsing. Base64 pinned to RFC 4648 standard with padding (Section 5.1), whitespace stripping scope clarified. Exit code accumulation rule: highest-priority code wins (Section 9.2). |
+| 1.0.2 | 0.13.2 | 7 cross-platform review fixes. Redaction Marker schema (Section 2.11): marker structure, original_hash computation, pre-existing marker injection guard, file naming convention, hash recomputation rules. Authority Name Normalization algorithm (Appendix D): NFKC + camelCase splitting + separator normalization + casefold + dot-join, with 16 test vectors, matching semantics, and separatorless fallback. HMAC token binding corrections (Section 8.2): `esc_` prefix on escalation IDs, Python-default separators for args_digest (not Sanna Canonical JSON), original tool name (not normalized). Canonical JSON cross-language guidance (Section 3.1): Go HTML-escaping warning, float rejection clarified for Go/Rust number parsing. Base64 pinned to RFC 4648 standard with padding (Section 5.1), whitespace stripping scope clarified. Exit code accumulation rule: highest-priority code wins (Section 9.2). |
 
 ---
 
