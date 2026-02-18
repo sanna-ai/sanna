@@ -25,6 +25,11 @@ build/
 *.meta.json
 sanna_ed25519*
 
+# Exception: test-only keys (no production value, needed for CI)
+!tests/.test_keys/*.key
+!tests/.test_keys/*.pub
+!tests/.test_keys/*.meta.json
+
 # Test cache
 .pytest_cache/
 
