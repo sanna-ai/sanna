@@ -135,7 +135,7 @@ Every governed action produces a reasoning receipt — a JSON artifact that cryp
 | Field | Type | Description |
 |-------|------|-------------|
 | `spec_version` | string | Schema version, `"1.0"` |
-| `tool_version` | string | Package version, e.g. `"0.13.2"` |
+| `tool_version` | string | Package version, e.g. `"0.13.3"` |
 | `checks_version` | string | Check algorithm version, e.g. `"5"` |
 | `receipt_id` | string | UUID v4 unique identifier |
 | `correlation_id` | string | Path-prefixed identifier for grouping related receipts |
@@ -198,7 +198,7 @@ Minimal example receipt (abbreviated -- production receipts typically contain 3-
 ```json
 {
   "spec_version": "1.0",
-  "tool_version": "0.13.2",
+  "tool_version": "0.13.3",
   "checks_version": "5",
   "receipt_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
   "receipt_fingerprint": "7b4d06e836514eef",
