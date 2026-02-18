@@ -127,6 +127,16 @@ def _execute_log(event_details: dict, timestamp: str) -> EscalationResult:
     return EscalationResult(success=True, target_type="log", details=log_entry)
 
 
+def _validate_escalation_url(url: str) -> Optional[str]:
+    """Validate webhook URL against SSRF, returning error string or None."""
+    try:
+        from sanna.gateway.config import validate_webhook_url
+        validate_webhook_url(url)
+        return None
+    except Exception as e:
+        return str(e)
+
+
 def _execute_webhook(
     target: EscalationTarget,
     event_details: dict,
@@ -136,6 +146,15 @@ def _execute_webhook(
     if not target.url:
         logger.warning("Webhook escalation target has no URL, falling back to log")
         return _execute_log(event_details, timestamp)
+
+    url_error = _validate_escalation_url(target.url)
+    if url_error:
+        logger.error("Webhook URL rejected by SSRF validation: %s", url_error)
+        return EscalationResult(
+            success=False,
+            target_type="webhook",
+            details={"url": target.url, "error": f"URL validation failed: {url_error}"},
+        )
 
     try:
         import httpx
@@ -152,7 +171,7 @@ def _execute_webhook(
         **event_details,
     }
     try:
-        with httpx.Client(timeout=10.0) as client:
+        with httpx.Client(timeout=10.0, follow_redirects=False) as client:
             resp = client.post(target.url, json=payload)
             resp.raise_for_status()
         return EscalationResult(
@@ -242,6 +261,15 @@ async def _execute_webhook_async(
         )
         return _execute_log(event_details, timestamp)
 
+    url_error = _validate_escalation_url(target.url)
+    if url_error:
+        logger.error("Webhook URL rejected by SSRF validation: %s", url_error)
+        return EscalationResult(
+            success=False,
+            target_type="webhook",
+            details={"url": target.url, "error": f"URL validation failed: {url_error}"},
+        )
+
     payload = {
         "timestamp": timestamp,
         "type": "escalation",
@@ -255,7 +283,7 @@ async def _execute_webhook_async(
         return _webhook_threaded_fallback(target.url, payload, timeout)
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
             resp = await client.post(target.url, json=payload)
             resp.raise_for_status()
         return EscalationResult(
@@ -295,14 +323,44 @@ def _webhook_threaded_fallback(
     """Send webhook via a background daemon thread when httpx is unavailable.
 
     Uses ``urllib.request`` from the standard library.  The thread is
-    daemonic so it won't block process exit.
+    daemonic so it won't block process exit.  Installs a redirect-blocking
+    handler to prevent token leakage via open-redirect attacks.
     """
     import json as _json
     import threading
+    import urllib.error
     import urllib.request
 
     def _send() -> None:
         try:
+            # Re-validate URL at send time to prevent DNS rebinding
+            url_error = _validate_escalation_url(url)
+            if url_error:
+                logger.warning(
+                    "Threaded webhook fallback URL rejected: %s — %s", url, url_error,
+                )
+                return
+
+            class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+                """Reject ALL HTTP redirects (301, 302, 303, 307, 308)."""
+
+                def redirect_request(
+                    self, req, fp, code, msg, headers, newurl,
+                ):
+                    logger.warning(
+                        "Escalation webhook redirect (%d) to %s — blocked.",
+                        code,
+                        newurl,
+                    )
+                    raise urllib.error.HTTPError(
+                        req.full_url,
+                        code,
+                        f"Redirect to {newurl} blocked by security policy",
+                        headers,
+                        fp,
+                    )
+
+            opener = urllib.request.build_opener(_NoRedirectHandler)
             data = _json.dumps(payload).encode()
             req = urllib.request.Request(
                 url,
@@ -310,7 +368,7 @@ def _webhook_threaded_fallback(
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            urllib.request.urlopen(req, timeout=timeout)
+            opener.open(req, timeout=timeout)
         except Exception as exc:
             logger.warning(
                 "Threaded webhook fallback failed: %s — %s", url, exc,

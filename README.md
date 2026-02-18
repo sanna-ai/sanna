@@ -25,11 +25,9 @@ Now wrap the functions you want to govern. `@sanna_observe` decorates the functi
 ```python
 from sanna import sanna_observe, SannaHaltError
 
-# For quick-start, disable signature requirement.
-# Production usage should sign the constitution (sanna sign) and omit this flag.
 @sanna_observe(
     constitution_path="constitution.yaml",
-    require_constitution_sig=False,
+    public_key_path="~/.sanna/keys/<key-id>.pub",  # from sanna keygen above
 )
 def my_agent(query: str, context: str) -> str:
     return "Based on the data, revenue grew 12% year-over-year."

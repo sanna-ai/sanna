@@ -359,9 +359,12 @@ Canonicalization Scheme) for all hash computations.
 
 ### 3.1 Sanna Canonical JSON
 
-All string values MUST be normalized to Unicode NFC form (UAX #15)
-before canonicalization. Implementations MUST apply NFC normalization
-before any hashing or comparison operation.
+String values MUST be normalized to Unicode NFC form (UAX #15)
+at the `hash_text()` boundary — i.e., immediately before the input
+is passed to SHA-256. This is a deliberate design decision: Sanna
+normalizes at the hashing boundary, not at ingestion. Callers are
+NOT required to NFC-normalize all strings globally; the hashing
+functions handle it.
 
 The canonical form is produced by `json.dumps()` with:
 - `sort_keys=True` -- keys are sorted by byte-wise comparison of their UTF-8 encoded representations, consistent with RFC 8785 section 3.2.3

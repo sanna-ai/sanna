@@ -470,7 +470,8 @@ class TestEscalationWebhook:
         mock_response = MagicMock()
         mock_response.status_code = 200
 
-        with patch("httpx.Client") as mock_client_cls:
+        with patch("sanna.enforcement.escalation._validate_escalation_url", return_value=None), \
+             patch("httpx.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client.__enter__ = MagicMock(return_value=mock_client)
             mock_client.__exit__ = MagicMock(return_value=False)

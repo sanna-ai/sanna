@@ -270,7 +270,8 @@ class TestAsyncWebhook:
         mock_client.__aenter__ = mock.AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = mock.AsyncMock(return_value=False)
 
-        with mock.patch("httpx.AsyncClient", return_value=mock_client):
+        with mock.patch("sanna.enforcement.escalation._validate_escalation_url", return_value=None), \
+             mock.patch("httpx.AsyncClient", return_value=mock_client):
             result = await async_execute_escalation(target, event)
 
         assert result.success is True
@@ -299,7 +300,8 @@ class TestAsyncWebhook:
         mock_client.__aenter__ = mock.AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = mock.AsyncMock(return_value=False)
 
-        with mock.patch("httpx.AsyncClient", return_value=mock_client):
+        with mock.patch("sanna.enforcement.escalation._validate_escalation_url", return_value=None), \
+             mock.patch("httpx.AsyncClient", return_value=mock_client):
             with caplog.at_level(logging.WARNING, logger="sanna.escalation"):
                 result = await async_execute_escalation(target, event)
 
