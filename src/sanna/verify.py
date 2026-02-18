@@ -427,8 +427,11 @@ def verify_status_consistency(receipt: dict) -> tuple:
     standard_checks = [c for c in checks if c.get("status") not in _NON_EVALUATED]
     non_evaluated = [c for c in checks if c.get("status") in _NON_EVALUATED]
 
-    critical_fails = sum(1 for c in standard_checks if not c.get("passed") and c.get("severity") == "critical")
-    warning_fails = sum(1 for c in standard_checks if not c.get("passed") and c.get("severity") == "warning")
+    # Severity hierarchy: critical/high → FAIL, warning/medium/low → WARN
+    _FAIL_SEVERITIES = {"critical", "high"}
+    _WARN_SEVERITIES = {"warning", "medium", "low"}
+    critical_fails = sum(1 for c in standard_checks if not c.get("passed") and c.get("severity") in _FAIL_SEVERITIES)
+    warning_fails = sum(1 for c in standard_checks if not c.get("passed") and c.get("severity") in _WARN_SEVERITIES)
 
     if critical_fails > 0:
         computed = "FAIL"
@@ -511,12 +514,48 @@ def verify_hash_format(receipt: dict) -> list:
     return errors
 
 
-def verify_content_hashes(receipt: dict) -> list:
+def _is_redaction_marker(value: object) -> bool:
+    """Return ``True`` if *value* is a well-formed redaction marker dict.
+
+    A valid marker has the shape::
+
+        {"__redacted__": True, "original_hash": "<64-hex-sha256>"}
+    """
+    if not isinstance(value, dict):
+        return False
+    if value.get("__redacted__") is not True:
+        return False
+    oh = value.get("original_hash", "")
+    return bool(re.match(r"^[a-f0-9]{64}$", oh))
+
+
+def _collect_redacted_fields(inputs: dict, outputs: dict) -> list[str]:
+    """Return JSON-path strings for every redaction marker found."""
+    paths: list[str] = []
+    if _is_redaction_marker((inputs or {}).get("context")):
+        paths.append("inputs.context")
+    if _is_redaction_marker((inputs or {}).get("query")):
+        paths.append("inputs.query")
+    if _is_redaction_marker((outputs or {}).get("response")):
+        paths.append("outputs.response")
+    return paths
+
+
+def verify_content_hashes(receipt: dict) -> tuple[list, list]:
     """Verify context_hash and output_hash match actual content.
 
     Auto-detects hash length (16-hex legacy or 64-hex v0.13.0+).
+
+    When a receipt contains redaction markers (SEC-1), the verifier
+    hashes the marker-bearing ``inputs``/``outputs`` as-is (since the
+    receipt was signed with markers in place) and reports which fields
+    are redacted in the warnings list.
+
+    Returns:
+        ``(errors, warnings)`` — two lists of strings.
     """
-    errors = []
+    errors: list[str] = []
+    warnings: list[str] = []
 
     inputs = receipt.get("inputs", {})
     outputs = receipt.get("outputs", {})
@@ -535,7 +574,12 @@ def verify_content_hashes(receipt: dict) -> list:
     if computed_output_hash != stored_output_hash:
         errors.append(f"output_hash mismatch: computed {computed_output_hash}, stored {stored_output_hash} (outputs may have been tampered)")
 
-    return errors
+    # SEC-1: Note redacted fields in warnings
+    redacted_paths = _collect_redacted_fields(inputs, outputs)
+    for path in redacted_paths:
+        warnings.append(f"Field '{path}' is redacted — content verified via original_hash marker")
+
+    return errors, warnings
 
 
 def verify_constitution_hash(receipt: dict) -> list:
@@ -792,7 +836,8 @@ def verify_receipt(
     errors.extend(hash_errors)
 
     # 2b. Content hash verification (detects content tampering)
-    content_hash_errors = verify_content_hashes(receipt)
+    content_hash_errors, content_hash_warnings = verify_content_hashes(receipt)
+    warnings.extend(content_hash_warnings)
     if content_hash_errors:
         errors.extend(content_hash_errors)
         return VerificationResult(
@@ -848,6 +893,12 @@ def verify_receipt(
         )
         errors.extend(chain_errors)
         warnings.extend(chain_warnings)
+    elif receipt.get("constitution_ref"):
+        # Receipt references a constitution but none was provided for verification
+        warnings.append(
+            "Constitution chain NOT verified — receipt references a constitution "
+            "but none was provided for verification"
+        )
 
     # 9. Receipt Triad verification (Block I — v2 gateway receipts)
     triad_result = verify_receipt_triad(receipt)

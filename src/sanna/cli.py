@@ -11,6 +11,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .receipt import generate_receipt, SannaReceipt, TOOL_VERSION
+from .utils.safe_json import safe_json_load
 from .verify import verify_receipt, load_schema, VerificationResult
 
 
@@ -79,11 +80,11 @@ def main_generate():
     # Load trace data from JSON file
     try:
         with open(args.trace_file) as f:
-            trace_data = json.load(f)
+            trace_data = safe_json_load(f)
     except FileNotFoundError:
         print(f"Error: File not found: {args.trace_file}", file=sys.stderr)
         return 1
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, ValueError) as e:
         print(f"Error: Invalid JSON: {e}", file=sys.stderr)
         return 1
 
@@ -271,11 +272,11 @@ def main_verify():
     # Load receipt
     try:
         with open(args.receipt) as f:
-            receipt = json.load(f)
+            receipt = safe_json_load(f)
     except FileNotFoundError:
         print(f"Error: Receipt file not found: {args.receipt}", file=sys.stderr)
         return 5
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, ValueError) as e:
         print(f"Error: Invalid JSON in receipt: {e}", file=sys.stderr)
         return 5
 
@@ -1191,11 +1192,11 @@ def main_inspect():
 
     try:
         with open(args.receipt) as f:
-            receipt = json.load(f)
+            receipt = safe_json_load(f)
     except FileNotFoundError:
         print(f"Error: File not found: {args.receipt}", file=sys.stderr)
         return 1
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, ValueError) as e:
         print(f"Error: Invalid JSON: {e}", file=sys.stderr)
         return 1
 

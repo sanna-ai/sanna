@@ -304,12 +304,16 @@ class TestWebhookDelivery:
         mock_resp.__enter__ = lambda s: s
         mock_resp.__exit__ = MagicMock(return_value=False)
 
-        with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+        # SEC-7: webhook now uses opener.open() instead of urlopen()
+        mock_opener = MagicMock()
+        mock_opener.open = MagicMock(return_value=mock_resp)
+
+        with patch("urllib.request.build_opener", return_value=mock_opener):
             gw._deliver_token_via_webhook(entry, token_info)
 
-        # Verify urlopen was called
-        assert mock_urlopen.called
-        request = mock_urlopen.call_args[0][0]
+        # Verify opener.open was called
+        assert mock_opener.open.called
+        request = mock_opener.open.call_args[0][0]
         assert request.full_url == "https://hooks.example.com/approve"
         assert request.method == "POST"
 
@@ -323,13 +327,15 @@ class TestWebhookDelivery:
 
     def test_webhook_accepted_in_valid_delivery(self):
         """'webhook' is in the _VALID_DELIVERY set used by config."""
-        # The config parser should accept "webhook" without error
-        from sanna.gateway.config import load_gateway_config, GatewayConfigError
-        # If "webhook" were invalid, config parsing would raise.
-        # We test this indirectly via the validate_webhook_url path.
+        from unittest.mock import patch
+        import socket
         from sanna.gateway.config import validate_webhook_url
-        # A valid HTTPS URL should pass
-        validate_webhook_url("https://hooks.example.com/approve")
+        # SEC-6: DNS resolution is now performed — mock it to return a public IP
+        mock_result = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+        ]
+        with patch("socket.getaddrinfo", return_value=mock_result):
+            validate_webhook_url("https://hooks.example.com/approve")
 
     def test_webhook_no_url_logs_warning(self, tmp_path, caplog):
         """Webhook delivery with no URL logs a warning."""
@@ -402,7 +408,7 @@ class TestWebhookSSRFProtection:
     def test_blocks_cloud_metadata(self):
         from sanna.gateway.config import validate_webhook_url, GatewayConfigError
         with pytest.raises(GatewayConfigError, match="metadata"):
-            validate_webhook_url("http://169.254.169.254/latest/meta-data/")
+            validate_webhook_url("https://169.254.169.254/latest/meta-data/")
 
     def test_blocks_non_http_scheme(self):
         from sanna.gateway.config import validate_webhook_url, GatewayConfigError
@@ -415,19 +421,32 @@ class TestWebhookSSRFProtection:
             validate_webhook_url("example.com/hook")
 
     def test_allows_valid_https(self):
+        from unittest.mock import patch
+        import socket
         from sanna.gateway.config import validate_webhook_url
-        # Should not raise
-        validate_webhook_url("https://hooks.slack.com/services/T00/B00/xxx")
+        # SEC-6: DNS resolution is now performed — mock it to return a public IP
+        mock_result = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("34.120.195.252", 0)),
+        ]
+        with patch("socket.getaddrinfo", return_value=mock_result):
+            validate_webhook_url("https://hooks.slack.com/services/T00/B00/xxx")
 
-    def test_allows_valid_http_external(self):
-        from sanna.gateway.config import validate_webhook_url
-        # HTTP is accepted (not just HTTPS) for non-private addresses
-        validate_webhook_url("http://8.8.8.8/hook")
+    def test_rejects_http_external(self):
+        from sanna.gateway.config import validate_webhook_url, GatewayConfigError
+        # SEC-2: HTTP is no longer accepted for external addresses
+        with pytest.raises(GatewayConfigError, match="https://"):
+            validate_webhook_url("http://8.8.8.8/hook")
 
-    def test_allows_hostname_not_ip(self):
+    def test_allows_hostname_resolving_to_public_ip(self):
+        from unittest.mock import patch
+        import socket
         from sanna.gateway.config import validate_webhook_url
-        # Non-IP hostnames pass (DNS resolution is not done at config time)
-        validate_webhook_url("https://my-internal-service.company.com/hook")
+        # SEC-6: DNS resolution is now performed — mock it to return a public IP
+        mock_result = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+        ]
+        with patch("socket.getaddrinfo", return_value=mock_result):
+            validate_webhook_url("https://my-internal-service.company.com/hook")
 
 
 # ---------------------------------------------------------------------------
@@ -522,6 +541,8 @@ class TestTokenExpiry:
 class TestWebhookConfigValidation:
     def test_webhook_in_config_accepted(self, tmp_path):
         """'webhook' is accepted as a token_delivery method in config."""
+        from unittest.mock import patch
+        import socket
         from sanna.gateway.config import load_gateway_config
         const_path, key_path, _ = _create_signed_constitution(tmp_path)
         config_yaml = f"""\
@@ -536,7 +557,12 @@ class TestWebhookConfigValidation:
             command: echo
         """
         config_path = _write_config(tmp_path, config_yaml)
-        cfg = load_gateway_config(config_path)
+        # SEC-6: DNS resolution is now performed — mock it to return a public IP
+        mock_result = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+        ]
+        with patch("socket.getaddrinfo", return_value=mock_result):
+            cfg = load_gateway_config(config_path)
         assert "webhook" in cfg.token_delivery
         assert cfg.approval_webhook_url == "https://hooks.example.com/approve"
 
@@ -741,3 +767,377 @@ class TestApproveTTYCheck:
         assert rc == 1
         captured = capsys.readouterr()
         assert "Aborted." in captured.err
+
+
+# ---------------------------------------------------------------------------
+# SEC-6: DNS rebinding SSRF protection
+# ---------------------------------------------------------------------------
+
+
+@requires_mcp
+class TestWebhookDNSRebindingProtection:
+    """SEC-6: Webhook URL validation resolves DNS and blocks private IPs."""
+
+    def test_hostname_resolving_to_loopback_rejected(self):
+        """Hostname resolving to 127.0.0.1 is rejected."""
+        from unittest.mock import patch
+        import socket
+        from sanna.gateway.config import validate_webhook_url, GatewayConfigError
+
+        mock_result = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0)),
+        ]
+        with patch("socket.getaddrinfo", return_value=mock_result):
+            with pytest.raises(GatewayConfigError, match="loopback"):
+                validate_webhook_url("https://evil-rebind.example.com/hook")
+
+    def test_hostname_resolving_to_10_network_rejected(self):
+        """Hostname resolving to 10.x.x.x is rejected."""
+        from unittest.mock import patch
+        import socket
+        from sanna.gateway.config import validate_webhook_url, GatewayConfigError
+
+        mock_result = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 0)),
+        ]
+        with patch("socket.getaddrinfo", return_value=mock_result):
+            with pytest.raises(GatewayConfigError, match="private"):
+                validate_webhook_url("https://evil-rebind.example.com/hook")
+
+    def test_hostname_resolving_to_172_16_rejected(self):
+        """Hostname resolving to 172.16.x.x is rejected."""
+        from unittest.mock import patch
+        import socket
+        from sanna.gateway.config import validate_webhook_url, GatewayConfigError
+
+        mock_result = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("172.16.5.1", 0)),
+        ]
+        with patch("socket.getaddrinfo", return_value=mock_result):
+            with pytest.raises(GatewayConfigError, match="private"):
+                validate_webhook_url("https://evil-rebind.example.com/hook")
+
+    def test_hostname_resolving_to_192_168_rejected(self):
+        """Hostname resolving to 192.168.x.x is rejected."""
+        from unittest.mock import patch
+        import socket
+        from sanna.gateway.config import validate_webhook_url, GatewayConfigError
+
+        mock_result = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.100", 0)),
+        ]
+        with patch("socket.getaddrinfo", return_value=mock_result):
+            with pytest.raises(GatewayConfigError, match="private"):
+                validate_webhook_url("https://evil-rebind.example.com/hook")
+
+    def test_hostname_resolving_to_link_local_rejected(self):
+        """Hostname resolving to 169.254.x.x is rejected."""
+        from unittest.mock import patch
+        import socket
+        from sanna.gateway.config import validate_webhook_url, GatewayConfigError
+
+        mock_result = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.1.1", 0)),
+        ]
+        with patch("socket.getaddrinfo", return_value=mock_result):
+            with pytest.raises(GatewayConfigError, match="link-local"):
+                validate_webhook_url("https://evil-rebind.example.com/hook")
+
+    def test_hostname_resolving_to_metadata_rejected(self):
+        """Hostname resolving to 169.254.169.254 is rejected."""
+        from unittest.mock import patch
+        import socket
+        from sanna.gateway.config import validate_webhook_url, GatewayConfigError
+
+        mock_result = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 0)),
+        ]
+        with patch("socket.getaddrinfo", return_value=mock_result):
+            with pytest.raises(GatewayConfigError, match="metadata"):
+                validate_webhook_url("https://evil-rebind.example.com/hook")
+
+    def test_hostname_resolving_to_multicast_rejected(self):
+        """Hostname resolving to multicast address is rejected."""
+        from unittest.mock import patch
+        import socket
+        from sanna.gateway.config import validate_webhook_url, GatewayConfigError
+
+        mock_result = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("224.0.0.1", 0)),
+        ]
+        with patch("socket.getaddrinfo", return_value=mock_result):
+            with pytest.raises(GatewayConfigError, match="multicast"):
+                validate_webhook_url("https://evil-rebind.example.com/hook")
+
+    def test_hostname_with_mixed_records_one_private_rejected(self):
+        """If ANY A/AAAA record resolves to a blocked range, reject."""
+        from unittest.mock import patch
+        import socket
+        from sanna.gateway.config import validate_webhook_url, GatewayConfigError
+
+        # One public, one private — should still be rejected
+        mock_result = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.1", 0)),
+        ]
+        with patch("socket.getaddrinfo", return_value=mock_result):
+            with pytest.raises(GatewayConfigError, match="private"):
+                validate_webhook_url("https://evil-rebind.example.com/hook")
+
+    def test_hostname_resolving_to_public_ip_accepted(self):
+        """Hostname resolving to a public IP passes validation."""
+        from unittest.mock import patch
+        import socket
+        from sanna.gateway.config import validate_webhook_url
+
+        mock_result = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+        ]
+        with patch("socket.getaddrinfo", return_value=mock_result):
+            # Should not raise
+            validate_webhook_url("https://hooks.example.com/approve")
+
+    def test_dns_resolution_failure_rejects_gracefully(self):
+        """DNS resolution failure is handled gracefully — URL rejected, no crash."""
+        from unittest.mock import patch
+        import socket
+        from sanna.gateway.config import validate_webhook_url, GatewayConfigError
+
+        with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name resolution failed")):
+            with pytest.raises(GatewayConfigError, match="DNS resolution"):
+                validate_webhook_url("https://nonexistent-host.invalid/hook")
+
+    def test_ipv6_loopback_via_dns_rejected(self):
+        """Hostname resolving to ::1 is rejected."""
+        from unittest.mock import patch
+        import socket
+        from sanna.gateway.config import validate_webhook_url, GatewayConfigError
+
+        mock_result = [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 0, 0, 0)),
+        ]
+        with patch("socket.getaddrinfo", return_value=mock_result):
+            with pytest.raises(GatewayConfigError, match="loopback"):
+                validate_webhook_url("https://evil-rebind.example.com/hook")
+
+
+# ---------------------------------------------------------------------------
+# SEC-7: Webhook redirect prevention (token leak)
+# ---------------------------------------------------------------------------
+
+
+@requires_mcp
+class TestWebhookNoRedirects:
+    """SEC-7: Webhook delivery must NOT follow redirects."""
+
+    def test_redirect_not_followed(self, caplog):
+        """Webhook delivery does not follow HTTP redirects (307/308)."""
+        import logging
+        import urllib.error
+        from unittest.mock import patch, MagicMock
+        from sanna.gateway.server import SannaGateway, PendingEscalation
+
+        gw = object.__new__(SannaGateway)
+        gw._approval_webhook_url = "https://hooks.example.com/approve"
+
+        entry = PendingEscalation(
+            escalation_id="esc_redirect_test",
+            prefixed_name="mock_update",
+            original_name="update",
+            server_name="mock",
+            arguments={"id": "1"},
+            reason="test",
+            created_at="2024-01-01T00:00:00Z",
+        )
+        token_info = {"token": "tok_secret", "expires_at": time.time() + 900}
+
+        # Simulate a redirect: opener.open() raises HTTPError with 307
+        mock_headers = MagicMock()
+        mock_headers.get.return_value = "https://evil.example.com/steal"
+
+        redirect_exc = urllib.error.HTTPError(
+            url="https://hooks.example.com/approve",
+            code=307,
+            msg="Temporary Redirect",
+            hdrs=mock_headers,
+            fp=None,
+        )
+
+        mock_opener = MagicMock()
+        mock_opener.open = MagicMock(side_effect=redirect_exc)
+
+        with patch("urllib.request.build_opener", return_value=mock_opener), \
+             caplog.at_level(logging.WARNING, logger="sanna.gateway.server"):
+            gw._deliver_token_via_webhook(entry, token_info)
+
+        # The redirect warning should be logged
+        redirect_warnings = [
+            r for r in caplog.records
+            if "redirect" in r.message.lower() and "not followed" in r.message.lower()
+        ]
+        assert len(redirect_warnings) >= 1
+
+    def test_redirect_308_not_followed(self, caplog):
+        """308 Permanent Redirect is also blocked."""
+        import logging
+        import urllib.error
+        from unittest.mock import patch, MagicMock
+        from sanna.gateway.server import SannaGateway, PendingEscalation
+
+        gw = object.__new__(SannaGateway)
+        gw._approval_webhook_url = "https://hooks.example.com/approve"
+
+        entry = PendingEscalation(
+            escalation_id="esc_redirect_308",
+            prefixed_name="mock_update",
+            original_name="update",
+            server_name="mock",
+            arguments={"id": "1"},
+            reason="test",
+            created_at="2024-01-01T00:00:00Z",
+        )
+        token_info = {"token": "tok_secret", "expires_at": time.time() + 900}
+
+        mock_headers = MagicMock()
+        mock_headers.get.return_value = "https://evil.example.com/steal"
+
+        redirect_exc = urllib.error.HTTPError(
+            url="https://hooks.example.com/approve",
+            code=308,
+            msg="Permanent Redirect",
+            hdrs=mock_headers,
+            fp=None,
+        )
+
+        mock_opener = MagicMock()
+        mock_opener.open = MagicMock(side_effect=redirect_exc)
+
+        with patch("urllib.request.build_opener", return_value=mock_opener), \
+             caplog.at_level(logging.WARNING, logger="sanna.gateway.server"):
+            gw._deliver_token_via_webhook(entry, token_info)
+
+        redirect_warnings = [
+            r for r in caplog.records
+            if "redirect" in r.message.lower() and "not followed" in r.message.lower()
+        ]
+        assert len(redirect_warnings) >= 1
+
+    def test_non_redirect_http_error_still_logged(self, caplog):
+        """Non-redirect HTTP errors (e.g. 500) are logged normally."""
+        import logging
+        import urllib.error
+        from unittest.mock import patch, MagicMock
+        from sanna.gateway.server import SannaGateway, PendingEscalation
+
+        gw = object.__new__(SannaGateway)
+        gw._approval_webhook_url = "https://hooks.example.com/approve"
+
+        entry = PendingEscalation(
+            escalation_id="esc_500",
+            prefixed_name="mock_update",
+            original_name="update",
+            server_name="mock",
+            arguments={"id": "1"},
+            reason="test",
+            created_at="2024-01-01T00:00:00Z",
+        )
+        token_info = {"token": "tok_secret", "expires_at": time.time() + 900}
+
+        mock_headers = MagicMock()
+        http_exc = urllib.error.HTTPError(
+            url="https://hooks.example.com/approve",
+            code=500,
+            msg="Internal Server Error",
+            hdrs=mock_headers,
+            fp=None,
+        )
+
+        mock_opener = MagicMock()
+        mock_opener.open = MagicMock(side_effect=http_exc)
+
+        with patch("urllib.request.build_opener", return_value=mock_opener), \
+             caplog.at_level(logging.WARNING, logger="sanna.gateway.server"):
+            gw._deliver_token_via_webhook(entry, token_info)
+
+        error_warnings = [
+            r for r in caplog.records
+            if "HTTP 500" in r.message
+        ]
+        assert len(error_warnings) >= 1
+
+
+# ---------------------------------------------------------------------------
+# SEC-2: HTTPS enforcement for webhooks
+# ---------------------------------------------------------------------------
+
+
+@requires_mcp
+class TestWebhookHTTPSEnforcement:
+    """SEC-2: Webhook URLs must use HTTPS unless insecure override is set."""
+
+    def test_http_url_rejected_by_default(self):
+        """http:// webhook URL is rejected without env var override."""
+        from sanna.gateway.config import validate_webhook_url, GatewayConfigError
+        with pytest.raises(GatewayConfigError, match="https://"):
+            validate_webhook_url("http://hooks.example.com/approve")
+
+    def test_https_url_accepted(self):
+        """https:// webhook URL passes scheme check."""
+        from unittest.mock import patch
+        import socket
+        from sanna.gateway.config import validate_webhook_url
+        mock_result = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+        ]
+        with patch("socket.getaddrinfo", return_value=mock_result):
+            validate_webhook_url("https://hooks.example.com/approve")
+
+    def test_http_localhost_rejected_without_env_var(self, monkeypatch):
+        """http://localhost rejected without SANNA_ALLOW_INSECURE_WEBHOOK=1."""
+        monkeypatch.delenv("SANNA_ALLOW_INSECURE_WEBHOOK", raising=False)
+        from sanna.gateway.config import validate_webhook_url, GatewayConfigError
+        with pytest.raises(GatewayConfigError, match="https://"):
+            validate_webhook_url("http://localhost:8080/hook")
+
+    def test_http_localhost_allowed_with_env_var(self, monkeypatch):
+        """http://localhost allowed when SANNA_ALLOW_INSECURE_WEBHOOK=1."""
+        monkeypatch.setenv("SANNA_ALLOW_INSECURE_WEBHOOK", "1")
+        from sanna.gateway.config import validate_webhook_url
+        # Should not raise
+        validate_webhook_url("http://localhost:8080/hook")
+
+    def test_http_127_0_0_1_allowed_with_env_var(self, monkeypatch):
+        """http://127.0.0.1 allowed when SANNA_ALLOW_INSECURE_WEBHOOK=1."""
+        monkeypatch.setenv("SANNA_ALLOW_INSECURE_WEBHOOK", "1")
+        from sanna.gateway.config import validate_webhook_url
+        # Should not raise
+        validate_webhook_url("http://127.0.0.1:8080/hook")
+
+    def test_http_external_rejected_even_with_env_var(self, monkeypatch):
+        """http://external-host is still rejected even with the env var
+        (only localhost/127.0.0.1 are allowed for insecure override)."""
+        monkeypatch.setenv("SANNA_ALLOW_INSECURE_WEBHOOK", "1")
+        from sanna.gateway.config import validate_webhook_url, GatewayConfigError
+        with pytest.raises(GatewayConfigError, match="https://"):
+            validate_webhook_url("http://8.8.8.8/hook")
+
+    def test_insecure_env_var_logs_critical_warning(self, monkeypatch, caplog):
+        """Using SANNA_ALLOW_INSECURE_WEBHOOK=1 logs a CRITICAL warning."""
+        import logging
+        monkeypatch.setenv("SANNA_ALLOW_INSECURE_WEBHOOK", "1")
+        from sanna.gateway.config import validate_webhook_url
+        with caplog.at_level(logging.CRITICAL, logger="sanna.gateway.config"):
+            validate_webhook_url("http://localhost:8080/hook")
+        critical_msgs = [
+            r for r in caplog.records
+            if r.levelno >= logging.CRITICAL
+            and "SANNA_ALLOW_INSECURE_WEBHOOK" in r.message
+        ]
+        assert len(critical_msgs) >= 1
+
+    def test_insecure_env_var_wrong_value_rejected(self, monkeypatch):
+        """SANNA_ALLOW_INSECURE_WEBHOOK must be exactly '1'."""
+        monkeypatch.setenv("SANNA_ALLOW_INSECURE_WEBHOOK", "true")
+        from sanna.gateway.config import validate_webhook_url, GatewayConfigError
+        with pytest.raises(GatewayConfigError, match="https://"):
+            validate_webhook_url("http://localhost:8080/hook")

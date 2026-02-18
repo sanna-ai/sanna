@@ -1,5 +1,7 @@
 # Changelog
 
+**Note:** v0.13.0 is the first public PyPI release. Earlier version entries document internal pre-release development.
+
 ## [0.13.0] - 2026-02-17
 
 Receipt format v1.0 specification, schema migration from v0.12.x field names, and security hardening across all enforcement paths.
@@ -7,18 +9,21 @@ Receipt format v1.0 specification, schema migration from v0.12.x field names, an
 ### Security
 - **CRIT-01: Approval channel hardened** — default token delivery changed to stderr-only, file delivery requires `SANNA_INSECURE_FILE_TOKENS=1`, webhook delivery with SSRF validation, TTY check on `sanna-approve`
 - **CRIT-02: Constitution signature verification enforced in all paths** — middleware, MCP, gateway all require Ed25519 signature by default (`require_constitution_sig=True`), `signature_verified` field in `constitution_ref`
-- **CRIT-03: PII redaction expanded** — `pattern_redact` raises `ConfigError` (not yet implemented), redacts `outputs.response` not `outputs.output`, redacted-only persistence with `_redaction_notice`
-- **HIGH-01: error_policy parameter** — `fail_closed` (default) treats evaluator errors as real failures (`status=FAILED`), `fail_open` preserves legacy ERRORED behavior
+- **CRIT-03: PII redaction expanded** — `pattern_redact` mode now raises `ConfigError` at load time (fail-closed; full implementation deferred to future release), redacts `outputs.response` not `outputs.output`, redacted-only persistence with `_redaction_notice`
+- **HIGH-01: error_policy parameter** — `fail_closed` (default) treats evaluator errors as real failures (`status=FAIL`), `fail_open` preserves legacy ERRORED behavior
 - **HIGH-02: LLM evaluator prompt trust separation** — constitution in `<trusted_rules>`, untrusted I/O in `<audit_input>`/`<audit_output>`
 - **HIGH-03: asyncio.Lock on EscalationStore** for thread-safe async writes
 - **HIGH-04: ReceiptStore rejects /tmp paths** — resolves bare filenames to `~/.sanna/receipts/`
 - **HIGH-05: sanna-verify --strict flag** — warns on signed receipts without verification key
 - **HIGH-06: approve_constitution verifies author signature** before writing approval record
 - **HIGH-07: Async decorator fix** — `_pre_execution_check_async` directly awaits pipeline, shared module-level `ThreadPoolExecutor` for sync path
+- *(HIGH-08: consolidated into HIGH-07 during development)*
 - **HIGH-09: WAL sidecar forced creation** with 0o600 permissions
 - **MED-01: Docker ownership check skip** via `SANNA_SKIP_DB_OWNERSHIP_CHECK=1`
+- *(MED-02: consolidated into MED-01 during development)*
 - **MED-03: escape_audit_content handles None and non-string inputs**
 - **MED-04: math.isfinite() guard** before float-to-int conversion in signing
+- *(MED-05, MED-06: consolidated into other fixes during development)*
 - **MED-07: Key generation directory** uses `ensure_secure_dir`
 - **LOW-01: WAL sidecar TOCTOU fix** — `O_NOFOLLOW` + `fchmod` replaces `is_symlink()` + `chmod()`
 - **LOW-02: Gateway secret symlink rejection** before file read
@@ -43,6 +48,7 @@ Receipt format v1.0 specification, schema migration from v0.12.x field names, an
 - Published `spec/sanna-specification-v1.0.md` — 10 sections + 3 appendices covering receipt format, canonicalization, fingerprint construction, signing, constitution format, verification protocol
 
 ### Breaking Changes
+- **v0.13.0 receipts use a new schema with `spec_version` field. The CLI cannot verify pre-v0.13.0 receipts.** Older receipts using `schema_version` are not forward-compatible with the v1.0 receipt schema.
 - Receipt format incompatible with v0.12.x:
   - `schema_version` → `spec_version`
   - `trace_id` → `correlation_id`

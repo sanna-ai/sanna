@@ -1,7 +1,7 @@
 # Sanna Reasoning Receipt Specification v1.0
 
 **Status:** Released
-**Version:** 1.0
+**Version:** 1.0.1
 **Date:** 2026-02-17
 **Reference implementation:** sanna v0.13.0
 
@@ -57,12 +57,12 @@ Every receipt MUST contain the following fields:
 | `receipt_id` | string | UUID v4 (lowercase hex, dashes) |
 | `receipt_fingerprint` | string | Truncated 16-hex SHA-256 (see Section 4) |
 | `full_fingerprint` | string | Full 64-hex SHA-256 (see Section 4) |
-| `correlation_id` | string | Unique identifier for the originating action |
+| `correlation_id` | string | Unique identifier for the originating action. MUST NOT contain the pipe character `|` (U+007C), as this character is used as the field delimiter in the fingerprint computation. Implementations MUST validate this constraint. |
 | `timestamp` | string | ISO 8601 date-time when receipt was generated |
-| `inputs` | object | Inputs to the AI system (`query`, `context`) |
-| `outputs` | object | Outputs from the AI system (`response`) |
-| `context_hash` | string | Full 64-hex SHA-256 of Sanna Canonical JSON of `inputs` |
-| `output_hash` | string | Full 64-hex SHA-256 of Sanna Canonical JSON of `outputs` |
+| `inputs` | object | Inputs to the AI system (`query`, `context`, and any additional properties) |
+| `outputs` | object | Outputs from the AI system (`response` and any additional properties) |
+| `context_hash` | string | Full 64-hex SHA-256 of Sanna Canonical JSON of the entire `inputs` object (including all additionalProperties) |
+| `output_hash` | string | Full 64-hex SHA-256 of Sanna Canonical JSON of the entire `outputs` object (including all additionalProperties) |
 | `checks` | array | Array of `CheckResult` objects (see Section 2.3) |
 | `checks_passed` | integer | Count of checks where `passed == true` |
 | `checks_failed` | integer | Count of checks where `passed == false` |
@@ -73,18 +73,18 @@ Every receipt MUST contain the following fields:
 | Field | Type | Description |
 |-------|------|-------------|
 | `evaluation_coverage` | object/null | Invariant coverage metrics |
-| `constitution_ref` | object/null | Provenance of the governing constitution |
-| `enforcement` | object/null | Enforcement outcome |
+| `constitution_ref` | object/null | Provenance of the governing constitution (see Section 2.6) |
+| `enforcement` | object/null | Enforcement outcome (see Section 2.5). Present when a constitution is loaded and enforcement is triggered. MAY be null or absent when no enforcement action was taken. |
 | `receipt_signature` | object/null | Ed25519 cryptographic signature |
-| `authority_decisions` | array/null | Authority boundary decisions |
-| `escalation_events` | array/null | Escalation audit trail |
-| `source_trust_evaluations` | array/null | Trust tier evaluations |
+| `authority_decisions` | array/null | Authority boundary decisions (see Section 2.7). OPTIONAL -- present only in gateway mode. |
+| `escalation_events` | array/null | Escalation audit trail (see Section 2.8). OPTIONAL -- present only in gateway mode. |
+| `source_trust_evaluations` | array/null | Trust tier evaluations (see Section 2.9). OPTIONAL -- present only when structured context with trust tiers is provided. |
 | `input_hash` | string/null | Receipt Triad: SHA-256 of action context (see Section 7) |
 | `reasoning_hash` | string/null | Receipt Triad: SHA-256 of agent justification (see Section 7) |
 | `action_hash` | string/null | Receipt Triad: SHA-256 of tool call and arguments (see Section 7) |
 | `assurance` | string/null | Receipt Triad assurance level (`"full"`, `"partial"`) (see Section 7) |
 | `extensions` | object | Reverse-domain-namespaced vendor metadata |
-| `identity_verification` | object/null | Identity claim verification results |
+| `identity_verification` | object/null | Identity claim verification results (see Section 2.10) |
 
 Receipts MUST NOT contain fields not defined in the schema
 (`additionalProperties: false`).
@@ -95,7 +95,7 @@ Each element of the `checks` array MUST contain:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `check_id` | string | Yes | Pattern: `^(C[1-5]\|INV_.+\|sanna\\..+)$` |
+| `check_id` | string | Yes | Pattern: `^(C[1-5]|INV_.+|sanna\..+)$` (alternation of three forms: legacy C1-C5, custom INV_ prefix, or namespaced sanna. prefix) |
 | `name` | string | Yes | Human-readable check name |
 | `passed` | boolean | Yes | Whether the check passed |
 | `severity` | string | Yes | `"info"`, `"warning"`, `"critical"`, `"high"`, `"medium"`, `"low"` |
@@ -117,19 +117,27 @@ The `status` field MUST be computed from `checks` as follows:
    **non-evaluated** if `status` is `"NOT_CHECKED"` or `"ERRORED"`.
 2. `checks_passed` = count of evaluated checks where `passed == true`.
 3. `checks_failed` = count of evaluated checks where `passed == false`.
-4. If any evaluated check has `passed == false` and `severity == "critical"`:
-   `status = "FAIL"`.
+4. If any evaluated check has `passed == false` and
+   `severity` in `{"critical", "high"}`: `status = "FAIL"`.
 5. Else if any evaluated check has `passed == false` and
-   `severity == "warning"`: `status = "WARN"`.
+   `severity` in `{"warning", "medium", "low"}`: `status = "WARN"`.
 6. Else if any non-evaluated checks exist and no failures: `status = "PARTIAL"`.
 7. Otherwise: `status = "PASS"`.
+
+The severity hierarchy for status computation is:
+- **FAIL-level severities:** `"critical"`, `"high"`
+- **WARN-level severities:** `"warning"`, `"medium"`, `"low"`
+- **Neutral severities:** `"info"` (does not affect status)
 
 Non-evaluated checks (`NOT_CHECKED`, `ERRORED`) MUST NOT be counted in
 `checks_passed` or `checks_failed`.
 
 ### 2.5 Enforcement Object
 
-When a constitution is loaded, the `enforcement` field MUST be present:
+When a constitution is loaded and enforcement is triggered, the
+`enforcement` field SHOULD be present. The `enforcement` field MAY be
+null or absent when no enforcement action was taken (e.g., all checks
+passed with no halt/warn enforcement configured):
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -149,11 +157,95 @@ When a constitution is loaded, `constitution_ref` SHOULD be present:
 | `policy_hash` | string | Yes | SHA-256 hex (16 or 64 chars) |
 | `version` | string/null | No | Constitution version |
 | `source` | string/null | No | Load path |
+| `approved_by` | string/array/null | No | Email(s) of constitution approver(s) |
+| `approval_date` | string/null | No | ISO 8601 date of approval |
+| `approval_method` | string/null | No | Method used for approval |
+| `signature` | string/null | No | Base64-encoded constitution Ed25519 signature value |
+| `key_id` | string/null | No | 64-hex SHA-256 key identifier |
+| `signed_by` | string/null | No | Human-readable signer identity |
+| `signed_at` | string/null | No | ISO 8601 date-time of signing |
+| `scheme` | string/null | No | `"constitution_sig_v1"` |
 | `signature_verified` | boolean/string/null | No | `true`, `false`, `"no_signature"` |
-| `constitution_approval` | object/null | No | Approval status (see schema) |
+| `constitution_approval` | object/null | No | Approval status (see schema `oneOf` variants: full approved record, minimal `{"status": "unapproved"}`, or null) |
 
 `constitution_approval` is mutable metadata and MUST NOT be included in
-the fingerprint hash (see Section 4.2).
+the fingerprint hash (see Section 4.2). However, it IS included in the
+receipt signature -- the signature covers the entire receipt (including
+`constitution_approval`) except the `receipt_signature.signature` value
+itself.
+
+### 2.7 Authority Decisions
+
+OPTIONAL -- present only in gateway mode.
+
+Each element of the `authority_decisions` array MUST contain:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | string | Yes | Tool name or action that was evaluated |
+| `params` | object/null | No | Tool parameters (additionalProperties allowed) |
+| `decision` | string | Yes | `"halt"`, `"allow"`, `"escalate"` |
+| `reason` | string | Yes | Human-readable reason for the decision |
+| `boundary_type` | string | Yes | `"cannot_execute"`, `"must_escalate"`, `"can_execute"`, `"uncategorized"` |
+| `escalation_target` | object/null | No | Target configuration with `type` field (`"log"`, `"webhook"`, `"callback"`) |
+| `timestamp` | string | Yes | ISO 8601 date-time |
+
+### 2.8 Escalation Events
+
+OPTIONAL -- present only in gateway mode.
+
+Each element of the `escalation_events` array MUST contain:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | string | Yes | Tool name or action that triggered escalation |
+| `condition` | string | Yes | Escalation condition from constitution |
+| `target_type` | string | Yes | `"log"`, `"webhook"`, `"callback"` |
+| `success` | boolean | Yes | Whether escalation delivery succeeded |
+| `details` | object/null | No | Additional delivery details |
+| `timestamp` | string | Yes | ISO 8601 date-time |
+
+### 2.9 Source Trust Evaluations
+
+OPTIONAL -- present only when structured context with trust tiers
+is provided.
+
+Each element of the `source_trust_evaluations` array MUST contain:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `source_name` | string | Yes | Name of the data source |
+| `trust_tier` | string | Yes | `"tier_1"`, `"tier_2"`, `"tier_3"`, `"untrusted"`, `"unclassified"` |
+| `evaluated_at` | string | Yes | ISO 8601 date-time |
+| `verification_flag` | boolean/null | No | Whether verification is recommended (true for tier_2) |
+| `context_used` | boolean/null | No | Whether the source was used in check evaluation |
+
+### 2.10 Identity Verification
+
+OPTIONAL -- present only when the constitution has identity claims.
+
+The `identity_verification` object contains:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `total_claims` | integer | Yes | Total number of identity claims |
+| `verified` | integer | Yes | Number of verified claims |
+| `failed` | integer | Yes | Number of failed verifications |
+| `unverified` | integer | Yes | Number of unverified claims (no key or no signature) |
+| `all_verified` | boolean | Yes | Whether all claims are verified |
+| `claims` | array | Yes | Per-claim status records |
+
+Each element of the `claims` array contains:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `provider` | string | Yes | Identity provider name |
+| `claim_type` | string | Yes | Type of identity claim |
+| `credential_id` | string | Yes | Credential identifier |
+| `status` | string | Yes | `"verified"`, `"unverified"`, `"failed"`, `"expired"`, `"no_key"` |
+
+`identity_verification` is NOT included in the receipt fingerprint. It
+is verified separately and appended after fingerprint computation.
 
 ---
 
@@ -164,8 +256,12 @@ Canonicalization Scheme) for all hash computations.
 
 ### 3.1 Sanna Canonical JSON
 
+All string values MUST be normalized to Unicode NFC form (UAX #15)
+before canonicalization. Implementations MUST apply NFC normalization
+before any hashing or comparison operation.
+
 The canonical form is produced by `json.dumps()` with:
-- `sort_keys=True`
+- `sort_keys=True` -- keys are sorted by byte-wise comparison of their UTF-8 encoded representations, consistent with RFC 8785 section 3.2.3
 - `separators=(",", ":")` (no whitespace)
 - `ensure_ascii=False`
 
@@ -179,17 +275,34 @@ Conforming implementations MUST:
 - Reject non-integer floats in signing contexts (use integer basis
   points or string representation instead).
 
+Numeric values in signed receipt fields MUST be integers. Floats
+MUST NOT appear in signed content. If a float input is an exact
+integer (e.g., `3.0`), it MUST be serialized as an integer (`3`).
+Non-integer floats MUST be rejected before signing.
+
 The `sanitize_for_signing()` function converts exact-integer floats
-(e.g., `71.0`) to integers (`71`) and raises `TypeError` on lossy
+(e.g., `71.0`) to integers (`71`) and raises `ValueError` on lossy
 floats, `NaN`, and `Infinity`.
 
 ### 3.3 Hash Functions
 
 | Function | Input | Output |
 |----------|-------|--------|
-| `hash_text(s)` | UTF-8 string | SHA-256 hex, truncated to 16 chars |
+| `hash_text(s)` | UTF-8 string | SHA-256 hex, default truncation 64 chars |
 | `hash_text(s, truncate=N)` | UTF-8 string | SHA-256 hex, truncated to N chars |
 | `hash_obj(obj)` | Any JSON-serializable object | `hash_text(canonical_json_bytes(obj))` |
+
+`hash_text(s)` applies the following normalization steps before hashing:
+
+1. **NFC normalization** -- Unicode NFC (UAX #15).
+2. **Line-ending normalization** -- `\r\n` and `\r` are replaced with `\n`.
+3. **Trailing whitespace stripping** -- trailing whitespace is removed from each line.
+4. **Leading/trailing strip** -- the entire string is stripped of leading and trailing whitespace.
+5. **UTF-8 encoding** -- the normalized string is encoded as UTF-8 bytes.
+6. **SHA-256** -- the bytes are hashed with SHA-256.
+
+The default truncation length is **64 characters** (full SHA-256 hex).
+Use `hash_text(s, truncate=16)` for the short human-readable form.
 
 Full (64-char) hashes: use `hash_text(s, truncate=64)` or
 `sha256_hex(data, truncate=64)`.
@@ -239,13 +352,18 @@ Note: `correlation_id` and `checks_version` contribute their literal
 string values to the fingerprint formula. All other components
 contribute 64-character hexadecimal SHA-256 strings or `EMPTY_HASH`.
 
-The `receipt_fingerprint` is `hash_text(fingerprint_input)` (16 hex chars).
-The `full_fingerprint` is `hash_text(fingerprint_input, truncate=64)` (64 hex chars).
+The `receipt_fingerprint` is `hash_text(fingerprint_input, truncate=16)` (16 hex chars).
+The `full_fingerprint` is `hash_text(fingerprint_input)` (64 hex chars).
+
+For fingerprint computation, absent optional fields MUST be treated
+identically to null. Both `"field": null` and omission of `field`
+produce `EMPTY_HASH` as the component value. There is no distinction
+between a null value and a missing key for fingerprint purposes.
 
 ### 4.2 Constitution Approval Stripping
 
 The `constitution_approval` field within `constitution_ref` is **mutable
-metadata** — it can be added or revoked after the constitution is signed.
+metadata** -- it can be added or revoked after the constitution is signed.
 Before computing `constitution_hash`, implementations MUST remove the
 `constitution_approval` key:
 
@@ -253,6 +371,14 @@ Before computing `constitution_hash`, implementations MUST remove the
 stripped = {k: v for k, v in constitution_ref.items() if k != "constitution_approval"}
 constitution_hash = hash_obj(stripped)
 ```
+
+Note: `constitution_approval` is excluded from the **fingerprint** hash
+but IS included in the **receipt signature**. The fingerprint covers
+immutable receipt content; the signature covers the full receipt
+(including mutable approval metadata). This means:
+- Changing `constitution_approval` invalidates the receipt signature.
+- Changing `constitution_approval` does NOT invalidate the fingerprint.
+- Approval metadata integrity is verified through the signature, not the fingerprint.
 
 ### 4.3 Checks Hash
 
@@ -265,6 +391,15 @@ dict contains the following fields (in this exact set):
 **Constitution-driven path**: `check_id`, `passed`, `severity`,
 `evidence`, `triggered_by`, `enforcement_level`, `check_impl`,
 `replayable`.
+
+Checks MUST be hashed in insertion order (the order they appear in
+the `checks` array). Implementations MUST NOT sort checks before
+hashing.
+
+When a CheckResult field is null, it MUST be included in the hash
+input as the JSON literal `null`, not omitted. For example, a check
+with `evidence: null` MUST produce `{"evidence":null,...}` in the
+canonical JSON, not `{...}` with the key omitted.
 
 ### 4.4 checks_version
 
@@ -291,7 +426,15 @@ The following fields are NOT included in fingerprint computation:
 
 ### 5.1 Algorithm
 
-All signatures use **Ed25519** (RFC 8032).
+All signatures use **Pure Ed25519** as defined in RFC 8032. This means
+no context string and no pre-hashing (Ed25519, not Ed25519ctx or
+Ed25519ph). Signatures are 64 bytes: the concatenation of R (32 bytes
+compressed Edwards point) and S (32 bytes scalar).
+
+Signature values MUST be validated after stripping ASCII whitespace
+(0x09 HT, 0x0A LF, 0x0D CR, 0x20 SP). Implementations MUST strip
+whitespace before base64 decoding and MUST use strict base64 decoding
+(rejecting non-alphabet characters).
 
 ### 5.2 Receipt Signing
 
@@ -308,7 +451,7 @@ The `receipt_signature` object contains:
 | Field | Type | Description |
 |-------|------|-------------|
 | `signature` | string | Base64-encoded Ed25519 signature |
-| `key_id` | string | SHA-256 hex of the public key (64 chars) |
+| `key_id` | string | SHA-256 hex of the public key (64 chars, see Section 5.5) |
 | `signed_by` | string | Human-readable signer identity |
 | `signed_at` | string | ISO 8601 timestamp |
 | `scheme` | string | `"receipt_sig_v1"` |
@@ -333,9 +476,30 @@ serialized with `canonical_json_bytes()`.
 
 ### 5.5 Key Identification
 
-Keys are identified by their `key_id`: the SHA-256 hex digest of the
-DER-encoded public key bytes. Key files use the key_id as filename:
+Keys are identified by their `key_id`: the lowercase hex-encoded
+SHA-256 hash of the **32-byte raw Ed25519 public key** (not
+DER/SubjectPublicKeyInfo encoded).
+
+In code:
+```python
+raw_bytes = public_key.public_bytes(encoding=Raw, format=Raw)  # 32 bytes
+key_id = hashlib.sha256(raw_bytes).hexdigest()                 # 64 hex chars
+```
+
+Key files use the key_id as filename:
 `{key_id}.key`, `{key_id}.pub`, `{key_id}.meta.json`.
+
+### 5.6 Key File Encoding
+
+Private keys MUST be stored in **PKCS#8 PEM format** (unencrypted).
+Public keys MUST be stored in **SubjectPublicKeyInfo PEM format**.
+
+The key_id is computed from the raw 32-byte Ed25519 public key (as
+described in Section 5.5), NOT from the PEM or DER encoding.
+
+Example PEM header/footer:
+- Private: `-----BEGIN PRIVATE KEY-----` / `-----END PRIVATE KEY-----`
+- Public: `-----BEGIN PUBLIC KEY-----` / `-----END PUBLIC KEY-----`
 
 ---
 
@@ -367,12 +531,18 @@ Constitutions are YAML documents. The normative schema is
 
 ### 6.3 Invariant-to-Check Resolution
 
-Each invariant is resolved to a check implementation:
+Each invariant is resolved to a check implementation in the following
+order. The first match wins; no further resolution is attempted.
 
-1. **Explicit `check` field** on the invariant: look up in the check registry.
+1. **Explicit `check` field** on the invariant: look up in the check registry
+   (or legacy aliases for C1-C5).
 2. **Standard `INV_*` ID**: look up in the invariant-to-check map.
 3. **Custom evaluator**: look up in the evaluator registry.
 4. **Fallback**: record as `NOT_CHECKED`.
+
+When multiple invariants map to the same check implementation, each
+invariant produces a separate check execution. The checks run in the
+order invariants appear in the constitution.
 
 Standard mappings:
 
@@ -386,17 +556,29 @@ Standard mappings:
 
 ### 6.4 Enforcement Levels
 
+Each invariant specifies an enforcement level that determines what
+happens when the check fails:
+
 | Level | Behavior |
 |-------|----------|
 | `halt` | Stop execution, raise error, generate receipt with `enforcement.action = "halted"` |
 | `warn` | Continue execution, generate receipt with `enforcement.action = "warned"` |
 | `log` | Continue execution, generate receipt with `enforcement.action = "allowed"` |
 
+Enforcement is applied per-check based on the invariant's enforcement
+level, not the receipt-level status. A check with `enforcement_level =
+"halt"` and `passed = false` triggers a halt regardless of other
+checks' results.
+
 ### 6.5 Enumerated Values
 
 **Categories:** `scope`, `authorization`, `confidentiality`, `safety`, `compliance`, `custom`
 
-**Severities:** `critical`, `high`, `medium`, `low`, `info`
+**Severities (check results):** `critical`, `high`, `medium`, `low`, `warning`, `info`
+
+The severity enum serves two purposes:
+- Status computation (see Section 2.4): `critical`/`high` produce FAIL, `warning`/`medium`/`low` produce WARN, `info` is neutral.
+- Human communication: indicates the seriousness of a check failure.
 
 **Enforcement:** `halt`, `warn`, `log`
 
@@ -420,9 +602,48 @@ establishing that governance evaluation covered the full decision chain.
 | `action_hash` | string | SHA-256 of the tool call and arguments |
 | `assurance` | string | `"full"` or `"partial"` |
 
-All three hash fields are full 64-character hexadecimal SHA-256 digests.
+All three hash fields are full 64-character hexadecimal SHA-256 digests
+(bare hex, no prefix).
 
-### 7.2 Assurance Levels
+### 7.2 Triad Hash Construction
+
+Each triad hash is computed as follows:
+
+**`input_hash` (and `action_hash` at gateway boundary):**
+```
+input_obj = {"tool": tool_name, "args": args_without_justification}
+input_hash = SHA-256(canonical_json_bytes(input_obj))
+```
+Where `args_without_justification` is the tool arguments dict with the
+`_justification` key removed. The canonical JSON uses Sanna Canonical
+JSON (Section 3.1).
+
+Example:
+```
+tool_name = "API-post-search"
+args = {"query": "test", "_justification": "looking for data"}
+args_clean = {"query": "test"}
+input_obj = {"args": {"query": "test"}, "tool": "API-post-search"}
+canonical = '{"args":{"query":"test"},"tool":"API-post-search"}'
+input_hash = SHA-256(canonical.encode("utf-8"))
+         = "5f2b9d..."  (64 hex chars)
+```
+
+**`reasoning_hash`:**
+```
+reasoning_hash = SHA-256(justification_string.encode("utf-8"))
+```
+When no justification is provided, use the empty string:
+```
+reasoning_hash = SHA-256(b"")
+             = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+```
+
+**`action_hash`:**
+At the gateway boundary, `action_hash` is identical to `input_hash`
+(see Section 7.4).
+
+### 7.3 Assurance Levels
 
 - **`"full"`**: The agent's justification is present and has been
   evaluated by reasoning checks (presence, substance, coherence).
@@ -433,14 +654,14 @@ All three hash fields are full 64-character hexadecimal SHA-256 digests.
 
 When any triad hash is present, `assurance` MUST also be present.
 
-### 7.3 Absent Triad
+### 7.4 Absent Triad
 
 When the Receipt Triad is not applicable (e.g., non-gateway receipts
 that do not involve tool calls), the triad fields are simply not
 present in the receipt. They are not set to `null` and not set to
 empty strings -- they are absent from the JSON object entirely.
 
-### 7.4 Gateway Boundary
+### 7.5 Gateway Boundary
 
 At the gateway enforcement boundary, the gateway sees the tool call as
 both the input to governance evaluation and the action being governed.
@@ -487,17 +708,29 @@ Escalation approval tokens are bound to the specific tool call via
 HMAC-SHA256. The token is computed as:
 
 ```
-token = HMAC-SHA256(secret, escalation_id | tool_name | args_hash | created_at)
+message = "{escalation_id}|{tool_name}|{args_digest}|{issued_at}"
+token = hex(HMAC-SHA256(gateway_secret, message.encode("utf-8")))
 ```
 
 Where:
-- `secret` is a per-gateway random secret, generated at gateway startup
-  and held in memory only.
-- `escalation_id` is the unique identifier for the pending escalation.
-- `tool_name` is the unprefixed name of the downstream tool.
-- `args_hash` is the SHA-256 hex digest of the tool arguments.
-- `created_at` is the ISO 8601 timestamp when the escalation was created.
-- `|` denotes string concatenation of the components.
+- `gateway_secret` is a per-gateway random secret (bytes), generated at
+  gateway startup and held in memory only (or loaded from a persistent
+  secret file at `~/.sanna/gateway_secret`).
+- `escalation_id` is the unique identifier for the pending escalation
+  (full `uuid4().hex`, 32 hex characters).
+- `tool_name` is the unprefixed name of the downstream tool (the
+  `original_name` field of the PendingEscalation).
+- `args_digest` is the SHA-256 hex digest of the canonical JSON of the
+  tool arguments. When args contain floats that prevent JCS
+  canonicalization, falls back to `json.dumps(sort_keys=True)`.
+- `issued_at` is an integer epoch timestamp (seconds since Unix epoch)
+  stored in the PendingEscalation record. This is an integer, not a
+  float, for HMAC reproducibility.
+- `|` is the literal pipe character used as field separator.
+
+The message components are concatenated with pipe delimiters and
+encoded as UTF-8 before HMAC computation. The result is the hex
+digest of the HMAC-SHA256.
 
 This binding prevents an approval token for one tool call from being
 used to approve a different tool call.
@@ -557,6 +790,10 @@ early with the corresponding exit code.
 | 3 | Fingerprint or content hash mismatch |
 | 4 | Status or count consistency error |
 | 5 | Other verification error |
+
+When verifying a single receipt, the CLI returns the exit code from
+the verification result. The `sanna-verify` command operates on a
+single receipt file per invocation.
 
 ---
 
@@ -625,7 +862,59 @@ Receipts do not and cannot prove:
 - That the system behaved identically in the absence of governance.
   Receipts are observational, not counterfactual.
 
-### 12.3 Key Management
+### 12.3 Threat Model
+
+This section describes the assumed attacker capabilities and the
+security boundaries of the Sanna receipt system.
+
+**Assumed attacker capabilities:**
+
+- The attacker controls agent outputs (can produce arbitrary text
+  responses and tool call arguments).
+- The attacker can read persisted receipts, constitutions, and public
+  keys from storage.
+- The attacker can submit arbitrary tool call arguments through the
+  MCP protocol, including prompt injection attempts.
+- The attacker may attempt to replay, forge, or tamper with receipts.
+
+**What Sanna defends against:**
+
+- **Receipt tampering**: Ed25519 signatures and deterministic
+  fingerprints detect any modification to signed receipts.
+- **Unverifiable governance claims**: A receipt without a valid
+  fingerprint and signature cannot be presented as proof of governance.
+- **Unauthorized tool execution**: The gateway enforcement proxy
+  blocks `cannot_execute` tool calls and requires human approval for
+  `must_escalate` tool calls before forwarding.
+- **Escalation token forgery**: HMAC-SHA256 binding prevents approval
+  tokens from being forged or replayed across different tool calls.
+- **Constitution tampering**: Ed25519 constitution signatures detect
+  post-signing modifications.
+- **Prompt injection in audit fields**: XML entity escaping
+  (`escape_audit_content()`) prevents injection through agent-
+  controlled content that appears in LLM evaluation prompts.
+
+**What Sanna does NOT defend against:**
+
+- **Compromised runtime**: If the Sanna library itself is modified or
+  the process is compromised, receipts can be forged at the source.
+  Sanna assumes the runtime environment is trusted.
+- **Stolen signing keys**: An attacker with access to the Ed25519
+  private key can produce valid signatures on arbitrary receipts.
+  Key management (Section 12.4) mitigates but does not eliminate
+  this risk.
+- **Bypassing Sanna entirely**: If the agent can execute tool calls
+  without going through the gateway or middleware, no receipt is
+  generated. Sanna is an observational system, not a process
+  isolation boundary.
+- **Semantic completeness of checks**: The built-in C1-C5 checks are
+  heuristic pattern matchers, not formal verification. They catch
+  common reasoning failures but do not guarantee correctness.
+- **Downstream execution fidelity**: At the gateway boundary, the
+  gateway attests to what it forwarded, not what the downstream
+  server actually executed.
+
+### 12.4 Key Management
 
 Private keys MUST be stored securely with restricted file permissions
 (0o600 or equivalent). The following key separation is RECOMMENDED:
@@ -644,7 +933,7 @@ new author key, new approval records with the new approver key, or
 reconfiguration of the gateway with the new gateway key. Old receipts
 remain verifiable against the old public key.
 
-### 12.4 Approval Channel Security
+### 12.5 Approval Channel Security
 
 Escalation approval channels have the following security properties and
 requirements:
@@ -689,6 +978,10 @@ An implementation claiming to be a compatible generator MUST:
    absent fingerprint components.
 7. Strip `constitution_approval` from `constitution_ref` before
    computing the constitution hash (Section 4.2).
+8. Apply NFC Unicode normalization to all string values before
+   canonicalization (Section 3.1).
+9. Validate that `correlation_id` does not contain the pipe character
+   `|` (Section 2.1).
 
 ### 13.2 Compatible Verifier
 
@@ -703,10 +996,6 @@ An implementation claiming to be a compatible verifier MUST:
    applying the rules in Section 2.4 to the `checks` array.
 4. Verify check count consistency: `checks_passed` and `checks_failed`
    match the actual counts of evaluated checks.
-5. Support both v0.13.0 (12-field) and legacy fingerprint formats. When
-   verifying a legacy receipt, the verifier SHOULD apply the field
-   migration mapping (Appendix A) and attempt verification with the
-   legacy fingerprint formula.
 
 A compatible verifier MUST NOT:
 
@@ -724,6 +1013,19 @@ A compatible verifier SHOULD:
    as identity claims without provider keys or approval records without
    approver keys.
 
+### 13.3 Legacy Receipt Handling
+
+This specification does not cover pre-v0.13.0 receipt formats. Legacy
+receipts (those with `schema_version` instead of `spec_version`) are
+not valid against the v1.0 schema.
+
+The reference implementation includes backward-compatible verification
+of legacy receipts using the variable-length fingerprint formula and
+16-hex truncated hashes. Third-party implementations MAY support legacy
+verification by implementing the field migration mapping (Appendix A)
+and the legacy fingerprint algorithm, but this is not required for
+conformance.
+
 ---
 
 ## 14. Version History
@@ -731,6 +1033,7 @@ A compatible verifier SHOULD:
 | Spec Version | Tool Version | Changes |
 |-------------|-------------|---------|
 | 1.0 | 0.13.0 | Initial specification. Field renames: `schema_version` to `spec_version`, `trace_id` to `correlation_id`, `coherence_status` to `status`, `halt_event` to `enforcement`. Added `full_fingerprint`. UUID v4 receipt IDs. Full 64-hex content hashes. 12-field fingerprint formula. Custom evaluator fail-closed default. |
+| 1.0.1 | 0.13.0 | 28 precision fixes from cross-platform security review. Key ID uses raw Ed25519 bytes (not DER). NFC normalization documented. Float rejection in signing contexts. hash_text default truncation corrected to 64. Status computation handles all severity levels. Receipt Triad hashing byte-precise. HMAC token format documented. Threat model added. Schemas for authority_decisions, escalation_events, source_trust_evaluations, identity_verification documented. Key file encoding specified. correlation_id pipe constraint. checks_hash ordering and null key rules. |
 
 ---
 
@@ -753,8 +1056,8 @@ above before validation.
 
 | Receipt status | `enforcement.action` | Meaning |
 |----------------|----------------------|---------|
-| FAIL (critical check failed) | `halted` | Execution blocked, output suppressed |
-| WARN (warning check failed) | `warned` | Execution continued, warning logged |
+| FAIL (critical/high check failed) | `halted` | Execution blocked, output suppressed |
+| WARN (warning/medium/low check failed) | `warned` | Execution continued, warning logged |
 | PASS (all checks pass) | `allowed` | Execution continued normally |
 | -- (`must_escalate` policy) | `escalated` | Execution deferred pending human approval |
 
@@ -763,6 +1066,14 @@ governance system. The mapping above describes the typical
 correspondence between receipt status and enforcement action. Note that
 `escalated` is a policy-driven action that occurs before check
 evaluation and is independent of the receipt status.
+
+The enforcement action is determined by the per-check
+`enforcement_level` (from the constitution invariant), not the
+receipt-level `status`. When multiple checks fail at different
+enforcement levels, the most severe enforcement wins:
+`halt` > `warn` > `log`. A single check with `enforcement_level =
+"halt"` and `passed = false` produces `enforcement.action = "halted"`
+regardless of other checks' results.
 
 ## Appendix C: Schema References
 

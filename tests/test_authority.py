@@ -30,6 +30,8 @@ from sanna.enforcement.authority import (
     _matches_action,
     _matches_condition,
     _build_action_context,
+    _normalize_separators,
+    _split_camel_case,
 )
 from sanna.enforcement.escalation import (
     EscalationTarget,
@@ -849,3 +851,199 @@ class TestConstitutionParsing:
         const2 = _make_constitution(ab)
 
         assert compute_constitution_hash(const1) == compute_constitution_hash(const2)
+
+
+# =============================================================================
+# 14. camelCase / PascalCase authority matching (SEC-8 fix)
+# =============================================================================
+
+class TestCamelCaseNormalization:
+    """Tests for SEC-8: camelCase tool names must not bypass authority matching."""
+
+    # --- _split_camel_case unit tests ---
+
+    def test_split_camel_lower_to_upper(self):
+        assert _split_camel_case("deleteFile") == "delete File"
+
+    def test_split_camel_pascal_case(self):
+        assert _split_camel_case("DeleteFile") == "Delete File"
+
+    def test_split_camel_uppercase_run(self):
+        assert _split_camel_case("XMLParser") == "XML Parser"
+
+    def test_split_camel_multiple_uppercase_runs(self):
+        assert _split_camel_case("readHTTPResponse") == "read HTTP Response"
+
+    def test_split_camel_letter_to_digit(self):
+        assert _split_camel_case("file2delete") == "file 2 delete"
+
+    def test_split_camel_digit_to_letter(self):
+        # "2ndFile" splits at digit→letter AND lower→upper boundaries
+        assert _split_camel_case("2ndFile") == "2 nd File"
+
+    def test_split_camel_no_change_all_lower(self):
+        assert _split_camel_case("deletefile") == "deletefile"
+
+    def test_split_camel_no_change_with_separators(self):
+        assert _split_camel_case("delete_file") == "delete_file"
+
+    # --- _normalize_separators with camelCase ---
+
+    def test_normalize_camel_case(self):
+        assert _normalize_separators("deleteFile") == "delete File"
+
+    def test_normalize_pascal_case(self):
+        assert _normalize_separators("DeleteFile") == "Delete File"
+
+    def test_normalize_uppercase_run(self):
+        assert _normalize_separators("XMLParser") == "XML Parser"
+
+    def test_normalize_namespace_colon(self):
+        assert _normalize_separators("github:delete_repo") == "github delete repo"
+
+    def test_normalize_namespace_slash(self):
+        assert _normalize_separators("github/delete_repo") == "github delete repo"
+
+    def test_normalize_namespace_at(self):
+        assert _normalize_separators("@scope/tool_name") == " scope tool name"
+
+    # --- Backward compatibility: original separator tests still pass ---
+
+    def test_normalize_underscore_still_works(self):
+        assert _normalize_separators("delete_user") == "delete user"
+
+    def test_normalize_hyphen_still_works(self):
+        assert _normalize_separators("delete-user") == "delete user"
+
+    def test_normalize_dot_still_works(self):
+        assert _normalize_separators("delete.user") == "delete user"
+
+    def test_normalize_mixed_separators_still_works(self):
+        assert _normalize_separators("send_email_now") == "send email now"
+
+    # --- _matches_action: camelCase attack vectors (SEC-8 core tests) ---
+
+    def test_camel_matches_space_pattern(self):
+        """deleteFile MUST match constitution pattern 'delete file'."""
+        assert _matches_action("delete file", "deleteFile") is True
+
+    def test_camel_matches_underscore_pattern(self):
+        """deleteFile MUST match constitution pattern 'delete_file'."""
+        assert _matches_action("delete_file", "deleteFile") is True
+
+    def test_camel_matches_hyphen_pattern(self):
+        """deleteFile MUST match constitution pattern 'delete-file'."""
+        assert _matches_action("delete-file", "deleteFile") is True
+
+    def test_underscore_matches_camel_pattern(self):
+        """delete_file MUST match constitution pattern 'deleteFile' (reverse)."""
+        assert _matches_action("deleteFile", "delete_file") is True
+
+    def test_transfer_money_camel(self):
+        """transferMoney MUST match 'transfer money'."""
+        assert _matches_action("transfer money", "transferMoney") is True
+
+    def test_send_email_camel(self):
+        """sendEmail MUST match 'send email'."""
+        assert _matches_action("send email", "sendEmail") is True
+
+    def test_xml_parser_camel(self):
+        """XMLParser MUST match 'xml parser'."""
+        assert _matches_action("xml parser", "XMLParser") is True
+
+    def test_read_http_response_camel(self):
+        """readHTTPResponse MUST match 'read http response'."""
+        assert _matches_action("read http response", "readHTTPResponse") is True
+
+    def test_letter_digit_boundary(self):
+        """file2delete MUST match 'file 2 delete'."""
+        assert _matches_action("file 2 delete", "file2delete") is True
+
+    def test_namespace_separator_colon(self):
+        """github:delete_repo MUST match 'delete repo'."""
+        assert _matches_action("delete repo", "github:delete_repo") is True
+
+    def test_namespace_separator_slash(self):
+        """tools/delete_repo MUST match 'delete repo'."""
+        assert _matches_action("delete repo", "tools/delete_repo") is True
+
+    def test_namespace_separator_at(self):
+        """@scope:delete_repo MUST match 'delete repo'."""
+        assert _matches_action("delete repo", "@scope:delete_repo") is True
+
+    # --- Backward compatibility: existing separator tests ---
+
+    def test_underscore_vs_hyphen_still_works(self):
+        assert _matches_action("delete_user", "delete-user") is True
+
+    def test_underscore_vs_dot_still_works(self):
+        assert _matches_action("send_email", "send.email") is True
+
+    def test_underscore_vs_space_still_works(self):
+        assert _matches_action("delete_user", "delete user") is True
+
+    def test_exact_match_still_works(self):
+        assert _matches_action("read", "read") is True
+
+    def test_no_match_still_works(self):
+        assert _matches_action("delete_user", "send_email") is False
+
+    def test_substring_match_still_works(self):
+        assert _matches_action("billing", "modify billing data") is True
+
+    # --- Full evaluate_authority integration tests for camelCase ---
+
+    def test_cannot_execute_blocks_camel_case_tool(self):
+        """A camelCase tool name MUST be blocked by cannot_execute."""
+        ab = _make_ab(cannot_execute=["delete file"])
+        const = _make_constitution(ab)
+        decision = evaluate_authority("deleteFile", {}, const)
+
+        assert decision.decision == "halt"
+        assert decision.boundary_type == "cannot_execute"
+
+    def test_cannot_execute_blocks_pascal_case_tool(self):
+        """A PascalCase tool name MUST be blocked by cannot_execute."""
+        ab = _make_ab(cannot_execute=["transfer money"])
+        const = _make_constitution(ab)
+        decision = evaluate_authority("TransferMoney", {}, const)
+
+        assert decision.decision == "halt"
+        assert decision.boundary_type == "cannot_execute"
+
+    def test_must_escalate_catches_camel_case_tool(self):
+        """A camelCase tool name MUST trigger must_escalate conditions."""
+        ab = _make_ab(must_escalate=[
+            EscalationRule(condition="send email"),
+        ])
+        const = _make_constitution(ab)
+        decision = evaluate_authority("sendEmail", {}, const)
+
+        assert decision.decision == "escalate"
+        assert decision.boundary_type == "must_escalate"
+
+    def test_can_execute_allows_camel_case_tool(self):
+        """A camelCase tool name MUST match can_execute entries."""
+        ab = _make_ab(can_execute=["read file"])
+        const = _make_constitution(ab)
+        decision = evaluate_authority("readFile", {}, const)
+
+        assert decision.decision == "allow"
+        assert decision.boundary_type == "can_execute"
+
+    def test_namespace_tool_blocked(self):
+        """A namespaced tool (colon separator) MUST be matched."""
+        ab = _make_ab(cannot_execute=["delete repo"])
+        const = _make_constitution(ab)
+        decision = evaluate_authority("github:delete_repo", {}, const)
+
+        assert decision.decision == "halt"
+        assert decision.boundary_type == "cannot_execute"
+
+    def test_camel_no_false_positive_unrelated(self):
+        """Unrelated camelCase tools must NOT be matched."""
+        ab = _make_ab(cannot_execute=["delete file"])
+        const = _make_constitution(ab)
+        decision = evaluate_authority("sendEmail", {}, const)
+
+        assert decision.decision != "halt"

@@ -125,10 +125,11 @@ def sanna_verify_receipt(receipt_json: str) -> str:
             })
 
         from sanna.verify import verify_receipt, load_schema
+        from sanna.utils.safe_json import safe_json_loads
 
         try:
-            receipt = json.loads(receipt_json)
-        except json.JSONDecodeError as e:
+            receipt = safe_json_loads(receipt_json)
+        except (json.JSONDecodeError, ValueError) as e:
             return json.dumps({
                 "valid": False,
                 "exit_code": 5,

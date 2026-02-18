@@ -603,8 +603,11 @@ def generate_receipt(
     failed = len(checks) - passed
 
     # Determine overall status
-    critical_fails = sum(1 for c in checks if not c.passed and c.severity == "critical")
-    warning_fails = sum(1 for c in checks if not c.passed and c.severity == "warning")
+    # Severity hierarchy: critical/high → FAIL, warning/medium/low → WARN
+    _FAIL_SEVERITIES = {"critical", "high"}
+    _WARN_SEVERITIES = {"warning", "medium", "low"}
+    critical_fails = sum(1 for c in checks if not c.passed and c.severity in _FAIL_SEVERITIES)
+    warning_fails = sum(1 for c in checks if not c.passed and c.severity in _WARN_SEVERITIES)
 
     if critical_fails > 0:
         status = "FAIL"

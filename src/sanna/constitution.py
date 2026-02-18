@@ -1657,10 +1657,11 @@ def load_constitution(path: str | Path, validate: bool = False) -> Constitution:
 
     with open(path) as f:
         if path.suffix in (".yaml", ".yml"):
-            import yaml
-            data = yaml.safe_load(f)
+            from .utils.safe_yaml import safe_yaml_load
+            data = safe_yaml_load(f)
         elif path.suffix == ".json":
-            data = json.load(f)
+            from .utils.safe_json import safe_json_load
+            data = safe_json_load(f)
         else:
             raise ValueError(f"Unsupported file format: {path.suffix} (use .yaml, .yml, or .json)")
 

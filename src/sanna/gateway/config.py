@@ -169,8 +169,9 @@ def load_gateway_config(config_path: str) -> GatewayConfig:
     config_dir = config_file.parent
 
     try:
-        raw = yaml.safe_load(config_file.read_text())
-    except yaml.YAMLError as e:
+        from sanna.utils.safe_yaml import safe_yaml_load
+        raw = safe_yaml_load(config_file.read_text())
+    except (yaml.YAMLError, ValueError) as e:
         raise GatewayConfigError(
             f"Invalid YAML in config file: {e}"
         ) from e
@@ -520,20 +521,52 @@ def _resolve_path(raw_path: str, config_dir: Path) -> str:
 # CRIT-01: Webhook URL SSRF validation
 # ---------------------------------------------------------------------------
 
+def _is_blocked_ip(addr: "ipaddress.IPv4Address | ipaddress.IPv6Address") -> str | None:
+    """Return a human-readable reason if *addr* is in a blocked range, else ``None``."""
+    import ipaddress as _ipa  # noqa: F811 — re-import is harmless; keeps function self-contained
+
+    # Cloud metadata endpoint (169.254.169.254) — checked before
+    # link-local and private since it is a subset of both ranges
+    _metadata_addrs = {
+        _ipa.ip_address("169.254.169.254"),
+        _ipa.ip_address("fd00::c0a8:a9fe"),  # IPv6 alias
+    }
+    if addr in _metadata_addrs:
+        return f"cloud metadata endpoint: {addr}"
+
+    if addr.is_loopback:
+        return f"loopback address: {addr}"
+
+    if addr.is_link_local:
+        return f"link-local address: {addr}"
+
+    if addr.is_multicast:
+        return f"multicast address: {addr}"
+
+    if addr.is_private:
+        return f"private/RFC-1918 address: {addr}"
+
+    return None
+
+
 def validate_webhook_url(url: str) -> None:
     """Validate a webhook URL, rejecting SSRF-prone targets.
 
     Rejects:
-    - Non-HTTP(S) schemes
-    - localhost / 127.0.0.0/8
+    - Non-HTTPS schemes (unless ``SANNA_ALLOW_INSECURE_WEBHOOK=1`` for
+      ``http://localhost`` and ``http://127.0.0.1`` only)
+    - localhost / 127.0.0.0/8 / ::1
     - RFC 1918 addresses (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
-    - Link-local (169.254.0.0/16)
+    - Link-local (169.254.0.0/16, fe80::/10)
+    - Multicast addresses
     - Cloud metadata endpoints (169.254.169.254)
+    - DNS hostnames that resolve to any blocked IP range
 
     Raises:
         GatewayConfigError: If the URL fails SSRF validation.
     """
     import ipaddress
+    import socket
     from urllib.parse import urlparse
 
     try:
@@ -543,7 +576,7 @@ def validate_webhook_url(url: str) -> None:
             f"Invalid webhook URL: {exc}"
         ) from exc
 
-    # Scheme check
+    # Scheme check — require HTTPS by default (SEC-2)
     if parsed.scheme not in ("http", "https"):
         raise GatewayConfigError(
             f"Webhook URL must use http or https scheme, "
@@ -556,6 +589,28 @@ def validate_webhook_url(url: str) -> None:
             "Webhook URL has no hostname"
         )
 
+    # SEC-2: Enforce HTTPS unless insecure webhook override is set
+    if parsed.scheme == "http":
+        _allow_insecure = os.environ.get("SANNA_ALLOW_INSECURE_WEBHOOK") == "1"
+        _is_local = hostname.lower() in ("localhost", "127.0.0.1")
+        if _allow_insecure and _is_local:
+            logger.critical(
+                "SECURITY WARNING: Allowing insecure HTTP webhook to %s "
+                "because SANNA_ALLOW_INSECURE_WEBHOOK=1 is set. "
+                "Do NOT use this in production.",
+                hostname,
+            )
+        else:
+            raise GatewayConfigError(
+                f"Webhook URL must use https:// scheme. "
+                f"Got http://{hostname}. "
+                f"Set SANNA_ALLOW_INSECURE_WEBHOOK=1 to allow "
+                f"http://localhost or http://127.0.0.1 for local development only."
+            )
+        # Even with insecure override, localhost is allowed — skip
+        # further IP validation since we know it's local.
+        return
+
     # Localhost check (hostname string)
     if hostname.lower() in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
         raise GatewayConfigError(
@@ -566,39 +621,36 @@ def validate_webhook_url(url: str) -> None:
     try:
         addr = ipaddress.ip_address(hostname)
     except ValueError:
-        # Not an IP literal — hostname is acceptable
+        # Not an IP literal — resolve DNS and check all returned addresses
+        # (SEC-6: DNS rebinding protection)
+        try:
+            addrinfos = socket.getaddrinfo(
+                hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM,
+            )
+        except socket.gaierror as exc:
+            raise GatewayConfigError(
+                f"Webhook URL hostname '{hostname}' failed DNS resolution: {exc}"
+            ) from exc
+
+        for family, _type, _proto, _canonname, sockaddr in addrinfos:
+            ip_str = sockaddr[0]
+            try:
+                resolved_addr = ipaddress.ip_address(ip_str)
+            except ValueError:
+                continue
+            reason = _is_blocked_ip(resolved_addr)
+            if reason is not None:
+                raise GatewayConfigError(
+                    f"Webhook URL hostname '{hostname}' resolves to "
+                    f"blocked {reason}"
+                )
         return
 
-    # Loopback
-    if addr.is_loopback:
+    # IP literal — check directly
+    reason = _is_blocked_ip(addr)
+    if reason is not None:
         raise GatewayConfigError(
-            f"Webhook URL must not point to loopback address: {addr}"
-        )
-
-    # Cloud metadata endpoint (169.254.169.254) — checked before
-    # link-local and private since it is a subset of both ranges
-    _metadata_addrs = {
-        ipaddress.ip_address("169.254.169.254"),
-        ipaddress.ip_address("fd00::c0a8:a9fe"),  # IPv6 alias
-    }
-    if addr in _metadata_addrs:
-        raise GatewayConfigError(
-            f"Webhook URL must not point to cloud metadata endpoint: "
-            f"{addr}"
-        )
-
-    # Link-local (169.254.0.0/16 or fe80::/10) — checked before
-    # is_private since link-local is a subset of private in Python
-    if addr.is_link_local:
-        raise GatewayConfigError(
-            f"Webhook URL must not point to link-local address: {addr}"
-        )
-
-    # Private / RFC 1918
-    if addr.is_private:
-        raise GatewayConfigError(
-            f"Webhook URL must not point to private/RFC-1918 address: "
-            f"{addr}"
+            f"Webhook URL must not point to {reason}"
         )
 
 

@@ -29,7 +29,9 @@ import json
 import logging
 import asyncio as _asyncio
 import os
+import stat
 import sys
+import time as _time_mod
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -104,6 +106,137 @@ def _redact_for_storage(
         f"Unsupported redaction mode: '{mode}'. "
         f"pattern_redact is not yet implemented."
     )
+
+
+def _make_redaction_marker(original_value: str) -> dict:
+    """Build a deterministic redaction marker for a field value.
+
+    The marker replaces the original value in the receipt BEFORE signing,
+    so that ``context_hash``/``output_hash`` and the receipt signature
+    all cover the marker (not the original content).
+
+    The ``original_hash`` is the SHA-256 hex digest of the original
+    string value, allowing offline auditors to confirm provenance
+    without access to the raw PII.
+
+    Args:
+        original_value: The raw string to redact.
+
+    Returns:
+        Deterministic marker dict:
+        ``{"__redacted__": True, "original_hash": "<sha256-hex>"}``
+    """
+    digest = hashlib.sha256(original_value.encode("utf-8")).hexdigest()
+    return {"__redacted__": True, "original_hash": digest}
+
+
+def _apply_redaction_markers(receipt: dict, redaction_fields: list[str]) -> tuple[dict, list[str]]:
+    """Replace redactable field values with deterministic markers.
+
+    Modifies the receipt **in place** and recomputes ``context_hash``,
+    ``output_hash``, ``receipt_fingerprint``, and ``full_fingerprint``
+    so that the receipt is internally consistent with the markers.
+
+    Must be called BEFORE signing.
+
+    Args:
+        receipt: The receipt dict (mutated in place).
+        redaction_fields: List of field names to redact
+            (``"arguments"`` maps to ``inputs.context``,
+             ``"result_text"`` maps to ``outputs.response``).
+
+    Returns:
+        A tuple of ``(receipt, redacted_paths)`` where
+        ``redacted_paths`` is a list of JSON-path strings
+        for fields that were actually redacted.
+    """
+    from sanna.hashing import hash_obj, hash_text, EMPTY_HASH
+
+    redacted_paths: list[str] = []
+
+    # Apply markers to specified fields
+    if "arguments" in redaction_fields:
+        ctx = (receipt.get("inputs") or {}).get("context")
+        if ctx and isinstance(ctx, str):
+            receipt["inputs"]["context"] = _make_redaction_marker(ctx)
+            redacted_paths.append("inputs.context")
+
+    if "result_text" in redaction_fields:
+        resp = (receipt.get("outputs") or {}).get("response")
+        if resp and isinstance(resp, str):
+            receipt["outputs"]["response"] = _make_redaction_marker(resp)
+            redacted_paths.append("outputs.response")
+
+    if not redacted_paths:
+        return receipt, redacted_paths
+
+    # Recompute content hashes from marker-bearing inputs/outputs
+    inputs = receipt.get("inputs", {})
+    outputs = receipt.get("outputs", {})
+    context_hash = hash_obj(inputs)
+    output_hash = hash_obj(outputs)
+    receipt["context_hash"] = context_hash
+    receipt["output_hash"] = output_hash
+
+    # Record redaction metadata
+    receipt["redacted_fields"] = redacted_paths
+
+    # Recompute fingerprint (v0.13.0 unified 12-field formula)
+    correlation_id = receipt.get("correlation_id", "")
+    checks_version = receipt.get("checks_version", "")
+
+    checks = receipt.get("checks", [])
+    checks_data = [
+        {
+            "check_id": c.get("check_id", ""),
+            "passed": c.get("passed"),
+            "severity": c.get("severity", ""),
+            "evidence": c.get("evidence"),
+            "triggered_by": c.get("triggered_by"),
+            "enforcement_level": c.get("enforcement_level"),
+            "check_impl": c.get("check_impl"),
+            "replayable": c.get("replayable"),
+        }
+        for c in checks
+    ]
+    checks_hash = hash_obj(checks_data)
+
+    constitution_ref = receipt.get("constitution_ref")
+    if constitution_ref:
+        _cref = {k: v for k, v in constitution_ref.items() if k != "constitution_approval"}
+        constitution_hash = hash_obj(_cref)
+    else:
+        constitution_hash = EMPTY_HASH
+
+    enforcement = receipt.get("enforcement")
+    enforcement_hash = hash_obj(enforcement) if enforcement else EMPTY_HASH
+
+    evaluation_coverage = receipt.get("evaluation_coverage")
+    coverage_hash = hash_obj(evaluation_coverage) if evaluation_coverage else EMPTY_HASH
+
+    authority_decisions = receipt.get("authority_decisions")
+    authority_hash = hash_obj(authority_decisions) if authority_decisions else EMPTY_HASH
+
+    escalation_events = receipt.get("escalation_events")
+    escalation_hash = hash_obj(escalation_events) if escalation_events else EMPTY_HASH
+
+    source_trust_evaluations = receipt.get("source_trust_evaluations")
+    trust_hash = hash_obj(source_trust_evaluations) if source_trust_evaluations else EMPTY_HASH
+
+    extensions = receipt.get("extensions")
+    extensions_hash = hash_obj(extensions) if extensions else EMPTY_HASH
+
+    fingerprint_input = (
+        f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}"
+        f"|{checks_hash}|{constitution_hash}|{enforcement_hash}"
+        f"|{coverage_hash}|{authority_hash}|{escalation_hash}"
+        f"|{trust_hash}|{extensions_hash}"
+    )
+
+    receipt["full_fingerprint"] = hash_text(fingerprint_input)
+    receipt["receipt_fingerprint"] = hash_text(fingerprint_input, truncate=16)
+
+    return receipt, redacted_paths
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +329,8 @@ class PendingEscalation:
     status: str = "pending"  # pending | approved | failed
     override_reason: str = ""
     override_detail: str = ""
+    issued_at: int = 0  # epoch seconds (int, not float) for HMAC re-derivation
+    args_digest: str = ""  # SHA-256 hex of canonical arguments for HMAC re-derivation
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict for disk persistence."""
@@ -212,6 +347,8 @@ class PendingEscalation:
             "status": self.status,
             "override_reason": self.override_reason,
             "override_detail": self.override_detail,
+            "issued_at": self.issued_at,
+            "args_digest": self.args_digest,
         }
 
     @classmethod
@@ -230,6 +367,8 @@ class PendingEscalation:
             status=data.get("status", "pending"),
             override_reason=data.get("override_reason", ""),
             override_detail=data.get("override_detail", ""),
+            issued_at=int(data.get("issued_at", 0)),
+            args_digest=data.get("args_digest", ""),
         )
 
 
@@ -249,12 +388,20 @@ class EscalationStore:
     # Default per-tool escalation limit
     _DEFAULT_MAX_PER_TOOL = 10
 
+    # Maximum persistence file size (10 MB) — prevents loading absurdly
+    # large files that could DoS the gateway on startup.
+    _MAX_PERSIST_FILE_SIZE = 10 * 1024 * 1024
+
+    # Valid status values for loaded records
+    _VALID_STATUSES = frozenset({"pending", "approved", "failed"})
+
     def __init__(
         self,
         timeout: float = _DEFAULT_ESCALATION_TIMEOUT,
         max_pending: int = _DEFAULT_MAX_PENDING_ESCALATIONS,
         persist_path: str | None = None,
         max_per_tool: int = _DEFAULT_MAX_PER_TOOL,
+        secret: bytes | None = None,
     ) -> None:
         self._pending: dict[str, PendingEscalation] = {}
         self._timeout = timeout
@@ -262,6 +409,7 @@ class EscalationStore:
         self._max_per_tool = max_per_tool
         self._purge_task: _asyncio.Task | None = None
         self._lock = _asyncio.Lock()  # HIGH-03: async lock for all writes
+        self._secret = secret  # gateway secret for record HMAC
 
         # Normalize persist path at init time so writes always go to a
         # well-known location (never CWD for filename-only paths).
@@ -330,19 +478,36 @@ class EscalationStore:
 
     # -- Disk persistence -----------------------------------------------------
 
+    def _compute_record_hmac(self, record_dict: dict[str, Any]) -> str:
+        """Compute HMAC-SHA256 over a serialized escalation record.
+
+        The HMAC covers all fields except ``_record_hmac`` itself.
+        Returns the hex digest. If no secret is configured, returns
+        an empty string (persistence without integrity protection).
+        """
+        if not self._secret:
+            return ""
+        # Build a canonical copy without the hmac field
+        clean = {k: v for k, v in record_dict.items() if k != "_record_hmac"}
+        payload = json.dumps(clean, sort_keys=True).encode()
+        return hmac.new(self._secret, payload, hashlib.sha256).hexdigest()
+
     def _save_to_disk(self) -> None:
         """Persist non-expired pending escalations to JSON file.
 
         Uses atomic_write_sync for symlink protection and crash safety.
         Path is already resolved at init time — no fallback logic needed.
+        Each record includes a ``_record_hmac`` computed from the gateway
+        secret for tamper detection on reload.
         """
         if not self._persist_path:
             return
-        data = {
-            eid: record.to_dict()
-            for eid, record in self._pending.items()
-            if not self.is_expired(record)
-        }
+        data = {}
+        for eid, record in self._pending.items():
+            if not self.is_expired(record):
+                rd = record.to_dict()
+                rd["_record_hmac"] = self._compute_record_hmac(rd)
+                data[eid] = rd
         from sanna.utils.safe_io import atomic_write_sync, ensure_secure_dir
         persist_dir = Path(self._persist_path).parent
         ensure_secure_dir(persist_dir)
@@ -352,25 +517,165 @@ class EscalationStore:
             mode=0o600,
         )
 
+    def _validate_record_types(self, eid: str, data: dict) -> bool:
+        """Validate field types of a deserialized escalation record.
+
+        Returns True if the record passes all type checks, False otherwise.
+        Logs a warning for each invalid field.
+        """
+        # Required string fields
+        str_fields = [
+            "escalation_id", "prefixed_name", "original_name",
+            "server_name", "created_at",
+        ]
+        for f in str_fields:
+            if f not in data or not isinstance(data[f], str):
+                logger.warning(
+                    "Skipping escalation %s: field '%s' missing or not a string",
+                    eid, f,
+                )
+                return False
+
+        # Status must be a known value
+        status = data.get("status", "pending")
+        if not isinstance(status, str) or status not in self._VALID_STATUSES:
+            logger.warning(
+                "Skipping escalation %s: invalid status '%s'",
+                eid, status,
+            )
+            return False
+
+        # Arguments must be a dict
+        args = data.get("arguments", {})
+        if not isinstance(args, dict):
+            logger.warning(
+                "Skipping escalation %s: 'arguments' is not a dict",
+                eid,
+            )
+            return False
+
+        # issued_at must be an int (or convertible to int)
+        issued_at = data.get("issued_at", 0)
+        if not isinstance(issued_at, (int, float)):
+            logger.warning(
+                "Skipping escalation %s: 'issued_at' is not numeric",
+                eid,
+            )
+            return False
+
+        # args_digest must be a string
+        args_digest = data.get("args_digest", "")
+        if not isinstance(args_digest, str):
+            logger.warning(
+                "Skipping escalation %s: 'args_digest' is not a string",
+                eid,
+            )
+            return False
+
+        return True
+
     def _load_from_disk(self) -> None:
-        """Load pending escalations from disk, skipping expired."""
+        """Load pending escalations from disk, skipping expired.
+
+        Security hardening (SEC-10):
+        - Rejects symlinks at the persistence path
+        - Enforces file permissions (max 0o640)
+        - Enforces max file size (10 MB)
+        - Validates record HMAC before accepting (SEC-5)
+        - Validates field types strictly, skipping malformed records
+        """
         if not self._persist_path or not os.path.exists(self._persist_path):
             return
+
+        # SEC-10: Reject symlinks
         try:
+            st = os.lstat(self._persist_path)
+        except OSError as exc:
+            logger.warning(
+                "Cannot stat escalation store %s: %s",
+                self._persist_path, exc,
+            )
+            return
+
+        if stat.S_ISLNK(st.st_mode):
+            logger.warning(
+                "Refusing to load escalation store from symlink: %s",
+                self._persist_path,
+            )
+            return
+
+        # SEC-10: Enforce file permissions (max 0o640)
+        file_perms = stat.S_IMODE(st.st_mode)
+        if file_perms & 0o137:  # any of: group write, other read/write/exec
+            logger.warning(
+                "Refusing to load escalation store %s: "
+                "permissions %o are too open (max 0o640)",
+                self._persist_path, file_perms,
+            )
+            return
+
+        # SEC-10: Enforce max file size
+        if st.st_size > self._MAX_PERSIST_FILE_SIZE:
+            logger.warning(
+                "Refusing to load escalation store %s: "
+                "file size %d exceeds maximum %d bytes",
+                self._persist_path, st.st_size, self._MAX_PERSIST_FILE_SIZE,
+            )
+            return
+
+        try:
+            from sanna.utils.safe_json import safe_json_load
             with open(self._persist_path) as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError) as exc:
+                data = safe_json_load(f)
+        except (json.JSONDecodeError, ValueError, OSError) as exc:
             logger.warning(
                 "Failed to load escalation store from %s: %s",
                 self._persist_path, exc,
             )
             return
+
+        if not isinstance(data, dict):
+            logger.warning(
+                "Escalation store %s: expected JSON object at top level",
+                self._persist_path,
+            )
+            return
+
         for eid, record_data in data.items():
             try:
+                if not isinstance(record_data, dict):
+                    logger.warning(
+                        "Skipping escalation %s: record is not a dict", eid,
+                    )
+                    continue
+
+                # SEC-5: Verify record HMAC before accepting
+                if self._secret:
+                    stored_hmac = record_data.get("_record_hmac", "")
+                    if not stored_hmac or not isinstance(stored_hmac, str):
+                        logger.warning(
+                            "Skipping escalation %s: missing or invalid "
+                            "_record_hmac",
+                            eid,
+                        )
+                        continue
+                    expected_hmac = self._compute_record_hmac(record_data)
+                    if not hmac.compare_digest(stored_hmac, expected_hmac):
+                        logger.warning(
+                            "Skipping escalation %s: HMAC verification "
+                            "failed (possible tampering)",
+                            eid,
+                        )
+                        continue
+
+                # SEC-10: Validate field types strictly
+                if not self._validate_record_types(eid, record_data):
+                    continue
+
                 record = PendingEscalation.from_dict(record_data)
                 if not self.is_expired(record):
                     self._pending[eid] = record
-            except (KeyError, TypeError) as exc:
+            except (KeyError, TypeError, ValueError) as exc:
                 logger.warning(
                     "Skipping malformed escalation %s: %s", eid, exc,
                 )
@@ -382,7 +687,8 @@ class EscalationStore:
 
         Separated from ``_save_to_disk`` so the dict iteration happens
         in the event-loop thread (safe, single-threaded) and only the
-        file I/O runs in the executor.
+        file I/O runs in the executor.  Each record already includes
+        ``_record_hmac`` added during snapshotting.
         """
         from sanna.utils.safe_io import atomic_write_sync, ensure_secure_dir
         persist_dir = Path(self._persist_path).parent
@@ -399,15 +705,17 @@ class EscalationStore:
         The snapshot is taken in the single-threaded event loop to avoid
         ``RuntimeError: dictionary changed size during iteration`` when
         the executor thread reads ``self._pending`` concurrently.
+        Each record includes ``_record_hmac`` for tamper detection.
         """
         if not self._persist_path:
             return
         # Snapshot in the event loop thread (safe — single-threaded)
-        snapshot = {
-            eid: record.to_dict()
-            for eid, record in self._pending.items()
-            if not self.is_expired(record)
-        }
+        snapshot = {}
+        for eid, record in self._pending.items():
+            if not self.is_expired(record):
+                rd = record.to_dict()
+                rd["_record_hmac"] = self._compute_record_hmac(rd)
+                snapshot[eid] = rd
         loop = _asyncio.get_running_loop()
         await loop.run_in_executor(None, self._write_snapshot_to_disk, snapshot)
 
@@ -460,6 +768,10 @@ class EscalationStore:
             )
 
         esc_id = f"esc_{uuid.uuid4().hex}"
+        now = int(_time_mod.time())
+        args_digest = hashlib.sha256(
+            json.dumps(arguments, sort_keys=True).encode(),
+        ).hexdigest()
         entry = PendingEscalation(
             escalation_id=esc_id,
             prefixed_name=prefixed_name,
@@ -468,6 +780,8 @@ class EscalationStore:
             server_name=server_name,
             reason=reason,
             created_at=datetime.now(timezone.utc).isoformat(),
+            issued_at=now,
+            args_digest=args_digest,
         )
         self._pending[esc_id] = entry
         if self._persist_path:
@@ -507,6 +821,10 @@ class EscalationStore:
                     f"Approve or deny existing escalations first."
                 )
             esc_id = f"esc_{uuid.uuid4().hex}"
+            now = int(_time_mod.time())
+            args_digest = hashlib.sha256(
+                json.dumps(arguments, sort_keys=True).encode(),
+            ).hexdigest()
             entry = PendingEscalation(
                 escalation_id=esc_id,
                 prefixed_name=prefixed_name,
@@ -515,6 +833,8 @@ class EscalationStore:
                 server_name=server_name,
                 reason=reason,
                 created_at=datetime.now(timezone.utc).isoformat(),
+                issued_at=now,
+                args_digest=args_digest,
             )
             self._pending[esc_id] = entry
             await self._save_to_disk_async()
@@ -757,16 +1077,19 @@ class SannaGateway:
         # Block G: reasoning evaluator (set in start() after constitution loads)
         self._reasoning_evaluator: Any = None
 
-        # Block E: escalation state
+        # Approval token: HMAC-bound human verification
+        # Load secret BEFORE creating escalation store so it can be used
+        # for record HMAC verification on disk load.
+        self._require_approval_token = require_approval_token
+        self._gateway_secret = self._load_or_create_secret(gateway_secret_path)
+
+        # Block E: escalation state — pass gateway secret for record HMAC
         self._escalation_store = EscalationStore(
             timeout=escalation_timeout,
             max_pending=max_pending_escalations,
             persist_path=escalation_persist_path,
+            secret=self._gateway_secret,
         )
-
-        # Approval token: HMAC-bound human verification
-        self._require_approval_token = require_approval_token
-        self._gateway_secret = self._load_or_create_secret(gateway_secret_path)
         self._approval_requires_reason = approval_requires_reason
         self._token_delivery = token_delivery or ["stderr"]
         self._approval_webhook_url: str = ""
@@ -1021,17 +1344,33 @@ class SannaGateway:
         The token binds the escalation to specific parameters so it
         cannot be replayed across different escalations.
 
+        Uses ``args_digest`` and ``issued_at`` when available (v0.13.1+)
+        for deterministic re-derivation after restart. Falls back to
+        re-computing from ``arguments`` and ``created_at`` for backward
+        compatibility with older records.
+
         Token = HMAC-SHA256(gateway_secret,
-            escalation_id || tool_name || args_hash || created_at)
+            escalation_id || tool_name || args_digest || issued_at)
 
         Returns the token as a hex string.
         """
-        args_hash = hashlib.sha256(
-            json.dumps(entry.arguments, sort_keys=True).encode(),
-        ).hexdigest()
+        # Use pre-computed args_digest if available, else derive from arguments
+        if entry.args_digest:
+            args_hash = entry.args_digest
+        else:
+            args_hash = hashlib.sha256(
+                json.dumps(entry.arguments, sort_keys=True).encode(),
+            ).hexdigest()
+
+        # Use issued_at (integer epoch) if available, else fall back to created_at
+        if entry.issued_at:
+            timestamp_part = str(entry.issued_at)
+        else:
+            timestamp_part = entry.created_at
+
         message = (
             f"{entry.escalation_id}|{entry.original_name}|"
-            f"{args_hash}|{entry.created_at}"
+            f"{args_hash}|{timestamp_part}"
         )
         return hmac.new(
             self._gateway_secret,
@@ -1133,11 +1472,12 @@ class SannaGateway:
             existing: list[dict] = []
             if os.path.exists(tokens_path):
                 try:
+                    from sanna.utils.safe_json import safe_json_load
                     with open(tokens_path) as f:
-                        existing = json.load(f)
+                        existing = safe_json_load(f)
                     if not isinstance(existing, list):
                         existing = []
-                except (json.JSONDecodeError, OSError):
+                except (json.JSONDecodeError, ValueError, OSError):
                     existing = []
 
             existing.append(token_info)
@@ -1213,14 +1553,50 @@ class SannaGateway:
             method="POST",
         )
 
+        # SEC-7: Disable redirect following to prevent token leak via
+        # 307/308 redirects that re-POST the body to the redirect target.
+        class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+            """Reject all HTTP redirects."""
+
+            def redirect_request(
+                self, req, fp, code, msg, headers, newurl,
+            ):
+                logger.warning(
+                    "Webhook for %s received redirect (%d) to %s — "
+                    "not following. Webhook URLs must be direct.",
+                    entry.escalation_id,
+                    code,
+                    newurl,
+                )
+                return None  # Do not follow
+
+        opener = urllib.request.build_opener(_NoRedirectHandler)
+
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with opener.open(req, timeout=10) as resp:
                 if resp.status >= 400:
                     logger.warning(
                         "Webhook delivery for %s returned HTTP %d",
                         entry.escalation_id,
                         resp.status,
                     )
+        except urllib.error.HTTPError as exc:
+            # Redirect responses (3xx) surface as HTTPError when the
+            # handler returns None.  Log and suppress.
+            if 300 <= exc.code < 400:
+                logger.warning(
+                    "Webhook delivery for %s: redirect %d to %s — "
+                    "not followed",
+                    entry.escalation_id,
+                    exc.code,
+                    exc.headers.get("Location", "<unknown>"),
+                )
+            else:
+                logger.warning(
+                    "Webhook delivery for %s returned HTTP %d",
+                    entry.escalation_id,
+                    exc.code,
+                )
         except urllib.error.URLError as exc:
             logger.warning(
                 "Webhook delivery failed for %s: %s",
@@ -1760,39 +2136,17 @@ class SannaGateway:
         safe_ts = ts.replace(":", "_").replace("+", "_")
         receipt_id = receipt.get("receipt_id", uuid.uuid4().hex[:8])
 
-        # Block G: when redaction enabled, persist ONLY the redacted copy
+        # Block G: when redaction enabled, persist with .redacted.json suffix.
+        # Since SEC-1, redaction markers are applied BEFORE signing in
+        # _generate_receipt(), so the receipt already contains markers and
+        # its hashes/fingerprint/signature are consistent with them.
         if self._redaction_config.enabled:
-            import copy
-            redacted = copy.deepcopy(receipt)
-            mode = self._redaction_config.mode
-            fields = self._redaction_config.fields
-
-            if "arguments" in fields:
-                ctx = redacted.get("inputs", {}).get("context", "")
-                if ctx:
-                    redacted["inputs"]["context"] = _redact_for_storage(
-                        ctx, mode, salt=receipt_id,
-                        secret=self._gateway_secret,
-                    )
-            if "result_text" in fields:
-                out = redacted.get("outputs", {}).get("response", "")
-                if out:
-                    redacted["outputs"]["response"] = _redact_for_storage(
-                        out, mode, salt=receipt_id,
-                        secret=self._gateway_secret,
-                    )
-
-            redacted["_redaction_notice"] = (
-                "This is a redacted view. Signature verification "
-                "requires the original receipt."
-            )
-
             redacted_filename = f"{safe_ts}_{receipt_id}.redacted.json"
             redacted_path = store_dir / redacted_filename
             try:
                 atomic_write_sync(
                     redacted_path,
-                    json.dumps(redacted, indent=2),
+                    json.dumps(receipt, indent=2),
                     mode=0o600,
                 )
                 logger.info(
@@ -2436,8 +2790,11 @@ class SannaGateway:
                     )],
                     isError=True,
                 )
-            provided_hash = self._hash_token(approval_token)
-            if not hmac.compare_digest(provided_hash, entry.token_hash):
+            # SEC-5: Re-derive the expected token from the HMAC secret
+            # and stored escalation attributes — never trust stored
+            # token_hash from the persisted file for approval decisions.
+            expected_token = self._compute_approval_token(entry)
+            if not hmac.compare_digest(approval_token, expected_token):
                 return types.CallToolResult(
                     content=[types.TextContent(
                         type="text",
@@ -2988,6 +3345,15 @@ class SannaGateway:
             enforcement=enforcement,
             authority_decisions=authority_decisions,
         )
+
+        # SEC-1: Apply redaction markers BEFORE signing so that the
+        # signature covers the markers (not the original PII).  The
+        # verifier recognises the markers and can confirm content
+        # integrity via the embedded original_hash.
+        if self._redaction_config.enabled:
+            receipt, _redacted = _apply_redaction_markers(
+                receipt, self._redaction_config.fields,
+            )
 
         # Sign receipt if key provided
         if self._signing_key_path is not None:

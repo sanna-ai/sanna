@@ -71,12 +71,18 @@
       "description": "Inputs to the AI system for this trace",
       "properties": {
         "query": {
-          "type": ["string", "null"],
-          "description": "User query or prompt"
+          "description": "User query or prompt",
+          "oneOf": [
+            {"type": ["string", "null"]},
+            {"$ref": "#/$defs/RedactionMarker"}
+          ]
         },
         "context": {
-          "type": ["string", "null"],
-          "description": "Retrieved context provided to the model"
+          "description": "Retrieved context provided to the model",
+          "oneOf": [
+            {"type": ["string", "null"]},
+            {"$ref": "#/$defs/RedactionMarker"}
+          ]
         }
       },
       "additionalProperties": true
@@ -86,8 +92,11 @@
       "description": "Outputs from the AI system",
       "properties": {
         "response": {
-          "type": ["string", "null"],
-          "description": "Final answer/response from the model"
+          "description": "Final answer/response from the model",
+          "oneOf": [
+            {"type": ["string", "null"]},
+            {"$ref": "#/$defs/RedactionMarker"}
+          ]
         }
       },
       "additionalProperties": true
@@ -309,6 +318,14 @@
       "description": "Receipt Triad assurance level. MUST be present when any triad hash is present.",
       "enum": ["full", "partial", null]
     },
+    "redacted_fields": {
+      "type": ["array", "null"],
+      "description": "JSON paths of fields replaced with redaction markers (SEC-1). Present only when PII redaction is enabled.",
+      "items": {
+        "type": "string",
+        "description": "JSON path of a redacted field, e.g. 'inputs.context'"
+      }
+    },
     "extensions": {
       "type": "object",
       "description": "Reverse-domain-namespaced vendor metadata. Verifiers MUST ignore unknown extensions.",
@@ -455,6 +472,24 @@
         "evaluated_at": {"type": "string", "format": "date-time"},
         "verification_flag": {"type": ["boolean", "null"]},
         "context_used": {"type": ["boolean", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "RedactionMarker": {
+      "type": "object",
+      "description": "Deterministic redaction marker (SEC-1). Replaces sensitive field values before signing so that the receipt signature covers the marker, not the original PII.",
+      "required": ["__redacted__", "original_hash"],
+      "properties": {
+        "__redacted__": {
+          "type": "boolean",
+          "const": true,
+          "description": "Sentinel flag — always true"
+        },
+        "original_hash": {
+          "type": "string",
+          "description": "SHA-256 hex digest of the original field value (UTF-8 encoded)",
+          "pattern": "^[a-f0-9]{64}$"
+        }
       },
       "additionalProperties": false
     }

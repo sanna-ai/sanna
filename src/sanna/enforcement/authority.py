@@ -150,23 +150,70 @@ def evaluate_authority(
 # MATCHING HELPERS
 # =============================================================================
 
+def _split_camel_case(s: str) -> str:
+    """Insert spaces at camelCase/PascalCase word boundaries.
+
+    Handles:
+    - lowercase→Uppercase: ``deleteFile`` → ``delete File``
+    - Uppercase run→Uppercase+Lowercase: ``XMLParser`` → ``XML Parser``
+    - letter→digit: ``file2delete`` → ``file 2 delete``
+    - digit→letter: ``2ndFile`` → ``2nd File``
+    """
+    # Lowercase followed by uppercase: deleteFile → delete File
+    s = re.sub(r'([a-z])([A-Z])', r'\1 \2', s)
+    # Uppercase run followed by uppercase+lowercase: XMLParser → XML Parser
+    s = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1 \2', s)
+    # Letter followed by digit: file2delete → file 2delete
+    s = re.sub(r'([a-zA-Z])(\d)', r'\1 \2', s)
+    # Digit followed by letter: 2ndFile → 2nd File
+    s = re.sub(r'(\d)([a-zA-Z])', r'\1 \2', s)
+    return s
+
+
 def _normalize_separators(s: str) -> str:
-    """Normalize separators (_, -, .) to spaces for matching."""
-    return s.replace("_", " ").replace("-", " ").replace(".", " ")
+    """Normalize separators and camelCase to spaces for matching.
+
+    Splits on:
+    - Underscore, hyphen, dot (original behavior)
+    - Slash, colon, at-sign (namespace separators used by tool ecosystems)
+    - camelCase/PascalCase word boundaries
+    - letter/digit transitions
+    """
+    # First split camelCase before replacing separators so that
+    # "deleteFile" becomes "delete File" then "delete file" after lowering.
+    s = _split_camel_case(s)
+    # Replace all common separators with spaces
+    s = re.sub(r'[_\-./:\\@]+', ' ', s)
+    return s
 
 
 def _matches_action(pattern: str, action: str) -> bool:
     """Case-insensitive bidirectional substring matching with separator normalization.
 
-    Normalizes ``_``, ``-``, and ``.`` to spaces before comparison so that
-    ``"delete_user"`` matches ``"delete-user"`` and ``"delete user"``.
+    Normalizes ``_``, ``-``, ``.``, ``/``, ``:``, ``@`` and camelCase/PascalCase
+    boundaries to spaces before comparison so that ``"delete_user"`` matches
+    ``"delete-user"``, ``"delete user"``, and ``"deleteUser"``.
+
+    If the normalized comparison fails, a separatorless fallback is attempted:
+    all non-alphanumeric characters are stripped from both strings and they are
+    compared as lowercased run-together tokens. This catches edge cases where
+    separator placement differs (e.g. ``"deletefi le"`` vs ``"delete file"``).
 
     Returns True if the pattern is a substring of the action or the action
     is a substring of the pattern.
     """
-    p = _normalize_separators(pattern.strip().lower())
-    a = _normalize_separators(action.strip().lower())
-    return p in a or a in p
+    p = _normalize_separators(pattern.strip()).lower()
+    a = _normalize_separators(action.strip()).lower()
+    if p in a or a in p:
+        return True
+
+    # Separatorless fallback: strip everything non-alphanumeric and compare
+    p_stripped = re.sub(r'[^a-z0-9]', '', p)
+    a_stripped = re.sub(r'[^a-z0-9]', '', a)
+    if p_stripped and a_stripped:
+        return p_stripped in a_stripped or a_stripped in p_stripped
+
+    return False
 
 
 def _build_action_context(action: str, params: dict) -> str:
@@ -204,7 +251,7 @@ def _matches_condition(condition: str, action_context: str) -> bool:
        (``_``, ``-``, ``.``) are normalized to spaces before matching
        so that ``send_email`` is treated as ``send email``.
     """
-    context_lower = _normalize_separators(action_context.lower())
+    context_lower = _normalize_separators(action_context).lower()
     words = condition.lower().split()
     significant = [w for w in words if len(w) >= 3 and w not in _STOP_WORDS]
     if not significant:

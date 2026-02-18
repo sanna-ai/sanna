@@ -13,6 +13,10 @@ Set up governance (one-time):
 ```bash
 sanna init         # Choose template, set agent name, enforcement level
 sanna keygen       # Generate Ed25519 keypair (~/.sanna/keys/)
+# Output:
+#   Generated Ed25519 keypair (a1b2c3d4e5f6...)
+#   Private key: /Users/you/.sanna/keys/a1b2c3d4e5f6...7890.key
+#   Public key:  /Users/you/.sanna/keys/a1b2c3d4e5f6...7890.pub
 sanna sign constitution.yaml --private-key ~/.sanna/keys/<key-id>.key
 ```
 
@@ -23,6 +27,8 @@ from sanna import sanna_observe, SannaHaltError
 
 @sanna_observe(constitution_path="constitution.yaml")
 def my_agent(query: str, context: str) -> str:
+    # Note: @sanna_observe wraps the return value in a SannaResult
+    # object with .output and .receipt attributes.
     return "Based on the data, revenue grew 12% year-over-year."
 
 try:
@@ -32,6 +38,7 @@ try:
     )
     print(result.output)   # The agent's response
     print(result.receipt)  # Cryptographic governance receipt (JSON)
+    # Receipt automatically persisted to ~/.sanna/receipts.db
 except SannaHaltError as e:
     print(f"HALTED: {e}")  # Constitution violation detected
 ```
@@ -49,7 +56,7 @@ sanna sign constitution.yaml --private-key ~/.sanna/keys/<key-id>.key
 sanna gateway --config gateway.yaml
 ```
 
-Point your MCP client (Claude Desktop, Claude Code, Cursor) at the gateway instead of directly at your downstream servers. Every tool call is now governed. The gateway governs tool calls that pass through it — internal LLM reasoning generates zero receipts, only actions that cross the governance boundary are documented.
+Point your MCP client (Claude Desktop, Claude Code, Cursor) at the gateway instead of directly at your downstream servers. Every tool call is now governed. The gateway governs tool calls that pass through it — only actions that cross the governance boundary produce receipts. Reasoning is captured via the explicit `_justification` parameter in tool calls, not from internal model reasoning. The gateway cannot observe LLM chain-of-thought.
 
 ```
 MCP Client (Claude Desktop / Claude Code / Cursor)
@@ -77,7 +84,7 @@ This generates keys, creates a constitution, simulates a governed tool call, gen
 
 ## Core Concepts
 
-**Constitution** — YAML document defining what the agent can, cannot, and must escalate. Ed25519-signed. Modification after signing is detected on load.
+**Constitution** — YAML document defining what the agent can, cannot, and must escalate. Ed25519-signed. Modification after signing is detected on load. Constitution signing (via `sanna sign`) is required for enforcement. Constitution approval is an optional additional governance step for multi-party review workflows.
 
 **Receipt** — JSON artifact binding inputs, reasoning, action, and check results into a cryptographically signed, schema-validated, deterministically fingerprinted record. Receipts are generated per governed action — when an agent calls a tool or executes a decorated function — not per conversational turn. An agent that reasons for twenty turns and executes one action produces one receipt.
 
@@ -93,9 +100,11 @@ This generates keys, creates a constitution, simulates a governed tool call, gen
 
 **Authority Boundaries** — `can_execute` (forward), `must_escalate` (prompt user), `cannot_execute` (deny). Policy cascade: per-tool override > server default > constitution.
 
+**Key Management** — Public keys are stored in `~/.sanna/keys/` and referenced by their key ID (SHA-256 fingerprint of the public key). For verification, pass the public key path explicitly via `--public-key` on the CLI or `constitution_public_key_path` in code. See [docs/key-management.md](https://github.com/nicallen-exd/sanna/blob/main/docs/key-management.md) for key roles and rotation.
+
 ## Receipt Format
 
-Every governed action produces a reasoning receipt — a JSON artifact that cryptographically binds inputs, outputs, check results, and constitution provenance. See [spec/sanna-specification-v1.0.md](spec/sanna-specification-v1.0.md) for the full specification.
+Every governed action produces a reasoning receipt — a JSON artifact that cryptographically binds inputs, outputs, check results, and constitution provenance. See [spec/sanna-specification-v1.0.md](https://github.com/nicallen-exd/sanna/blob/main/spec/sanna-specification-v1.0.md) for the full specification.
 
 **Identification**
 
@@ -121,7 +130,7 @@ Every governed action produces a reasoning receipt — a JSON artifact that cryp
 | Field | Type | Description |
 |-------|------|-------------|
 | `timestamp` | string | ISO 8601 timestamp |
-| `inputs` | object | Contains `query` and `context` |
+| `inputs` | object | Dictionary of function arguments passed to the decorated function (e.g., `query`, `context`) |
 | `outputs` | object | Contains `response` |
 
 **Governance**
@@ -394,12 +403,53 @@ No network. No API keys. No vendor dependency.
 - **Ed25519 cryptographic signatures**: Constitutions, receipts, and approval records are independently signed and verifiable.
 - **Offline verification**: No platform dependency. Verify receipts with a public key and the CLI.
 - **Evidence bundles**: Self-contained zip archives with receipt, constitution, and public keys for auditors.
-- **Drift analytics**: Per-agent failure-rate trending with linear regression and breach projection. See [docs/drift-reports.md](docs/drift-reports.md).
-- **Receipt Triad**: Cryptographic binding of input, reasoning, and action for auditability. See [docs/reasoning-receipts.md](docs/reasoning-receipts.md).
-- **Receipt queries**: SQL recipes, MCP query tool. See [docs/receipt-queries.md](docs/receipt-queries.md).
-- **Key management**: SHA-256 key fingerprints, labeled keypairs. See [docs/key-management.md](docs/key-management.md).
-- **Production deployment**: Docker, logging, retention, failure modes. See [docs/production.md](docs/production.md).
-- **Gateway configuration**: Full config reference. See [docs/gateway-config.md](docs/gateway-config.md).
+- **Drift analytics**: Per-agent failure-rate trending with linear regression and breach projection. See [docs/drift-reports.md](https://github.com/nicallen-exd/sanna/blob/main/docs/drift-reports.md).
+- **Receipt Triad**: Cryptographic binding of input, reasoning, and action for auditability. See [docs/reasoning-receipts.md](https://github.com/nicallen-exd/sanna/blob/main/docs/reasoning-receipts.md).
+- **Receipt queries**: SQL recipes, MCP query tool. See [docs/receipt-queries.md](https://github.com/nicallen-exd/sanna/blob/main/docs/receipt-queries.md).
+- **Key management**: SHA-256 key fingerprints, labeled keypairs. See [docs/key-management.md](https://github.com/nicallen-exd/sanna/blob/main/docs/key-management.md).
+- **Production deployment**: Docker, logging, retention, failure modes. See [docs/production.md](https://github.com/nicallen-exd/sanna/blob/main/docs/production.md).
+- **Gateway configuration**: Full config reference. See [docs/gateway-config.md](https://github.com/nicallen-exd/sanna/blob/main/docs/gateway-config.md).
+
+## Security
+
+- **Ed25519 cryptographic signatures**: Constitutions, receipts, and approval records are independently signed and verifiable offline.
+- **Prompt injection isolation**: Evaluator prompts use trust separation -- trusted policy rules are isolated from untrusted agent content to prevent prompt injection attacks on governance checks. Untrusted content is wrapped in `<audit>` tags with XML entity escaping.
+- **Atomic file writes**: All file operations use symlink-protected atomic writes (`O_NOFOLLOW`, `O_EXCL`, `fsync`, `os.replace()`).
+- **SQLite hardening**: Receipt stores validate file ownership, enforce 0o600 permissions, and reject symlinks.
+- **Signature structure validation**: Enforcement points validate Ed25519 base64 encoding and 64-byte signature length, rejecting whitespace, junk, and placeholder strings.
+
+## Cryptographic Design
+
+- **Signing**: Ed25519 over canonical JSON (RFC 8785-style deterministic serialization)
+- **Hashing**: SHA-256 for all content hashes, fingerprints, and key IDs
+- **Canonicalization**: Sorted keys, NFC Unicode normalization, integer-only numerics (no floats in signed content)
+- **Fingerprinting**: Pipe-delimited fields hashed with SHA-256; 16-hex truncation for display, 64-hex for full fingerprint
+
+See the [specification](https://github.com/nicallen-exd/sanna/blob/main/spec/sanna-specification-v1.0.md) for full cryptographic construction details.
+
+## Threat Model
+
+**Defends against:**
+- Tampering with stored receipts (detected via fingerprint and signature verification)
+- Unverifiable governance claims (receipts are cryptographically signed attestations)
+- Replay of receipts across contexts (receipts are bound to specific inputs, outputs, and correlation IDs)
+- Unauthorized tool execution (constitution enforcement blocks or escalates disallowed actions)
+
+**Does not defend against:**
+- Compromised runtime environment (if the host is compromised, all bets are off)
+- Stolen signing keys (key compromise requires re-keying and re-signing)
+- Bypassing Sanna entirely (governance only applies to functions decorated with `@sanna_observe` or tool calls routed through the gateway)
+- Malicious constitutions (Sanna enforces the constitution as written; it does not validate whether the constitution itself is correct or sufficient)
+
+## Limitations
+
+Receipts are attestations of process, not guarantees of outcome.
+
+- Receipts do not prove internal reasoning was truthful -- they prove that checks were run against the output
+- Receipts do not prove upstream input was complete or accurate
+- Receipts do not protect against a compromised host or stolen signing keys
+- Receipts do not prove the constitution itself was correct or sufficient for the use case
+- Heuristic checks (C1-C5) are deterministic but not exhaustive -- they catch common failure modes, not all possible failures
 
 ## Observability (OpenTelemetry)
 
@@ -409,7 +459,7 @@ Sanna can emit OpenTelemetry signals to correlate governed actions with receipts
 pip install "sanna[otel]"
 ```
 
-See [docs/otel-integration.md](docs/otel-integration.md) for configuration and signal reference.
+See [docs/otel-integration.md](https://github.com/nicallen-exd/sanna/blob/main/docs/otel-integration.md) for configuration and signal reference.
 
 ## Install
 

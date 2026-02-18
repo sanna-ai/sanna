@@ -325,13 +325,13 @@ class TestFloatSanitization:
         assert isinstance(result["score"], int)
 
     def test_lossy_float_raises_error(self):
-        """71.43 should raise TypeError with path information."""
-        with pytest.raises(TypeError, match="71.43"):
+        """71.43 should raise ValueError with path information."""
+        with pytest.raises(ValueError, match="71.43"):
             sanitize_for_signing({"extensions": {"score": 71.43}})
 
     def test_lossy_float_error_includes_path(self):
         """Error message should include the JSON path."""
-        with pytest.raises(TypeError, match=r"extensions\.score"):
+        with pytest.raises(ValueError, match=r"extensions\.score"):
             sanitize_for_signing({"extensions": {"score": 71.43}})
 
     def test_nested_lossless_conversion(self):
@@ -367,7 +367,7 @@ class TestFloatSanitization:
         # Remove existing signature so sign_receipt tries to re-sign
         receipt.pop("receipt_signature", None)
 
-        with pytest.raises(TypeError, match="71.43"):
+        with pytest.raises(ValueError, match="71.43"):
             sign_receipt(receipt, str(priv_path))
 
     def test_receipt_with_integer_equivalent_float_signed_ok(self, tmp_path):
@@ -421,14 +421,14 @@ class TestPrivateKeyPermissions:
 
 class TestV064Versions:
     def test_tool_version(self):
-        assert TOOL_VERSION == "0.13.0"
+        assert TOOL_VERSION == "0.13.1"
 
     def test_checks_version(self):
         assert CHECKS_VERSION == "5"
 
     def test_init_version(self):
         import sanna
-        assert sanna.__version__ == "0.13.0"
+        assert sanna.__version__ == "0.13.1"
 
     def test_sanitize_for_signing_exported(self):
         """sanitize_for_signing should be importable from sanna.crypto."""

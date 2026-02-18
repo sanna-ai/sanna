@@ -171,13 +171,21 @@ class TestPatternRedactRejected:
 # =============================================================================
 
 class TestOutputsResponseRedaction:
-    """Redaction must target outputs['response'], not outputs['output']."""
+    """Redaction must target outputs['response'], not outputs['output'].
+
+    SEC-1: Redaction markers are now applied BEFORE signing via
+    ``_apply_redaction_markers()``.  ``_persist_receipt()`` writes the
+    marker-bearing receipt as-is.  These tests apply markers first,
+    then persist, matching the gateway's real flow.
+    """
 
     def test_response_field_redacted(self, tmp_path):
-        """outputs['response'] is replaced with [REDACTED ...] placeholder."""
+        """outputs['response'] is replaced with a redaction marker dict."""
         pytest.importorskip("mcp")
         from sanna.gateway.config import RedactionConfig
-        from sanna.gateway.server import SannaGateway, DownstreamSpec
+        from sanna.gateway.server import (
+            SannaGateway, DownstreamSpec, _apply_redaction_markers,
+        )
 
         const_path, key_path = _create_signed_constitution(tmp_path)
         store_dir = tmp_path / "receipts"
@@ -197,6 +205,8 @@ class TestOutputsResponseRedaction:
         )
 
         receipt = _make_receipt(response_text="Patient has elevated BP 180/110")
+        # SEC-1: apply markers before persist (as _generate_receipt does)
+        _apply_redaction_markers(receipt, redaction.fields)
         gw._persist_receipt(receipt)
 
         # Only a .redacted.json file should exist
@@ -207,18 +217,22 @@ class TestOutputsResponseRedaction:
         )
 
         content = json.loads(redacted_files[0].read_text())
-        response_val = content.get("outputs", {}).get("response", "")
-        assert "[REDACTED" in response_val, (
-            f"Expected outputs.response to be redacted, got: {response_val!r}"
+        response_val = content.get("outputs", {}).get("response")
+        # SEC-1: response is now a marker dict, not a [REDACTED ...] string
+        assert isinstance(response_val, dict), (
+            f"Expected redaction marker dict, got: {response_val!r}"
         )
-        assert "Patient" not in response_val
-        assert "180/110" not in response_val
+        assert response_val.get("__redacted__") is True
+        assert "Patient" not in json.dumps(response_val)
+        assert "180/110" not in json.dumps(response_val)
 
     def test_context_field_also_redacted(self, tmp_path):
         """inputs['context'] is also redacted when 'arguments' in fields."""
         pytest.importorskip("mcp")
         from sanna.gateway.config import RedactionConfig
-        from sanna.gateway.server import SannaGateway, DownstreamSpec
+        from sanna.gateway.server import (
+            SannaGateway, DownstreamSpec, _apply_redaction_markers,
+        )
 
         const_path, key_path = _create_signed_constitution(tmp_path)
         store_dir = tmp_path / "receipts"
@@ -238,16 +252,20 @@ class TestOutputsResponseRedaction:
         )
 
         receipt = _make_receipt()
+        # SEC-1: apply markers before persist
+        _apply_redaction_markers(receipt, redaction.fields)
         gw._persist_receipt(receipt)
 
         files = list(store_dir.glob("*.redacted.json"))
         assert len(files) == 1
 
         content = json.loads(files[0].read_text())
-        context_val = content.get("inputs", {}).get("context", "")
-        assert "[REDACTED" in context_val
-        assert "John Doe" not in context_val
-        assert "123-45-6789" not in context_val
+        context_val = content.get("inputs", {}).get("context")
+        # SEC-1: context is now a marker dict
+        assert isinstance(context_val, dict)
+        assert context_val.get("__redacted__") is True
+        assert "John Doe" not in json.dumps(context_val)
+        assert "123-45-6789" not in json.dumps(context_val)
 
 
 # =============================================================================
@@ -337,7 +355,9 @@ class TestRedactionPersistence:
         """Redacted receipt loads as valid JSON with required fields."""
         pytest.importorskip("mcp")
         from sanna.gateway.config import RedactionConfig
-        from sanna.gateway.server import SannaGateway, DownstreamSpec
+        from sanna.gateway.server import (
+            SannaGateway, DownstreamSpec, _apply_redaction_markers,
+        )
 
         const_path, key_path = _create_signed_constitution(tmp_path)
         store_dir = tmp_path / "receipts"
@@ -357,6 +377,8 @@ class TestRedactionPersistence:
         )
 
         receipt = _make_receipt()
+        # SEC-1: apply markers before persist
+        _apply_redaction_markers(receipt, redaction.fields)
         gw._persist_receipt(receipt)
 
         files = list(store_dir.glob("*.redacted.json"))
@@ -372,9 +394,9 @@ class TestRedactionPersistence:
         assert "outputs" in content
         assert "status" in content
 
-        # Redaction notice present
-        assert "_redaction_notice" in content
-        assert "redacted" in content["_redaction_notice"].lower()
+        # SEC-1: redacted_fields metadata replaces _redaction_notice
+        assert "redacted_fields" in content
+        assert isinstance(content["redacted_fields"], list)
 
         # Receipt ID preserved
         assert content["receipt_id"] == "test-rcpt-001"

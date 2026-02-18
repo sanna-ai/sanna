@@ -25,6 +25,8 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Optional
 
+from .utils.safe_json import safe_json_loads
+
 logger = logging.getLogger("sanna.bundle")
 
 BUNDLE_FORMAT_VERSION = "1.0.0"
@@ -110,8 +112,8 @@ def create_bundle(
     # Validate receipt
     try:
         receipt_text = receipt_path.read_text(encoding="utf-8")
-        receipt = json.loads(receipt_text)
-    except json.JSONDecodeError as e:
+        receipt = safe_json_loads(receipt_text)
+    except (json.JSONDecodeError, ValueError) as e:
         raise ValueError(f"Receipt is not valid JSON: {e}") from e
 
     if "receipt_signature" not in receipt:
@@ -123,10 +125,10 @@ def create_bundle(
     # Validate constitution has policy_hash
     constitution_text = constitution_path.read_text(encoding="utf-8")
     if constitution_path.suffix in (".yaml", ".yml"):
-        import yaml
-        const_data = yaml.safe_load(constitution_text)
+        from .utils.safe_yaml import safe_yaml_load
+        const_data = safe_yaml_load(constitution_text)
     else:
-        const_data = json.loads(constitution_text)
+        const_data = safe_json_loads(constitution_text)
 
     if not const_data.get("policy_hash"):
         raise ValueError(
@@ -403,8 +405,8 @@ def verify_bundle(
 
         # Load receipt
         try:
-            receipt = json.loads(receipt_file.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as e:
+            receipt = safe_json_loads(receipt_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, ValueError) as e:
             checks.append(BundleCheck("Receipt schema", False, f"Invalid JSON: {e}"))
             return BundleVerificationResult(
                 valid=False, checks=checks,

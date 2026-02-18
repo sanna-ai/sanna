@@ -39,8 +39,8 @@ def sanitize_for_signing(obj, path: str = "$"):
     """Sanitize a dict/list tree for canonical JSON signing.
 
     Walks *obj* recursively.  Floats that are exact integer values
-    (e.g. ``71.0``) are silently converted to ``int``.  Lossy floats
-    (e.g. ``71.43``) raise ``TypeError`` with the JSON-path so the caller
+    (e.g. ``71.0``) are silently converted to ``int``.  Non-integer floats
+    (e.g. ``71.43``) raise ``ValueError`` with the JSON-path so the caller
     can fix the data (use integer basis-points or a string representation).
 
     Returns a new object tree — the original is not mutated.
@@ -48,14 +48,16 @@ def sanitize_for_signing(obj, path: str = "$"):
     if isinstance(obj, float):
         import math
         if not math.isfinite(obj):
-            raise TypeError(
-                f"Float value {obj!r} at path {path} is not finite (NaN or Infinity). "
+            raise ValueError(
+                f"Non-integer float not allowed in signed content: {obj!r} at path "
+                f"{path} is not finite (NaN or Infinity). "
                 f"Use integer basis points or string representation."
             )
         if obj == int(obj):
             return int(obj)
-        raise TypeError(
-            f"Float value {obj!r} at path {path} cannot be signed. "
+        raise ValueError(
+            f"Non-integer float not allowed in signed content: {obj!r} at path "
+            f"{path} cannot be losslessly converted to int. "
             f"Use integer basis points or string representation."
         )
     if isinstance(obj, dict):

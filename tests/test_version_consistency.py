@@ -14,7 +14,7 @@ from sanna.middleware import sanna_observe
 class TestVersionConsistency:
 
     def test_version_value(self):
-        assert sanna.__version__ == "0.13.0"
+        assert sanna.__version__ == "0.13.1"
 
     def test_version_matches_tool_version(self):
         assert sanna.__version__ == TOOL_VERSION

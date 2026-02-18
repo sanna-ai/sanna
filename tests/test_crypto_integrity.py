@@ -92,9 +92,13 @@ class TestRedactionDualFile:
         assert len(redacted) == 1, f"Expected 1 redacted, got {redacted}"
 
     def test_original_receipt_not_persisted_when_redaction_enabled(self, tmp_path):
-        """No original file on disk when redaction is enabled (CRIT-03)."""
+        """No original file on disk when redaction is enabled (CRIT-03).
+
+        SEC-1: Redaction markers are now applied via ``_apply_redaction_markers``
+        before ``_persist_receipt`` — the persist step just writes the receipt.
+        """
         mcp = pytest.importorskip("mcp")
-        from sanna.gateway.server import SannaGateway
+        from sanna.gateway.server import SannaGateway, _apply_redaction_markers
         from sanna.gateway.config import RedactionConfig
 
         receipt = {
@@ -104,14 +108,19 @@ class TestRedactionDualFile:
             "outputs": {"response": "Prescribed medication"},
         }
 
-        gw = object.__new__(SannaGateway)
-        gw._receipt_store_path = str(tmp_path / "receipts")
-        gw._gateway_secret = b"test-secret"
-        gw._redaction_config = RedactionConfig(
+        redaction = RedactionConfig(
             enabled=True,
             mode="hash_only",
             fields=["arguments", "result_text"],
         )
+
+        # SEC-1: apply markers before persist (as _generate_receipt does)
+        _apply_redaction_markers(receipt, redaction.fields)
+
+        gw = object.__new__(SannaGateway)
+        gw._receipt_store_path = str(tmp_path / "receipts")
+        gw._gateway_secret = b"test-secret"
+        gw._redaction_config = redaction
 
         gw._persist_receipt(receipt)
 
@@ -125,12 +134,14 @@ class TestRedactionDualFile:
         redacted = list(receipt_dir.glob("*.redacted.json"))
         assert len(redacted) == 1
         content = json.loads(redacted[0].read_text())
-        assert "REDACTED" in content["inputs"]["context"]
+        # SEC-1: context is now a marker dict, not a [REDACTED ...] string
+        assert isinstance(content["inputs"]["context"], dict)
+        assert content["inputs"]["context"]["__redacted__"] is True
 
-    def test_redacted_view_contains_redaction_notice(self, tmp_path):
-        """The .redacted.json file has the _redaction_notice field."""
+    def test_redacted_view_contains_redaction_metadata(self, tmp_path):
+        """The .redacted.json file has the redacted_fields metadata (SEC-1)."""
         mcp = pytest.importorskip("mcp")
-        from sanna.gateway.server import SannaGateway
+        from sanna.gateway.server import SannaGateway, _apply_redaction_markers
         from sanna.gateway.config import RedactionConfig
 
         receipt = {
@@ -140,13 +151,18 @@ class TestRedactionDualFile:
             "outputs": {"response": "Secret output"},
         }
 
-        gw = object.__new__(SannaGateway)
-        gw._receipt_store_path = str(tmp_path / "receipts")
-        gw._gateway_secret = b"test-secret"
-        gw._redaction_config = RedactionConfig(
+        redaction = RedactionConfig(
             enabled=True, mode="hash_only",
             fields=["arguments", "result_text"],
         )
+
+        # SEC-1: apply markers before persist
+        _apply_redaction_markers(receipt, redaction.fields)
+
+        gw = object.__new__(SannaGateway)
+        gw._receipt_store_path = str(tmp_path / "receipts")
+        gw._gateway_secret = b"test-secret"
+        gw._redaction_config = redaction
 
         gw._persist_receipt(receipt)
 
@@ -154,13 +170,16 @@ class TestRedactionDualFile:
             (tmp_path / "receipts").glob("*.redacted.json"),
         )
         content = json.loads(redacted_files[0].read_text())
-        assert "_redaction_notice" in content
-        assert "original receipt" in content["_redaction_notice"].lower()
+        # SEC-1: redacted_fields replaces _redaction_notice
+        assert "redacted_fields" in content
+        assert isinstance(content["redacted_fields"], list)
+        assert "inputs.context" in content["redacted_fields"]
+        assert "outputs.response" in content["redacted_fields"]
 
     def test_redacted_view_has_redacted_content(self, tmp_path):
-        """Sensitive fields are replaced in the redacted view."""
+        """Sensitive fields are replaced with redaction markers (SEC-1)."""
         mcp = pytest.importorskip("mcp")
-        from sanna.gateway.server import SannaGateway
+        from sanna.gateway.server import SannaGateway, _apply_redaction_markers
         from sanna.gateway.config import RedactionConfig
 
         receipt = {
@@ -170,13 +189,18 @@ class TestRedactionDualFile:
             "outputs": {"response": "Prescribed medication"},
         }
 
-        gw = object.__new__(SannaGateway)
-        gw._receipt_store_path = str(tmp_path / "receipts")
-        gw._gateway_secret = b"test-secret"
-        gw._redaction_config = RedactionConfig(
+        redaction = RedactionConfig(
             enabled=True, mode="hash_only",
             fields=["arguments", "result_text"],
         )
+
+        # SEC-1: apply markers before persist
+        _apply_redaction_markers(receipt, redaction.fields)
+
+        gw = object.__new__(SannaGateway)
+        gw._receipt_store_path = str(tmp_path / "receipts")
+        gw._gateway_secret = b"test-secret"
+        gw._redaction_config = redaction
 
         gw._persist_receipt(receipt)
 
@@ -184,10 +208,13 @@ class TestRedactionDualFile:
             (tmp_path / "receipts").glob("*.redacted.json"),
         )
         content = json.loads(redacted_files[0].read_text())
-        assert "123-45-6789" not in content["inputs"]["context"]
-        assert "REDACTED" in content["inputs"]["context"]
-        assert "Prescribed" not in content["outputs"]["response"]
-        assert "REDACTED" in content["outputs"]["response"]
+        # SEC-1: fields are now marker dicts, not [REDACTED ...] strings
+        ctx = content["inputs"]["context"]
+        assert isinstance(ctx, dict) and ctx.get("__redacted__") is True
+        assert "123-45-6789" not in json.dumps(ctx)
+        resp = content["outputs"]["response"]
+        assert isinstance(resp, dict) and resp.get("__redacted__") is True
+        assert "Prescribed" not in json.dumps(resp)
 
     def test_no_redacted_file_when_disabled(self, tmp_path):
         """No .redacted.json when redaction is disabled."""

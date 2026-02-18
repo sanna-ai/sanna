@@ -2150,3 +2150,592 @@ class TestEscalationPerToolLimit:
             reason="test",
         )
         assert new_entry.prefixed_name == "mock_delete"
+
+
+# =============================================================================
+# SEC-5 & SEC-10: ESCALATION PERSISTENCE SECURITY TESTS
+# =============================================================================
+
+
+class TestEscalationPersistenceForgedTokenHash:
+    """SEC-5: Forged persistence file with attacker-controlled token_hash
+    must NOT allow approval when HMAC re-derivation is enforced."""
+
+    def test_forged_token_hash_does_not_allow_approval(
+        self, mock_server_path, signed_constitution, tmp_path,
+    ):
+        """Attacker writes crafted persistence JSON with
+        token_hash = sha256("attacker-token"). Gateway restarts and
+        loads it. Approving with "attacker-token" must fail because
+        the HMAC re-derivation produces a different expected token."""
+        import hashlib as _hashlib
+        import hmac as _hmac
+
+        const_path, key_path, _ = signed_constitution
+        persist_file = tmp_path / "escalations.json"
+
+        async def _test():
+            # Step 1: Create a real gateway and trigger an escalation
+            gw = SannaGateway(
+                server_name="mock",
+                command=sys.executable,
+                args=[mock_server_path],
+                constitution_path=const_path,
+                require_constitution_sig=False,
+                signing_key_path=key_path,
+                escalation_persist_path=str(persist_file),
+            )
+            await gw.start()
+            try:
+                esc_result = await gw._forward_call(
+                    "mock_update_item",
+                    {"item_id": "1", "name": "forged"},
+                )
+                esc_data = json.loads(esc_result.content[0].text)
+                esc_id = esc_data["escalation_id"]
+
+                # Capture the gateway secret and persist file content
+                # BEFORE shutdown (shutdown clears the store)
+                secret = gw._gateway_secret
+                persist_content = persist_file.read_text()
+            finally:
+                await gw.shutdown()
+
+            # Step 2: Tamper with the captured persistence data — replace
+            # token_hash with sha256("attacker-token") and re-sign with
+            # correct record HMAC so it passes integrity check
+            data = json.loads(persist_content)
+
+            attacker_token = "attacker-token"
+            attacker_hash = _hashlib.sha256(
+                attacker_token.encode()
+            ).hexdigest()
+
+            record = data[esc_id]
+            record.pop("_record_hmac", None)
+            record["token_hash"] = attacker_hash
+
+            # Re-compute record HMAC so the record passes integrity check
+            clean = {k: v for k, v in record.items() if k != "_record_hmac"}
+            payload = json.dumps(clean, sort_keys=True).encode()
+            record["_record_hmac"] = _hmac.new(
+                secret, payload, _hashlib.sha256,
+            ).hexdigest()
+            data[esc_id] = record
+
+            # Write tampered file with correct permissions
+            persist_file.write_text(json.dumps(data))
+            import os
+            os.chmod(str(persist_file), 0o600)
+
+            # Step 3: Create a new gateway that loads the tampered file
+            gw2 = SannaGateway(
+                server_name="mock",
+                command=sys.executable,
+                args=[mock_server_path],
+                constitution_path=const_path,
+                require_constitution_sig=False,
+                signing_key_path=key_path,
+                escalation_persist_path=str(persist_file),
+            )
+            await gw2.start()
+            try:
+                # The entry should have loaded (record HMAC is valid)
+                entry = gw2.escalation_store.get(esc_id)
+                assert entry is not None, (
+                    "Record should load since record HMAC is valid"
+                )
+
+                # Step 4: Try to approve with "attacker-token"
+                # This MUST fail because _compute_approval_token re-derives
+                # from the HMAC secret, not from stored token_hash
+                result = await gw2._forward_call(
+                    _META_TOOL_APPROVE,
+                    {
+                        "escalation_id": esc_id,
+                        "approval_token": attacker_token,
+                    },
+                )
+                assert result.isError is True
+                err_data = json.loads(result.content[0].text)
+                assert err_data["error"] == "INVALID_APPROVAL_TOKEN"
+            finally:
+                await gw2.shutdown()
+
+        asyncio.run(_test())
+
+
+class TestEscalationPersistenceValidRoundTrip:
+    """SEC-5: Valid persistence file with correct HMAC still loads
+    and allows approval normally."""
+
+    def test_valid_persistence_round_trip(
+        self, mock_server_path, signed_constitution, tmp_path,
+    ):
+        """Create escalation -> persist -> restart -> approve with
+        the correct token. Should succeed."""
+        const_path, key_path, _ = signed_constitution
+        persist_file = tmp_path / "escalations.json"
+
+        async def _test():
+            # Create gateway and trigger escalation
+            gw = SannaGateway(
+                server_name="mock",
+                command=sys.executable,
+                args=[mock_server_path],
+                constitution_path=const_path,
+                require_constitution_sig=False,
+                signing_key_path=key_path,
+                escalation_persist_path=str(persist_file),
+            )
+            await gw.start()
+            try:
+                esc_result = await gw._forward_call(
+                    "mock_update_item",
+                    {"item_id": "42", "name": "roundtrip"},
+                )
+                esc_data = json.loads(esc_result.content[0].text)
+                esc_id = esc_data["escalation_id"]
+
+                # Get the valid token and save persist content BEFORE
+                # shutdown (shutdown clears the store + persist file)
+                entry = gw.escalation_store.get(esc_id)
+                token = gw._compute_approval_token(entry)
+                persist_content = persist_file.read_text()
+            finally:
+                await gw.shutdown()
+
+            # Restore the persisted file (shutdown clears it)
+            persist_file.write_text(persist_content)
+            import os
+            os.chmod(str(persist_file), 0o600)
+
+            # Restart gateway — loads from persisted file
+            gw2 = SannaGateway(
+                server_name="mock",
+                command=sys.executable,
+                args=[mock_server_path],
+                constitution_path=const_path,
+                require_constitution_sig=False,
+                signing_key_path=key_path,
+                escalation_persist_path=str(persist_file),
+            )
+            await gw2.start()
+            try:
+                # Entry should be loaded
+                entry2 = gw2.escalation_store.get(esc_id)
+                assert entry2 is not None
+
+                # Approve with valid token
+                result = await gw2._forward_call(
+                    _META_TOOL_APPROVE,
+                    {"escalation_id": esc_id, "approval_token": token},
+                )
+                assert result.isError is not True
+                data = json.loads(result.content[0].text)
+                assert data["updated"] is True
+                assert data["item_id"] == "42"
+            finally:
+                await gw2.shutdown()
+
+        asyncio.run(_test())
+
+
+class TestEscalationPersistenceTamperedHMAC:
+    """SEC-5: Persistence file with tampered record HMAC is rejected on load."""
+
+    def test_tampered_record_hmac_rejected(self, tmp_path):
+        """Record with invalid _record_hmac is skipped during load."""
+        persist_file = tmp_path / "escalations.json"
+        secret = b"x" * 32
+
+        # Create a valid store and entry
+        store = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        entry = store.create(
+            prefixed_name="srv_tool",
+            original_name="tool",
+            arguments={"key": "value"},
+            server_name="srv",
+            reason="test",
+        )
+        esc_id = entry.escalation_id
+        assert persist_file.exists()
+
+        # Tamper with the HMAC
+        data = json.loads(persist_file.read_text())
+        data[esc_id]["_record_hmac"] = "deadbeef" * 8
+        persist_file.write_text(json.dumps(data))
+        import os
+        os.chmod(str(persist_file), 0o600)
+
+        # Reload — tampered record should be rejected
+        store2 = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        assert store2.get(esc_id) is None
+        assert len(store2) == 0
+
+
+class TestEscalationPersistenceSymlinkRejected:
+    """SEC-10: Symlinked persistence file is rejected."""
+
+    def test_symlink_persistence_rejected(self, tmp_path):
+        """Load from a symlinked file is refused."""
+        real_file = tmp_path / "real_escalations.json"
+        real_file.write_text("{}")
+        import os
+        os.chmod(str(real_file), 0o600)
+
+        link_path = tmp_path / "symlinked_escalations.json"
+        os.symlink(str(real_file), str(link_path))
+
+        # Should refuse to load (symlink detected)
+        store = EscalationStore(
+            timeout=300,
+            persist_path=str(link_path),
+            secret=b"x" * 32,
+        )
+        assert len(store) == 0
+
+
+class TestEscalationPersistenceOversized:
+    """SEC-10: Oversized persistence file is rejected."""
+
+    def test_oversized_persistence_rejected(self, tmp_path):
+        """File exceeding 10MB limit is refused."""
+        persist_file = tmp_path / "escalations.json"
+        # Write > 10MB of data
+        persist_file.write_text("x" * (11 * 1024 * 1024))
+        import os
+        os.chmod(str(persist_file), 0o600)
+
+        store = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=b"x" * 32,
+        )
+        assert len(store) == 0
+
+
+class TestEscalationPersistenceMalformedRecords:
+    """SEC-10: Malformed records are individually skipped."""
+
+    def test_malformed_records_skipped_individually(self, tmp_path):
+        """Good and bad records in the same file: good ones load, bad
+        ones are skipped."""
+        persist_file = tmp_path / "escalations.json"
+        secret = b"y" * 32
+
+        # Create two valid entries
+        store = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        e1 = store.create(
+            prefixed_name="srv_search",
+            original_name="search",
+            arguments={"q": "test"},
+            server_name="srv",
+            reason="test reason",
+        )
+        e2 = store.create(
+            prefixed_name="srv_update",
+            original_name="update",
+            arguments={"id": "1"},
+            server_name="srv",
+            reason="another reason",
+        )
+        good_id = e1.escalation_id
+        bad_id = e2.escalation_id
+
+        # Tamper: make the second record have an invalid status
+        data = json.loads(persist_file.read_text())
+
+        # Remove HMAC, change status to invalid, recompute HMAC
+        record = data[bad_id]
+        record.pop("_record_hmac", None)
+        record["status"] = "invalid_status_value"
+        import hmac as _hmac
+        import hashlib as _hashlib
+        clean = {k: v for k, v in record.items() if k != "_record_hmac"}
+        payload = json.dumps(clean, sort_keys=True).encode()
+        record["_record_hmac"] = _hmac.new(
+            secret, payload, _hashlib.sha256,
+        ).hexdigest()
+        data[bad_id] = record
+
+        persist_file.write_text(json.dumps(data))
+        import os
+        os.chmod(str(persist_file), 0o600)
+
+        # Reload — good record should load, bad one should be skipped
+        store2 = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        assert len(store2) == 1
+        assert store2.get(good_id) is not None
+        assert store2.get(bad_id) is None
+
+    def test_non_string_tool_name_rejected(self, tmp_path):
+        """Record where original_name is not a string is rejected."""
+        persist_file = tmp_path / "escalations.json"
+        secret = b"z" * 32
+
+        store = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        entry = store.create(
+            prefixed_name="srv_tool",
+            original_name="tool",
+            arguments={},
+            server_name="srv",
+            reason="test",
+        )
+        esc_id = entry.escalation_id
+
+        # Tamper: change original_name to an integer, recompute HMAC
+        data = json.loads(persist_file.read_text())
+        record = data[esc_id]
+        record.pop("_record_hmac", None)
+        record["original_name"] = 12345
+        import hmac as _hmac
+        import hashlib as _hashlib
+        clean = {k: v for k, v in record.items() if k != "_record_hmac"}
+        payload = json.dumps(clean, sort_keys=True).encode()
+        record["_record_hmac"] = _hmac.new(
+            secret, payload, _hashlib.sha256,
+        ).hexdigest()
+        data[esc_id] = record
+
+        persist_file.write_text(json.dumps(data))
+        import os
+        os.chmod(str(persist_file), 0o600)
+
+        store2 = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        assert len(store2) == 0
+
+    def test_non_dict_arguments_rejected(self, tmp_path):
+        """Record where arguments is not a dict is rejected."""
+        persist_file = tmp_path / "escalations.json"
+        secret = b"a" * 32
+
+        store = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        entry = store.create(
+            prefixed_name="srv_tool",
+            original_name="tool",
+            arguments={"k": "v"},
+            server_name="srv",
+            reason="test",
+        )
+        esc_id = entry.escalation_id
+
+        # Tamper: change arguments to a list
+        data = json.loads(persist_file.read_text())
+        record = data[esc_id]
+        record.pop("_record_hmac", None)
+        record["arguments"] = ["not", "a", "dict"]
+        import hmac as _hmac
+        import hashlib as _hashlib
+        clean = {k: v for k, v in record.items() if k != "_record_hmac"}
+        payload = json.dumps(clean, sort_keys=True).encode()
+        record["_record_hmac"] = _hmac.new(
+            secret, payload, _hashlib.sha256,
+        ).hexdigest()
+        data[esc_id] = record
+
+        persist_file.write_text(json.dumps(data))
+        import os
+        os.chmod(str(persist_file), 0o600)
+
+        store2 = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        assert len(store2) == 0
+
+
+class TestEscalationPersistenceIssuedAtRoundTrip:
+    """SEC-5: issued_at round-trips as integer, not float."""
+
+    def test_issued_at_is_integer_in_persistence(self, tmp_path):
+        """issued_at is stored as an integer in JSON and loaded back
+        as an integer."""
+        persist_file = tmp_path / "escalations.json"
+        secret = b"b" * 32
+
+        store = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        entry = store.create(
+            prefixed_name="srv_tool",
+            original_name="tool",
+            arguments={"key": "value"},
+            server_name="srv",
+            reason="test",
+        )
+        esc_id = entry.escalation_id
+
+        # Verify issued_at is an int on the entry
+        assert isinstance(entry.issued_at, int)
+        assert entry.issued_at > 0
+
+        # Verify it's an int in the JSON
+        data = json.loads(persist_file.read_text())
+        assert isinstance(data[esc_id]["issued_at"], int)
+
+        # Reload and verify
+        store2 = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        entry2 = store2.get(esc_id)
+        assert entry2 is not None
+        assert isinstance(entry2.issued_at, int)
+        assert entry2.issued_at == entry.issued_at
+
+    def test_args_digest_round_trips(self, tmp_path):
+        """args_digest is stored as a hex string and reloaded correctly."""
+        import hashlib as _hashlib
+        persist_file = tmp_path / "escalations.json"
+        secret = b"c" * 32
+
+        store = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        args = {"item_id": "42", "name": "test"}
+        entry = store.create(
+            prefixed_name="srv_tool",
+            original_name="tool",
+            arguments=args,
+            server_name="srv",
+            reason="test",
+        )
+        esc_id = entry.escalation_id
+
+        expected_digest = _hashlib.sha256(
+            json.dumps(args, sort_keys=True).encode(),
+        ).hexdigest()
+        assert entry.args_digest == expected_digest
+
+        # Reload
+        store2 = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        entry2 = store2.get(esc_id)
+        assert entry2 is not None
+        assert entry2.args_digest == expected_digest
+
+
+class TestEscalationPersistencePermissions:
+    """SEC-10: File with overly permissive permissions is rejected."""
+
+    def test_world_readable_persistence_rejected(self, tmp_path):
+        """File with 0o644 permissions is rejected (too open)."""
+        persist_file = tmp_path / "escalations.json"
+        persist_file.write_text("{}")
+        import os
+        os.chmod(str(persist_file), 0o644)
+
+        store = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=b"x" * 32,
+        )
+        assert len(store) == 0
+
+    def test_group_writable_persistence_rejected(self, tmp_path):
+        """File with 0o660 permissions is rejected (group write)."""
+        persist_file = tmp_path / "escalations.json"
+        persist_file.write_text("{}")
+        import os
+        os.chmod(str(persist_file), 0o660)
+
+        store = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=b"x" * 32,
+        )
+        assert len(store) == 0
+
+    def test_owner_only_persistence_accepted(self, tmp_path):
+        """File with 0o600 permissions is accepted."""
+        persist_file = tmp_path / "escalations.json"
+        secret = b"d" * 32
+
+        # Create a valid store to produce a correctly-formatted file
+        store = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        store.create(
+            prefixed_name="srv_tool",
+            original_name="tool",
+            arguments={},
+            server_name="srv",
+            reason="test",
+        )
+
+        # Reload with 0o600 — should work
+        store2 = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        assert len(store2) == 1
+
+    def test_owner_plus_group_read_accepted(self, tmp_path):
+        """File with 0o640 permissions is accepted (within limit)."""
+        persist_file = tmp_path / "escalations.json"
+        secret = b"e" * 32
+
+        store = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        store.create(
+            prefixed_name="srv_tool",
+            original_name="tool",
+            arguments={},
+            server_name="srv",
+            reason="test",
+        )
+
+        # Change permissions to 0o640
+        import os
+        os.chmod(str(persist_file), 0o640)
+
+        store2 = EscalationStore(
+            timeout=300,
+            persist_path=str(persist_file),
+            secret=secret,
+        )
+        assert len(store2) == 1

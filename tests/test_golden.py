@@ -436,7 +436,7 @@ class TestVerifier:
     def test_content_tamper_detected(self):
         receipt = load_golden("002_pass_simple_qa.json")
         receipt["outputs"]["response"] = "TAMPERED CONTENT"
-        errors = verify_content_hashes(receipt)
+        errors, _warnings = verify_content_hashes(receipt)
         assert len(errors) > 0
         assert any("tampered" in e.lower() for e in errors)
 
@@ -553,7 +553,7 @@ class TestGoldenReceipts:
     def test_tampered_receipt_detected(self):
         """Tampered receipt has modified outputs so content hash should mismatch."""
         receipt = load_golden("999_tampered.json")
-        content_errors = verify_content_hashes(receipt)
+        content_errors, _warnings = verify_content_hashes(receipt)
         assert len(content_errors) > 0, "Tampered receipt should have content hash errors"
         assert any("tampered" in e.lower() for e in content_errors)
 
