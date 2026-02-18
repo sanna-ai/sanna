@@ -338,13 +338,47 @@ def _sha256_hex(data: bytes) -> str:
 _sha256_prefixed = _sha256_hex
 
 
+def _coerce_floats_for_hashing(obj: Any) -> Any:
+    """Coerce floats for deterministic hashing of untrusted MCP arguments.
+
+    Unlike ``normalize_floats()`` (which raises on non-integer floats),
+    this converts all floats to a deterministic representation:
+    - Integer-valued floats (3.0) → int (3)
+    - Negative zero (-0.0) → int(0)
+    - Non-integer floats (3.14) → string ``"__float:3.14"``
+    - Non-finite floats → string ``"__float:nan"`` / ``"__float:inf"``
+
+    This ensures MCP arguments containing arbitrary floats can always
+    be hashed deterministically without crashing.
+    """
+    import math as _math
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, float):
+        if not _math.isfinite(obj):
+            return f"__float:{obj}"
+        if obj == 0.0 and _math.copysign(1.0, obj) < 0:
+            return 0
+        if obj.is_integer():
+            return int(obj)
+        return f"__float:{obj!r}"
+    if isinstance(obj, dict):
+        return {k: _coerce_floats_for_hashing(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_coerce_floats_for_hashing(v) for v in obj]
+    return obj
+
+
 def _canonical_json_for_triad(obj: Any) -> str:
     """Sanna Canonical JSON for triad hashing.
 
     Sanna Canonical JSON — see spec/sanna-specification-v1.0.md.
+
+    Uses ``_coerce_floats_for_hashing`` instead of ``normalize_floats``
+    because MCP tool arguments may contain non-integer floats.
     """
-    normalized = normalize_floats(obj)
-    return canonical_json_bytes(normalized).decode("utf-8")
+    coerced = _coerce_floats_for_hashing(obj)
+    return canonical_json_bytes(coerced).decode("utf-8")
 
 
 def compute_receipt_triad(

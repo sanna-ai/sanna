@@ -1009,7 +1009,7 @@ class TestEscalationEdgeCases:
                 )
                 assert result.isError is True
                 data = json.loads(result.content[0].text)
-                assert data["error"] == "MISSING_PARAMETER"
+                assert data["error"] == "escalation_id must be a string"
             finally:
                 await gw.shutdown()
 
@@ -1036,7 +1036,7 @@ class TestEscalationEdgeCases:
                 )
                 assert result.isError is True
                 data = json.loads(result.content[0].text)
-                assert data["error"] == "MISSING_PARAMETER"
+                assert data["error"] == "escalation_id must be a string"
             finally:
                 await gw.shutdown()
 

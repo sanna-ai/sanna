@@ -91,6 +91,21 @@ class TestSafeJsonLoads:
         with pytest.raises(json.JSONDecodeError):
             safe_json_loads("{invalid")
 
+    def test_nan_rejected(self):
+        """NaN constant is rejected by safe_json_loads."""
+        with pytest.raises(ValueError, match="Non-standard JSON constant"):
+            safe_json_loads('{"v": NaN}')
+
+    def test_infinity_rejected(self):
+        """Infinity constant is rejected by safe_json_loads."""
+        with pytest.raises(ValueError, match="Non-standard JSON constant"):
+            safe_json_loads('{"v": Infinity}')
+
+    def test_negative_infinity_rejected(self):
+        """-Infinity constant is rejected by safe_json_loads."""
+        with pytest.raises(ValueError, match="Non-standard JSON constant"):
+            safe_json_loads('{"v": -Infinity}')
+
 
 # ===========================================================================
 # safe_json_load (file-like input)
@@ -120,6 +135,11 @@ class TestSafeJsonLoad:
         """Works with StringIO objects."""
         data = safe_json_load(io.StringIO('{"a": 1, "b": 2}'))
         assert data == {"a": 1, "b": 2}
+
+    def test_nan_rejected_in_file(self):
+        """NaN constant is rejected by safe_json_load."""
+        with pytest.raises(ValueError, match="Non-standard JSON constant"):
+            safe_json_load(io.StringIO('{"v": NaN}'))
 
 
 # ===========================================================================

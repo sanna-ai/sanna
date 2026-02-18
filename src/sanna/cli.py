@@ -1320,6 +1320,7 @@ def main_check_config():
     import os
     import stat
     import yaml
+    from .utils.safe_yaml import safe_yaml_load
 
     errors = []
     warnings_list = []
@@ -1332,8 +1333,8 @@ def main_check_config():
 
     try:
         with open(config_path) as f:
-            data = yaml.safe_load(f)
-    except yaml.YAMLError as e:
+            data = safe_yaml_load(f)
+    except (yaml.YAMLError, ValueError) as e:
         print(f"Error: Invalid YAML syntax: {e}", file=sys.stderr)
         return 1
 

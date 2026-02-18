@@ -17,6 +17,8 @@ import binascii
 import hashlib
 import json
 import re
+
+from .utils.safe_json import safe_json_loads
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -151,7 +153,7 @@ def load_key_metadata(key_path: str | Path) -> dict | None:
     stem = key_path.stem
     meta_path = key_path.parent / f"{stem}.meta.json"
     if meta_path.exists():
-        return json.loads(meta_path.read_text())
+        return safe_json_loads(meta_path.read_text())
     return None
 
 
@@ -359,9 +361,16 @@ def verify_receipt_signature(
 ) -> bool:
     """Verify a receipt's Ed25519 signature.
 
-    v0.6.3: Reconstructs the signed material by setting
-    receipt_signature.signature to "" (the placeholder used during signing).
-    Also checks that receipt_signature.key_id matches the public key.
+    Reconstructs the signed material by setting
+    ``receipt_signature.signature`` to ``""`` (the placeholder used during
+    signing), then verifies the Ed25519 signature against the provided
+    public key.  Also checks that ``receipt_signature.key_id`` matches.
+
+    Returns:
+        ``True`` if the signature is valid.  ``False`` on any failure,
+        including: missing or empty signature block, key-id mismatch,
+        non-canonicalizable data (e.g. non-integer floats), or
+        cryptographic verification failure.
     """
     import copy
 
@@ -383,7 +392,14 @@ def verify_receipt_signature(
     # Reconstruct signable form
     signable = copy.deepcopy(receipt_dict)
     signable["receipt_signature"]["signature"] = ""
-    signable = sanitize_for_signing(signable)
-    data = canonical_json_bytes(signable)
+    try:
+        signable = sanitize_for_signing(signable)
+        data = canonical_json_bytes(signable)
+    except (ValueError, TypeError) as e:
+        import logging
+        logging.getLogger("sanna.crypto").warning(
+            "Receipt contains invalid data for signing: %s", e
+        )
+        return False
 
     return verify_signature(data, signature_b64, public_key)

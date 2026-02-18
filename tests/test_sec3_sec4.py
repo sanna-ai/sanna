@@ -325,19 +325,28 @@ class TestSEC4FloatSanitization:
         with pytest.raises(ValueError, match="3.14"):
             sign_receipt(receipt, str(priv_path))
 
-    def test_canonical_json_bytes_accepts_floats_in_hashing_path(self):
-        """canonical_json_bytes allows floats for hashing (non-signing path).
+    def test_canonical_json_bytes_rejects_non_integer_floats(self):
+        """canonical_json_bytes rejects non-integer floats (v0.13.2+).
 
-        The hashing path must accept floats to verify existing receipts
-        that may contain float values. Only the signing path
-        (sanitize_for_signing) restricts floats.
+        Both signing and hashing paths now reject non-integer floats
+        for cross-platform determinism.
         """
-        result = canonical_json_bytes({"score": 3.14})
-        assert isinstance(result, bytes)
-        assert b"3.14" in result
+        with pytest.raises(ValueError, match="Non-integer float"):
+            canonical_json_bytes({"score": 3.14})
 
-    def test_hash_obj_with_float_works(self):
-        """hash_obj accepts floats for fingerprint computation."""
-        h = hash_obj({"score": 3.14})
+    def test_canonical_json_bytes_accepts_integer_floats(self):
+        """canonical_json_bytes converts integer-valued floats to int."""
+        result = canonical_json_bytes({"score": 3.0})
+        assert isinstance(result, bytes)
+        assert b'"score":3' in result
+
+    def test_hash_obj_with_integer_float_works(self):
+        """hash_obj accepts integer-valued floats."""
+        h = hash_obj({"score": 3.0})
         assert isinstance(h, str)
         assert len(h) == 64  # Full SHA-256 hex
+
+    def test_hash_obj_rejects_non_integer_float(self):
+        """hash_obj rejects non-integer floats."""
+        with pytest.raises(ValueError, match="Non-integer float"):
+            hash_obj({"score": 3.14})

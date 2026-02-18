@@ -20,6 +20,7 @@ from typing import Optional
 from jsonschema import validate, ValidationError
 
 from .hashing import hash_text, hash_obj, EMPTY_HASH
+from .utils.safe_json import safe_json_loads, safe_json_load
 
 # Statuses that represent non-evaluated checks (excluded from pass/fail counting)
 _NON_EVALUATED = {"NOT_CHECKED", "ERRORED"}
@@ -146,7 +147,7 @@ def verify_receipt_triad(receipt: dict) -> TriadVerification:
             )
         else:
             try:
-                args = json.loads(context_raw)
+                args = safe_json_loads(context_raw)
                 if isinstance(args, dict):
                     args_clean = {
                         k: v for k, v in args.items()
@@ -228,7 +229,7 @@ def load_schema(schema_path: Optional[str] = None) -> dict:
     else:
         path = get_schema_path()
     with open(path) as f:
-        return json.load(f)
+        return safe_json_load(f)
 
 
 # =============================================================================
@@ -852,7 +853,7 @@ def verify_receipt(
     # 3. Fingerprint verification
     try:
         fp_match, fp_computed, fp_expected = verify_fingerprint(receipt)
-    except TypeError as e:
+    except (TypeError, ValueError) as e:
         return VerificationResult(
             valid=False, exit_code=3,
             errors=[f"Fingerprint computation failed ({type(e).__name__}: {e}). Non-JSON-serializable data?"],

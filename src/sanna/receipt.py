@@ -655,6 +655,9 @@ def generate_receipt(
 
     # Unified fingerprint formula (v0.13.0) — always 12 pipe-delimited fields
     correlation_id = trace_data.get("correlation_id", "")
+    # FIX-33: correlation_id must not contain pipe (used as fingerprint delimiter)
+    if correlation_id and "|" in correlation_id:
+        raise ValueError("correlation_id must not contain the pipe character '|'")
     checks_data = [{"check_id": c.check_id, "passed": c.passed, "severity": c.severity, "evidence": c.evidence} for c in checks]
     checks_hash = hash_obj(checks_data)
     coverage_hash = EMPTY_HASH

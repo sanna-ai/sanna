@@ -218,6 +218,9 @@ def build_trace_data(
     Constructs a minimal trace with a retrieval span (for context/query)
     and a trace-level output (for the final answer).
     """
+    # FIX-33: correlation_id must not contain pipe (used as fingerprint delimiter)
+    if correlation_id and "|" in correlation_id:
+        raise ValueError("correlation_id must not contain the pipe character '|'")
     cid = correlation_id
     return {
         "correlation_id": cid,

@@ -308,7 +308,8 @@ class TestWebhookDelivery:
         mock_opener = MagicMock()
         mock_opener.open = MagicMock(return_value=mock_resp)
 
-        with patch("urllib.request.build_opener", return_value=mock_opener):
+        with patch("urllib.request.build_opener", return_value=mock_opener), \
+             patch("sanna.gateway.config.validate_webhook_url"):
             gw._deliver_token_via_webhook(entry, token_info)
 
         # Verify opener.open was called
@@ -967,13 +968,14 @@ class TestWebhookNoRedirects:
         mock_opener.open = MagicMock(side_effect=redirect_exc)
 
         with patch("urllib.request.build_opener", return_value=mock_opener), \
+             patch("sanna.gateway.config.validate_webhook_url"), \
              caplog.at_level(logging.WARNING, logger="sanna.gateway.server"):
             gw._deliver_token_via_webhook(entry, token_info)
 
-        # The redirect warning should be logged
+        # The redirect warning should be logged (FIX-8: "blocked" replaces "not followed")
         redirect_warnings = [
             r for r in caplog.records
-            if "redirect" in r.message.lower() and "not followed" in r.message.lower()
+            if "redirect" in r.message.lower() and "blocked" in r.message.lower()
         ]
         assert len(redirect_warnings) >= 1
 
@@ -1013,12 +1015,14 @@ class TestWebhookNoRedirects:
         mock_opener.open = MagicMock(side_effect=redirect_exc)
 
         with patch("urllib.request.build_opener", return_value=mock_opener), \
+             patch("sanna.gateway.config.validate_webhook_url"), \
              caplog.at_level(logging.WARNING, logger="sanna.gateway.server"):
             gw._deliver_token_via_webhook(entry, token_info)
 
+        # FIX-8: "blocked" replaces "not followed"
         redirect_warnings = [
             r for r in caplog.records
-            if "redirect" in r.message.lower() and "not followed" in r.message.lower()
+            if "redirect" in r.message.lower() and "blocked" in r.message.lower()
         ]
         assert len(redirect_warnings) >= 1
 
@@ -1056,6 +1060,7 @@ class TestWebhookNoRedirects:
         mock_opener.open = MagicMock(side_effect=http_exc)
 
         with patch("urllib.request.build_opener", return_value=mock_opener), \
+             patch("sanna.gateway.config.validate_webhook_url"), \
              caplog.at_level(logging.WARNING, logger="sanna.gateway.server"):
             gw._deliver_token_via_webhook(entry, token_info)
 

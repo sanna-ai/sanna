@@ -20,6 +20,8 @@ from __future__ import annotations
 import importlib.resources
 import json
 import logging
+
+from ..utils.safe_json import safe_json_loads
 import os
 import platform
 import re
@@ -467,14 +469,14 @@ def _find_gateway_keypair(keys_dir: Path) -> tuple[Path, Path] | None:
         return None
     for meta_path in keys_dir.glob("*.meta.json"):
         try:
-            meta = json.loads(meta_path.read_text())
+            meta = safe_json_loads(meta_path.read_text())
             if meta.get("label") == "gateway":
                 key_id = meta.get("key_id", "")
                 priv = keys_dir / f"{key_id}.key"
                 pub = keys_dir / f"{key_id}.pub"
                 if priv.is_file() and pub.is_file():
                     return priv, pub
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, ValueError, OSError):
             continue
     return None
 
@@ -503,7 +505,7 @@ def plan_migration(
             f"No {adapter.name} config found at {config_path}"
         )
 
-    config_data = json.loads(config_path.read_text(encoding="utf-8"))
+    config_data = safe_json_loads(config_path.read_text(encoding="utf-8"))
 
     if template is None:
         template = _CLIENT_DEFAULT_TEMPLATE.get(
@@ -668,7 +670,7 @@ def execute_migration(
     shutil.copy2(str(plan.config_path), str(plan.backup_path))
 
     # 6. Write updated client config
-    original_config = json.loads(
+    original_config = safe_json_loads(
         plan.config_path.read_text(encoding="utf-8"),
     )
     adapter = get_adapter(plan.client_name)

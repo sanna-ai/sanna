@@ -1,7 +1,7 @@
 # Sanna Reasoning Receipt Specification v1.0
 
 **Status:** Released
-**Version:** 1.0.1
+**Version:** 1.0.2
 **Date:** 2026-02-17
 **Reference implementation:** sanna v0.13.0
 
@@ -247,6 +247,109 @@ Each element of the `claims` array contains:
 `identity_verification` is NOT included in the receipt fingerprint. It
 is verified separately and appended after fingerprint computation.
 
+### 2.11 Redaction Markers
+
+When a receipt field contains PII that has been redacted by the gateway,
+the original value is replaced with a **Redaction Marker** object before
+the receipt is signed. Because the marker is applied before signing, the
+receipt's `context_hash`, `output_hash`, fingerprint, and signature all
+cover the marker -- not the original content.
+
+#### 2.11.1 Redaction Marker Schema
+
+A redaction marker is a JSON object with the following structure:
+
+```json
+{
+  "__redacted__": true,
+  "original_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `__redacted__` | boolean | Yes | MUST be `true`. Identifies this object as a redaction marker. |
+| `original_hash` | string | Yes | The SHA-256 hex digest of the NFC-normalized original value. Format: `[a-f0-9]{64}` (64 lowercase hexadecimal characters, bare digest with no prefix). |
+
+The `original_hash` is computed as follows:
+
+1. Apply Unicode NFC normalization (UAX #15) to the original string value.
+2. Encode the normalized string as UTF-8 bytes.
+3. Compute the SHA-256 digest of the bytes.
+4. Format as 64 lowercase hexadecimal characters (bare hex digest, no `sha256:` prefix).
+
+This allows an auditor with access to the original content to verify
+provenance by recomputing the hash, without the receipt itself containing
+the sensitive data.
+
+#### 2.11.2 Redacted Fields Tracking
+
+When one or more redaction markers are applied, the receipt MUST include
+a `redacted_fields` array at the top level:
+
+```json
+{
+  "redacted_fields": ["inputs.context", "outputs.response"]
+}
+```
+
+Each element is a dot-separated JSON path identifying a field that was
+replaced with a redaction marker. The paths use the form
+`{top-level-key}.{nested-key}` (e.g., `inputs.context`,
+`outputs.response`).
+
+The `redacted_fields` array is present only when PII redaction is
+enabled and at least one field was actually redacted. When no fields
+are redacted, the `redacted_fields` key MUST NOT be present (or MAY
+be null).
+
+#### 2.11.3 Hash and Fingerprint Recomputation
+
+After replacing field values with redaction markers, implementations
+MUST recompute:
+
+1. `context_hash` -- SHA-256 of Sanna Canonical JSON of the (now
+   marker-bearing) `inputs` object.
+2. `output_hash` -- SHA-256 of Sanna Canonical JSON of the (now
+   marker-bearing) `outputs` object.
+3. `receipt_fingerprint` and `full_fingerprint` -- recomputed from
+   the updated `context_hash` and `output_hash` using the standard
+   12-field fingerprint formula (Section 4.1).
+
+The receipt signature (if applied) MUST be computed AFTER redaction
+markers and hash recomputation are complete.
+
+#### 2.11.4 Pre-existing Marker Injection Guard
+
+If an input value is already a dict with `"__redacted__": true`, this
+is treated as suspicious -- an attacker may have pre-populated a fake
+redaction marker in the tool call arguments. Implementations MUST
+handle this by:
+
+1. Serializing the entire dict to a JSON string using
+   `json.dumps(value, sort_keys=True)`.
+2. Applying a fresh redaction marker to the serialized JSON string.
+
+This prevents an attacker from injecting a crafted `original_hash`
+that would appear to match some other content. The double-redaction
+ensures that the marker in the persisted receipt is always generated
+by the gateway, never by the agent or upstream client.
+
+#### 2.11.5 File Naming Convention
+
+When redaction is enabled:
+
+- The receipt is written to disk with a `.redacted.json` suffix
+  (e.g., `2026-02-17T12_00_00_gw-abc123.redacted.json`).
+- No unredacted copy is persisted to disk. The unredacted receipt
+  exists only in memory during the request lifecycle.
+- The `.redacted.json` suffix signals to downstream systems (log
+  aggregators, compliance tools) that the receipt contains markers
+  in place of original content.
+
+When redaction is disabled, receipts are persisted with the standard
+`.json` suffix and no markers are applied.
+
 ---
 
 ## 3. Canonicalization
@@ -267,22 +370,44 @@ The canonical form is produced by `json.dumps()` with:
 
 The resulting string is encoded as UTF-8 bytes.
 
+Implementations MUST NOT HTML-escape characters in JSON strings. For
+example, `<` MUST be serialized as `<`, NOT as `\u003c`. Similarly,
+`>`, `&`, `'`, and `"` (when inside a JSON string value) MUST appear
+as their literal characters, not as Unicode escape sequences. Python's
+`json.dumps(ensure_ascii=False)` satisfies this requirement. Go's
+`encoding/json` does NOT satisfy this requirement by default -- it
+HTML-escapes `<`, `>`, and `&` as `\u003c`, `\u003e`, and `\u0026`.
+Go implementations MUST use a custom encoder that disables HTML
+escaping (e.g., `encoder.SetEscapeHTML(false)`). Rust's `serde_json`
+satisfies this requirement by default.
+
 ### 3.2 Number Handling
 
-Conforming implementations MUST:
-- Reject `NaN` and `Infinity` values (raise an error).
-- Serialize integers as JSON integers.
-- Reject non-integer floats in signing contexts (use integer basis
-  points or string representation instead).
+All floats are rejected. Conforming implementations MUST reject any
+JSON value that is a floating-point number in signing and hashing
+contexts. Specifically:
 
-Numeric values in signed receipt fields MUST be integers. Floats
-MUST NOT appear in signed content. If a float input is an exact
-integer (e.g., `3.0`), it MUST be serialized as an integer (`3`).
-Non-integer floats MUST be rejected before signing.
+- Integer-valued floats (e.g., `1.0`, `71.0`) MUST be converted to
+  their integer equivalents (`1`, `71`) before serialization.
+- Non-integer floats (e.g., `3.14`, `0.1`) MUST raise an error.
+  They MUST NOT be silently rounded or truncated.
+- `NaN`, `Infinity`, and `-Infinity` MUST be rejected at parse time.
+  Implementations MUST use a safe JSON parser that raises an error
+  on these values rather than accepting them as special tokens.
 
-The `sanitize_for_signing()` function converts exact-integer floats
-(e.g., `71.0`) to integers (`71`) and raises `ValueError` on lossy
-floats, `NaN`, and `Infinity`.
+Numeric values in signed receipt fields MUST be integers after
+sanitization. The `sanitize_for_signing()` function walks the entire
+data structure recursively, converting exact-integer floats to
+integers and raising `ValueError` on lossy floats, `NaN`, and
+`Infinity`.
+
+**Cross-language note:** Python's `float` type can represent exact
+integers (e.g., `71.0`), which `sanitize_for_signing()` converts.
+In Go and Rust, JSON numbers are typically parsed as `float64` by
+default. Implementations in these languages MUST either parse
+numbers as arbitrary-precision (e.g., Go's `json.Number`, Rust's
+`serde_json::Number`) or apply the same integer-conversion logic
+after parsing.
 
 ### 3.3 Hash Functions
 
@@ -431,10 +556,19 @@ no context string and no pre-hashing (Ed25519, not Ed25519ctx or
 Ed25519ph). Signatures are 64 bytes: the concatenation of R (32 bytes
 compressed Edwards point) and S (32 bytes scalar).
 
-Signature values MUST be validated after stripping ASCII whitespace
-(0x09 HT, 0x0A LF, 0x0D CR, 0x20 SP). Implementations MUST strip
-whitespace before base64 decoding and MUST use strict base64 decoding
-(rejecting non-alphabet characters).
+All Base64 encoding in Sanna uses **RFC 4648 standard Base64** with
+padding (alphabet: `A`-`Z`, `a`-`z`, `0`-`9`, `+`, `/`; padding:
+`=`). Base64url (alphabet: `+` replaced by `-`, `/` replaced by `_`)
+MUST NOT be used. Implementations that encounter Base64url-encoded
+values MUST reject them as invalid.
+
+Implementations MUST strip all ASCII whitespace characters (`\t`
+U+0009, `\n` U+000A, `\r` U+000D, ` ` U+0020) from Base64 input
+before decoding. The canonical form of a Base64-encoded value is a
+single unbroken string with no whitespace. After stripping,
+implementations MUST use strict Base64 decoding that rejects any
+character not in the RFC 4648 standard alphabet (including padding).
+In Python, this corresponds to `base64.b64decode(value, validate=True)`.
 
 ### 5.2 Receipt Signing
 
@@ -713,24 +847,57 @@ token = hex(HMAC-SHA256(gateway_secret, message.encode("utf-8")))
 ```
 
 Where:
-- `gateway_secret` is a per-gateway random secret (bytes), generated at
-  gateway startup and held in memory only (or loaded from a persistent
-  secret file at `~/.sanna/gateway_secret`).
-- `escalation_id` is the unique identifier for the pending escalation
-  (full `uuid4().hex`, 32 hex characters).
-- `tool_name` is the unprefixed name of the downstream tool (the
-  `original_name` field of the PendingEscalation).
-- `args_digest` is the SHA-256 hex digest of the canonical JSON of the
-  tool arguments. When args contain floats that prevent JCS
-  canonicalization, falls back to `json.dumps(sort_keys=True)`.
-- `issued_at` is an integer epoch timestamp (seconds since Unix epoch)
-  stored in the PendingEscalation record. This is an integer, not a
-  float, for HMAC reproducibility.
-- `|` is the literal pipe character used as field separator.
 
-The message components are concatenated with pipe delimiters and
-encoded as UTF-8 before HMAC computation. The result is the hex
-digest of the HMAC-SHA256.
+- **`gateway_secret`** is a per-gateway random secret (bytes), generated
+  at gateway startup and held in memory only (or loaded from a
+  persistent secret file at `~/.sanna/gateway_secret`).
+
+- **`escalation_id`** is the unique identifier for the pending
+  escalation. Format: `esc_` followed by 32 lowercase hex characters
+  (a UUID v4 hex string), e.g., `esc_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6`.
+  The prefix `esc_` distinguishes escalation IDs from other identifiers
+  in logs and receipts. Total length: 36 characters.
+
+- **`tool_name`** is the ORIGINAL (unprefixed, un-normalized) name of
+  the downstream tool (the `original_name` field of the
+  PendingEscalation). This is the tool name as it appears in the
+  downstream MCP server, NOT the gateway-prefixed name and NOT the
+  authority-normalized name. For example, `API-patch-page` (not
+  `notion_API-patch-page` and not `api.patch.page`).
+
+- **`args_digest`** is the SHA-256 hex digest of the tool arguments
+  serialized with Python-default `json.dumps(arguments, sort_keys=True)`.
+  **This intentionally uses Python default separators** (`(', ', ': ')`,
+  i.e., with spaces after commas and colons), NOT Sanna Canonical JSON
+  (`(",", ":")`). The HMAC path predates canonical JSON adoption, and
+  changing it would invalidate existing tokens. Cross-language
+  implementations MUST replicate this exact serialization:
+  `json.dumps(arguments, sort_keys=True, ensure_ascii=True, separators=(", ", ": "))`.
+  The resulting string is encoded as UTF-8 and hashed with SHA-256.
+
+- **`issued_at`** is an integer epoch timestamp (seconds since Unix
+  epoch) stored in the PendingEscalation record. This is an integer,
+  not a float, for HMAC reproducibility. It is converted to a decimal
+  string (e.g., `1708185600`) for inclusion in the HMAC message.
+
+- **`|`** is the literal pipe character (U+007C) used as field
+  separator.
+
+The four message components are concatenated with pipe delimiters and
+encoded as UTF-8 before HMAC computation. The result is the lowercase
+hex digest of the HMAC-SHA256 (64 hex characters).
+
+**Example:**
+
+```
+escalation_id = "esc_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+tool_name     = "API-patch-page"
+args_digest   = "e3b0c442..."  (64 hex chars)
+issued_at     = 1708185600
+
+message = "esc_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6|API-patch-page|e3b0c442...|1708185600"
+token   = HMAC-SHA256(gateway_secret, message.encode("utf-8")).hexdigest()
+```
 
 This binding prevents an approval token for one tool call from being
 used to approve a different tool call.
@@ -783,13 +950,29 @@ early with the corresponding exit code.
 
 ### 9.2 Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | Valid |
-| 2 | Schema validation failed |
-| 3 | Fingerprint or content hash mismatch |
-| 4 | Status or count consistency error |
-| 5 | Other verification error |
+| Code | Priority | Meaning |
+|------|----------|---------|
+| 5 | Highest | Signature verification failure or other verification error |
+| 4 | High | Status or count consistency error |
+| 3 | Medium | Fingerprint or content hash mismatch |
+| 2 | Low | Schema validation failed |
+| 0 | None | Valid (no errors) |
+
+The verifier MUST return the highest-priority exit code encountered
+during verification. Priority order (highest to lowest): 5 (signature
+failure / other error), 4 (consistency error), 3 (fingerprint
+mismatch), 2 (schema invalid), 0 (valid). If multiple error types
+occur, only the highest-priority code is returned.
+
+In practice, the reference implementation uses early returns: schema
+validation failure (exit code 2) terminates before fingerprint checks
+(exit code 3), which terminate before consistency checks (exit code 4).
+Signature and chain verification errors (exit code 5) are accumulated
+and returned if no higher-priority error was found first. This
+ordering means that in the common case, the first error encountered
+determines the exit code. However, if an implementation defers error
+reporting (e.g., to collect all errors before returning), it MUST
+select the highest-priority code from all detected errors.
 
 When verifying a single receipt, the CLI returns the exit code from
 the verification result. The `sanna-verify` command operates on a
@@ -1034,6 +1217,7 @@ conformance.
 |-------------|-------------|---------|
 | 1.0 | 0.13.0 | Initial specification. Field renames: `schema_version` to `spec_version`, `trace_id` to `correlation_id`, `coherence_status` to `status`, `halt_event` to `enforcement`. Added `full_fingerprint`. UUID v4 receipt IDs. Full 64-hex content hashes. 12-field fingerprint formula. Custom evaluator fail-closed default. |
 | 1.0.1 | 0.13.0 | 28 precision fixes from cross-platform security review. Key ID uses raw Ed25519 bytes (not DER). NFC normalization documented. Float rejection in signing contexts. hash_text default truncation corrected to 64. Status computation handles all severity levels. Receipt Triad hashing byte-precise. HMAC token format documented. Threat model added. Schemas for authority_decisions, escalation_events, source_trust_evaluations, identity_verification documented. Key file encoding specified. correlation_id pipe constraint. checks_hash ordering and null key rules. |
+| 1.0.2 | 0.13.1 | 7 cross-platform review fixes. Redaction Marker schema (Section 2.11): marker structure, original_hash computation, pre-existing marker injection guard, file naming convention, hash recomputation rules. Authority Name Normalization algorithm (Appendix D): NFKC + camelCase splitting + separator normalization + casefold + dot-join, with 16 test vectors, matching semantics, and separatorless fallback. HMAC token binding corrections (Section 8.2): `esc_` prefix on escalation IDs, Python-default separators for args_digest (not Sanna Canonical JSON), original tool name (not normalized). Canonical JSON cross-language guidance (Section 3.1): Go HTML-escaping warning, float rejection clarified for Go/Rust number parsing. Base64 pinned to RFC 4648 standard with padding (Section 5.1), whitespace stripping scope clarified. Exit code accumulation rule: highest-priority code wins (Section 9.2). |
 
 ---
 
@@ -1080,3 +1264,139 @@ regardless of other checks' results.
 - Receipt schema: `spec/receipt.schema.json`
 - Constitution schema: `spec/constitution.schema.json`
 - Golden test vectors: `golden/receipts/v13_*.json`
+
+## Appendix D: Authority Name Normalization
+
+When matching tool/action names against constitution authority
+boundaries (`can_execute`, `cannot_execute`, `must_escalate`),
+implementations MUST normalize both the action name and the pattern
+before comparison. This ensures that stylistic differences in naming
+conventions (camelCase, snake_case, kebab-case, etc.) do not cause
+false negatives or false positives in authority evaluation.
+
+### D.1 Normalization Algorithm
+
+Given an input name string, produce a normalized form by applying
+the following steps in order:
+
+1. **NFKC normalize:** Apply Unicode NFKC normalization (UAX #15)
+   to decompose compatibility characters. This collapses fullwidth
+   characters (e.g., fullwidth `Ｆ` U+FF26 becomes `F` U+0046),
+   ligatures, and other compatibility equivalents into their
+   canonical forms.
+
+2. **Split camelCase:** Insert word boundaries at the following
+   transitions:
+   - **Lowercase to uppercase:** `deleteFile` becomes
+     `delete|File`
+   - **Letter to digit:** `tool2use` becomes `tool|2|use`
+   - **Digit to letter:** `2fast` becomes `2|fast`
+   - **Uppercase run before lowercase:** `HTTPSClient` becomes
+     `HTTPS|Client`. Specifically, when a run of two or more
+     uppercase letters is followed by an uppercase letter and then
+     a lowercase letter, the boundary is placed before the last
+     uppercase letter in the run.
+
+   In regex terms (applied sequentially):
+   ```
+   s/([a-z])([A-Z])/\1 \2/g          # lowercase→uppercase
+   s/([A-Z]+)([A-Z][a-z])/\1 \2/g    # uppercase run→uppercase+lowercase
+   s/([a-zA-Z])(\d)/\1 \2/g          # letter→digit
+   s/(\d)([a-zA-Z])/\1 \2/g          # digit→letter
+   ```
+
+3. **Split on separators:** Split on the character class
+   `[_\-./:@]+` (underscore, hyphen, dot, slash, colon, at-sign).
+   One or more consecutive separator characters produce a single
+   split. In practice, this is implemented by replacing all
+   separator runs with a single space.
+
+4. **Casefold:** Apply Unicode casefold to all tokens. Casefold is
+   NOT the same as lowercasing -- it handles special cases like
+   German eszett (`ß` casefolds to `ss`). In Python, this is
+   `str.casefold()`. In Go, use `strings.ToLower()` (which is
+   sufficient for ASCII tool names) or a full Unicode casefold
+   library. In Rust, use `.to_lowercase()` on `&str`.
+
+5. **Join:** Strip leading and trailing whitespace from the result,
+   then replace all runs of internal whitespace with a single `.`
+   (dot) separator. The result is the normalized form.
+
+### D.2 Test Vectors
+
+| Input | Normalized |
+|-------|-----------|
+| `deleteFile` | `delete.file` |
+| `delete_file` | `delete.file` |
+| `delete-file` | `delete.file` |
+| `DELETE_FILE` | `delete.file` |
+| `HTTPSClient` | `https.client` |
+| `tool2use` | `tool.2.use` |
+| `deleteＦile` | `delete.file` |
+| `XMLParser` | `xml.parser` |
+| `API-patch-page` | `api.patch.page` |
+| `file2delete` | `file.2.delete` |
+| `2ndFile` | `2nd.file` |
+| `send_email` | `send.email` |
+| `send.email` | `send.email` |
+| `send/email` | `send.email` |
+| `send:email` | `send.email` |
+| `send@email` | `send.email` |
+
+Note: `deleteＦile` contains fullwidth `Ｆ` (U+FF26) which NFKC
+normalizes to ASCII `F` (U+0046) before camelCase splitting.
+
+### D.3 Matching Semantics
+
+After normalizing both the action name `a` and the pattern `p`:
+
+1. **Exact or substring match:** `a` matches `p` if `a == p` OR
+   `p` is a substring of `a` OR `a` is a substring of `p`.
+
+2. **Separatorless fallback:** If no match is found in step 1,
+   strip all non-alphanumeric characters from both `a` and `p`,
+   then check substring containment in both directions. This
+   catches edge cases where separator placement differs between
+   the action name and the pattern.
+
+3. **Empty name rejection:** Empty action names (empty string or
+   whitespace-only) MUST NOT match any pattern. Implementations
+   MUST return "no match" (not "match") for empty actions.
+
+4. **Empty pattern rejection:** Empty patterns (empty string or
+   whitespace-only) MUST NOT match any action. An empty pattern
+   in a constitution's authority boundaries is an invalid
+   constitution and SHOULD be rejected at load time.
+
+### D.4 Match Examples
+
+| Action | Pattern | Match? | Reason |
+|--------|---------|--------|--------|
+| `deleteFile` | `delete_file` | Yes | Both normalize to `delete.file` |
+| `API-patch-page` | `patch` | Yes | `patch` is substring of `api.patch.page` |
+| `send_email` | `Send email or post external message` | Yes | Word-boundary matching on significant words |
+| `deleteFile` | `createFile` | No | `delete.file` does not contain `create.file` or vice versa |
+| `` (empty) | `delete` | No | Empty action always rejected |
+| `delete` | `` (empty) | No | Empty pattern always rejected |
+
+### D.5 Relationship to Gateway Policy Cascade
+
+Authority name normalization applies at step 3 of the gateway policy
+cascade (Section 8 of the main specification, and as described in the
+reference implementation's gateway documentation):
+
+1. **Per-tool override:** Exact match on the ORIGINAL (unprefixed)
+   tool name from the gateway config `tools:` map. No normalization
+   is applied at this step.
+2. **Server default_policy:** The `default_policy` field on the
+   downstream server entry. No name matching is involved.
+3. **Constitution authority boundaries:** `evaluate_authority()` uses
+   the normalization algorithm described in this appendix for
+   bidirectional substring matching against `cannot_execute`,
+   `must_escalate`, and `can_execute` lists.
+
+Per-tool overrides use exact string matching on the original tool name
+because the config author controls both the tool name and the override
+entry. Constitution authority boundaries use normalized matching
+because the constitution author may not know the exact tool naming
+convention of every downstream server.

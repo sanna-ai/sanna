@@ -466,10 +466,10 @@ def verify_bundle(
         _fp_error = False
         try:
             fp_match, fp_computed, fp_expected = verify_fingerprint(receipt)
-        except TypeError as e:
+        except (TypeError, ValueError) as e:
             checks.append(BundleCheck(
                 "Receipt fingerprint", False,
-                f"Fingerprint computation failed (float in receipt data): {e}",
+                f"Fingerprint computation failed (invalid data in receipt): {e}",
             ))
             errors.append(f"Receipt fingerprint error: {e}")
             fp_match = False

@@ -3,19 +3,12 @@ Canonical hashing for deterministic receipts across platforms.
 
 Sanna Canonical JSON — see spec/sanna-specification-v1.0.md
 
-Supported types: str, int, float, bool, None, list, dict.
+Supported types: str, int, bool, None, list, dict.
 
-Floats are serialized as JSON numbers by Python's ``json.dumps``,
-which uses ``float.__repr__`` (shortest unique decimal representation,
-deterministic across platforms since Python 3.1+).  Non-finite floats
-(NaN, Infinity) are rejected because JSON does not support them.
-
-Prior to v0.12.2, floats were rejected entirely and
-``normalize_floats`` converted them to fixed-precision strings.
-This caused a hash collision: ``{"val": 1.0}`` (float) and
-``{"val": "1.0000000000"}`` (string) produced identical canonical
-bytes.  Since v0.12.2 floats remain as JSON numbers, eliminating
-the collision.
+Since v0.13.2, ``normalize_floats`` converts exact-integer floats
+(e.g. 3.0) to int and rejects non-integer floats (e.g. 3.14) and
+non-finite floats (NaN, Infinity).  This ensures identical hashes
+for ``{"val": 1.0}`` and ``{"val": 1}`` across all platforms.
 """
 
 import hashlib
@@ -26,18 +19,37 @@ from typing import Any
 
 
 def normalize_floats(obj: Any) -> Any:
-    """Identity pass-through — retained for backward compatibility.
+    """Normalize floats for canonical hashing.
 
-    Prior to v0.12.2 this converted every float to a 10-decimal-place
-    string (e.g. ``1.0`` → ``"1.0000000000"``).  That caused a type
-    collision: a float and a string with the same digits hashed
-    identically.
+    - Exact-integer floats (3.0) are converted to int (3)
+    - Negative zero (-0.0) is converted to int(0)
+    - Non-finite floats (NaN, Infinity) raise TypeError
+    - Non-integer floats (3.14) raise ValueError
 
-    Since v0.12.2, ``canonical_json_bytes`` handles floats natively
-    as JSON numbers, so no pre-processing is needed.  This function
-    is kept so existing callers (``receipt_v2.py``, ``server.py``)
-    continue to work without changes.
+    This ensures cross-platform determinism: ``{"val": 1.0}`` and
+    ``{"val": 1}`` produce identical canonical bytes.
+
+    Applied recursively to nested dicts, lists, and tuples.
     """
+    if isinstance(obj, bool):
+        # bool is a subclass of int — must check before int
+        return obj
+    if isinstance(obj, float):
+        if not math.isfinite(obj):
+            raise TypeError(
+                f"Non-finite float not allowed in canonical JSON: {obj!r}"
+            )
+        if obj == 0.0 and math.copysign(1.0, obj) < 0:
+            return 0  # Normalize -0.0 to 0
+        if obj.is_integer():
+            return int(obj)
+        raise ValueError(
+            f"Non-integer float not allowed in canonical JSON: {obj!r}"
+        )
+    if isinstance(obj, dict):
+        return {k: normalize_floats(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [normalize_floats(v) for v in obj]
     return obj
 
 
@@ -81,11 +93,15 @@ def canonical_json_bytes(obj: Any) -> bytes:
 
     Sanna Canonical JSON — see spec/sanna-specification-v1.0.md
 
-    Covers str, int, float, bool, None, list, dict.  Non-finite
-    floats (NaN, Infinity) are rejected.  Finite floats are
-    serialized as JSON numbers.
+    Covers str, int, float, bool, None, list, dict.
+
+    Float handling:
+    - Exact-integer floats (3.0) are normalized to int (3)
+    - Negative zero (-0.0) is normalized to int(0)
+    - Non-finite floats (NaN, Infinity) raise TypeError
+    - Non-integer floats (3.14) raise ValueError
     """
-    _reject_floats(obj)
+    obj = normalize_floats(obj)
     canon = json.dumps(
         obj,
         sort_keys=True,

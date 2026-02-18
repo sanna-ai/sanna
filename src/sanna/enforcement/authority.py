@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Optional
 
@@ -150,6 +151,33 @@ def evaluate_authority(
 # MATCHING HELPERS
 # =============================================================================
 
+def normalize_authority_name(name: str) -> str:
+    """Normalize a tool/action name for authority boundary matching.
+
+    Applies NFKC Unicode normalization first (to collapse fullwidth and
+    compatibility characters), then splits camelCase, normalizes separators
+    to dots, and applies Unicode-correct casefolding.
+
+    Examples::
+
+        >>> normalize_authority_name("deleteFile")
+        'delete.file'
+        >>> normalize_authority_name("delete_file")
+        'delete.file'
+
+    .. versionadded:: 0.13.2
+    """
+    # NFKC normalization collapses fullwidth, compatibility chars, etc.
+    name = unicodedata.normalize("NFKC", name)
+    # Split camelCase and normalize separators to spaces
+    name = _normalize_separators(name)
+    # Casefold for Unicode-correct lowering (e.g., German eszett -> ss)
+    name = name.casefold()
+    # Replace spaces with dots for canonical form
+    name = re.sub(r'\s+', '.', name.strip())
+    return name
+
+
 def _split_camel_case(s: str) -> str:
     """Insert spaces at camelCase/PascalCase word boundaries.
 
@@ -200,10 +228,25 @@ def _matches_action(pattern: str, action: str) -> bool:
     separator placement differs (e.g. ``"deletefi le"`` vs ``"delete file"``).
 
     Returns True if the pattern is a substring of the action or the action
-    is a substring of the pattern.
+    is a substring of the pattern. Returns False for empty or whitespace-only
+    action/pattern names.
+
+    .. versionchanged:: 0.13.2
+       Empty/whitespace names return False (FIX-41).
+       Uses NFKC normalization and casefold() for Unicode correctness (FIX-14).
     """
-    p = _normalize_separators(pattern.strip()).lower()
-    a = _normalize_separators(action.strip()).lower()
+    # FIX-41: Empty tool name is never authorized
+    if not action or not action.strip():
+        return False
+    if not pattern or not pattern.strip():
+        return False
+
+    # FIX-14: NFKC normalize before any processing
+    pattern = unicodedata.normalize("NFKC", pattern)
+    action = unicodedata.normalize("NFKC", action)
+
+    p = _normalize_separators(pattern.strip()).casefold()
+    a = _normalize_separators(action.strip()).casefold()
     if p in a or a in p:
         return True
 
@@ -251,8 +294,8 @@ def _matches_condition(condition: str, action_context: str) -> bool:
        (``_``, ``-``, ``.``) are normalized to spaces before matching
        so that ``send_email`` is treated as ``send email``.
     """
-    context_lower = _normalize_separators(action_context).lower()
-    words = condition.lower().split()
+    context_lower = _normalize_separators(unicodedata.normalize("NFKC", action_context)).casefold()
+    words = unicodedata.normalize("NFKC", condition).casefold().split()
     significant = [w for w in words if len(w) >= 3 and w not in _STOP_WORDS]
     if not significant:
         return False

@@ -34,21 +34,20 @@ class TestFloatStringHashCollision:
         """The specific pre-v0.12.2 collision: 1.0 vs "1.0000000000"."""
         assert hash_obj({"val": 1.0}) != hash_obj({"val": "1.0000000000"})
 
-    def test_float_canonicalization_deterministic(self):
-        """Same float always produces the same hash."""
-        h1 = hash_obj({"score": 0.85})
-        h2 = hash_obj({"score": 0.85})
+    def test_integer_float_canonicalization_deterministic(self):
+        """Same integer-valued float always produces the same hash."""
+        h1 = hash_obj({"score": 85.0})
+        h2 = hash_obj({"score": 85.0})
         assert h1 == h2
 
-    def test_float_type_preserved_in_canonical_json(self):
-        """Canonical JSON contains a JSON number, not a quoted string."""
-        result = canonical_json_bytes({"rate": 1.5})
-        assert b'"rate":1.5' in result
-        assert b'"rate":"1.5"' not in result
+    def test_non_integer_float_rejected_in_canonical_json(self):
+        """Non-integer floats are now rejected (v0.13.2+)."""
+        with pytest.raises(ValueError, match="Non-integer float"):
+            canonical_json_bytes({"rate": 1.5})
 
-    def test_integer_and_float_produce_different_hashes(self):
-        """int 1 and float 1.0 produce different canonical JSON."""
-        assert canonical_json_bytes({"val": 1}) != canonical_json_bytes({"val": 1.0})
+    def test_integer_and_integer_float_produce_same_hashes(self):
+        """int 1 and float 1.0 now produce identical canonical JSON."""
+        assert canonical_json_bytes({"val": 1}) == canonical_json_bytes({"val": 1.0})
 
 
 # ---------------------------------------------------------------------------
@@ -312,3 +311,35 @@ class TestRedactionConfigWarning:
             "Redaction enabled" in r.message
             for r in caplog.records
         )
+
+
+# ---------------------------------------------------------------------------
+# verify_receipt_signature crash guard (FIX-40)
+# ---------------------------------------------------------------------------
+
+
+class TestVerifyReceiptSignatureCrashGuard:
+
+    def test_non_integer_float_in_extensions_returns_false(self, tmp_path):
+        """verify_receipt_signature returns False (not crash) on receipt with float."""
+        from sanna.crypto import generate_keypair, verify_receipt_signature
+
+        priv_path, pub_path = generate_keypair(str(tmp_path))
+
+        # Build a receipt with a non-integer float in extensions
+        receipt = {
+            "spec_version": "1.0",
+            "receipt_id": "test-id",
+            "extensions": {"com.test.score": 0.85},  # non-integer float
+            "receipt_signature": {
+                "signature": "dGVzdA==",  # dummy base64
+                "key_id": "test",
+                "signed_by": "test",
+                "signed_at": "2026-01-01T00:00:00Z",
+                "scheme": "receipt_sig_v1",
+            },
+        }
+
+        # Should return False, not crash
+        result = verify_receipt_signature(receipt, str(pub_path))
+        assert result is False

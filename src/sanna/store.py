@@ -17,6 +17,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+from .utils.safe_json import safe_json_loads
+
 logger = logging.getLogger("sanna.store")
 
 
@@ -414,7 +416,7 @@ class ReceiptStore:
         with self._lock:
             rows = self._conn.execute(sql, params).fetchall()
 
-        return [json.loads(row["receipt_json"]) for row in rows]
+        return [safe_json_loads(row["receipt_json"]) for row in rows]
 
     def count(self, **filters) -> int:
         """Count receipts matching the given filters."""

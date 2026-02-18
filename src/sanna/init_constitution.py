@@ -168,8 +168,9 @@ def validate_generated(yaml_content: str) -> list[str]:
     """
     import yaml
     from .constitution import validate_constitution_data, validate_against_schema
+    from .utils.safe_yaml import safe_yaml_load
 
-    data = yaml.safe_load(yaml_content)
+    data = safe_yaml_load(yaml_content)
     errors = validate_against_schema(data)
     errors.extend(validate_constitution_data(data))
     return errors

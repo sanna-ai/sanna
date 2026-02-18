@@ -1,8 +1,9 @@
 """Block C tests — float handling and canonical JSON determinism.
 
-Since v0.12.2, floats are serialized as JSON numbers (not converted to
-strings).  This eliminates the hash collision where a float and its
-string representation produced identical canonical bytes.
+Since v0.13.2, normalize_floats converts exact-integer floats to int,
+rejects non-integer floats with ValueError, and rejects non-finite
+floats with TypeError.  This ensures ``{"val": 1.0}`` and ``{"val": 1}``
+produce identical canonical bytes.
 """
 
 from __future__ import annotations
@@ -14,96 +15,166 @@ import pytest
 from sanna.hashing import normalize_floats, canonical_json_bytes, hash_obj
 
 
-class TestFloatNormalization:
-    def test_normalize_floats_is_identity(self):
-        """normalize_floats is now a pass-through for backward compat."""
-        data = {"score": 0.85, "name": "test", "count": 42}
-        result = normalize_floats(data)
-        assert result is data  # identity — same object returned
+class TestNormalizeFloats:
+    def test_integer_float_to_int(self):
+        """normalize_floats(3.0) → 3 (int)."""
+        result = normalize_floats(3.0)
+        assert result == 3
+        assert isinstance(result, int)
 
-    def test_float_in_arguments_hashes_correctly(self):
-        """Receipt with float args produces stable hash."""
-        args1 = {"name": "test", "threshold": 0.7}
-        args2 = {"threshold": 0.7, "name": "test"}
-        # Floats are now accepted directly by hash_obj
-        hash1 = hash_obj(args1)
-        hash2 = hash_obj(args2)
-        assert hash1 == hash2
-        assert len(hash1) == 64  # full SHA-256 (v0.13.0 default)
+    def test_non_integer_float_raises(self):
+        """normalize_floats(3.14) → raises ValueError."""
+        with pytest.raises(ValueError, match="Non-integer float"):
+            normalize_floats(3.14)
 
-    def test_canonical_json_accepts_floats(self):
-        """canonical_json_bytes now accepts finite floats as JSON numbers."""
-        result = canonical_json_bytes({"score": 0.5})
-        assert isinstance(result, bytes)
-        # Float serialized as a JSON number, not a string
-        assert b'"score":0.5' in result
+    def test_nan_raises_type_error(self):
+        """normalize_floats(NaN) → raises TypeError."""
+        with pytest.raises(TypeError, match="Non-finite float"):
+            normalize_floats(float("nan"))
 
-    def test_canonical_json_rejects_nan(self):
-        """Non-finite floats (NaN) are still rejected."""
+    def test_infinity_raises_type_error(self):
+        """normalize_floats(Infinity) → raises TypeError."""
+        with pytest.raises(TypeError, match="Non-finite float"):
+            normalize_floats(float("inf"))
+
+    def test_negative_infinity_raises_type_error(self):
+        """normalize_floats(-Infinity) → raises TypeError."""
+        with pytest.raises(TypeError, match="Non-finite float"):
+            normalize_floats(float("-inf"))
+
+    def test_negative_zero_to_int_zero(self):
+        """normalize_floats(-0.0) → 0 (int)."""
+        result = normalize_floats(-0.0)
+        assert result == 0
+        assert isinstance(result, int)
+
+    def test_positive_zero_to_int_zero(self):
+        """normalize_floats(0.0) → 0 (int)."""
+        result = normalize_floats(0.0)
+        assert result == 0
+        assert isinstance(result, int)
+
+    def test_recursive_dict(self):
+        """Recursively normalizes floats in dicts."""
+        result = normalize_floats({"a": [1.0, {"b": 2.0}]})
+        assert result == {"a": [1, {"b": 2}]}
+        assert isinstance(result["a"][0], int)
+        assert isinstance(result["a"][1]["b"], int)
+
+    def test_recursive_list(self):
+        """Recursively normalizes floats in lists."""
+        result = normalize_floats([1.0, 2.0, 3.0])
+        assert result == [1, 2, 3]
+        assert all(isinstance(v, int) for v in result)
+
+    def test_bool_preserved(self):
+        """Booleans are not treated as floats or ints."""
+        result = normalize_floats({"flag": True, "other": False})
+        assert result == {"flag": True, "other": False}
+        assert isinstance(result["flag"], bool)
+        assert isinstance(result["other"], bool)
+
+    def test_string_preserved(self):
+        """Strings pass through unchanged."""
+        result = normalize_floats({"name": "test"})
+        assert result == {"name": "test"}
+
+    def test_none_preserved(self):
+        """None passes through unchanged."""
+        result = normalize_floats(None)
+        assert result is None
+
+    def test_int_preserved(self):
+        """Integers pass through unchanged."""
+        result = normalize_floats(42)
+        assert result == 42
+        assert isinstance(result, int)
+
+    def test_large_integer_float(self):
+        """Large integer-valued floats are converted."""
+        result = normalize_floats(1000000.0)
+        assert result == 1000000
+        assert isinstance(result, int)
+
+    def test_nested_non_integer_float_raises(self):
+        """Non-integer float in nested structure raises ValueError."""
+        with pytest.raises(ValueError, match="Non-integer float"):
+            normalize_floats({"nested": {"val": 0.5}})
+
+
+class TestCanonicalJsonBytes:
+    def test_negative_zero_determinism(self):
+        """-0.0 and 0.0 produce identical canonical bytes."""
+        neg_zero = canonical_json_bytes({"v": -0.0})
+        pos_zero = canonical_json_bytes({"v": 0.0})
+        assert neg_zero == pos_zero
+
+    def test_integer_float_determinism(self):
+        """1.0 (float) and 1 (int) produce identical canonical bytes."""
+        float_bytes = canonical_json_bytes({"v": 1.0})
+        int_bytes = canonical_json_bytes({"v": 1})
+        assert float_bytes == int_bytes
+
+    def test_hash_determinism(self):
+        """hash_obj of 1.0 and 1 produce identical hashes."""
+        float_hash = hash_obj({"v": 1.0})
+        int_hash = hash_obj({"v": 1})
+        assert float_hash == int_hash
+
+    def test_rejects_nan(self):
+        """NaN is rejected."""
         with pytest.raises(TypeError, match="Non-finite"):
             canonical_json_bytes({"score": float("nan")})
 
-    def test_canonical_json_rejects_infinity(self):
-        """Non-finite floats (Infinity) are still rejected."""
+    def test_rejects_infinity(self):
+        """Infinity is rejected."""
         with pytest.raises(TypeError, match="Non-finite"):
             canonical_json_bytes({"score": float("inf")})
 
+    def test_rejects_non_integer_float(self):
+        """Non-integer floats are rejected."""
+        with pytest.raises(ValueError, match="Non-integer float"):
+            canonical_json_bytes({"score": 0.5})
+
+    def test_integer_float_serialized_as_int(self):
+        """Integer-valued float becomes int in canonical JSON."""
+        result = canonical_json_bytes({"v": 5.0})
+        assert b'"v":5' in result
+        assert b'"v":5.0' not in result
+
     def test_float_and_string_produce_different_hashes(self):
-        """Critical: float 1.0 and string "1.0" must hash differently."""
+        """float 1.0 (→ int 1) and string "1.0" hash differently."""
         float_hash = hash_obj({"val": 1.0})
         string_hash = hash_obj({"val": "1.0"})
         assert float_hash != string_hash
 
     def test_float_and_fixed_string_produce_different_hashes(self):
-        """Critical: float 1.0 and string "1.0000000000" hash differently.
-
-        This was the specific collision that existed before v0.12.2.
-        """
+        """float 1.0 (→ int 1) and string "1.0000000000" hash differently."""
         float_hash = hash_obj({"val": 1.0})
         string_hash = hash_obj({"val": "1.0000000000"})
         assert float_hash != string_hash
 
-    def test_float_canonicalization_deterministic(self):
-        """Same float always produces the same canonical bytes."""
-        result1 = canonical_json_bytes({"score": 0.85})
-        result2 = canonical_json_bytes({"score": 0.85})
-        assert result1 == result2
-
-    def test_float_type_preserved_in_canonical_json(self):
-        """Canonical JSON contains a number, not a string, for floats."""
-        result = canonical_json_bytes({"rate": 1.5})
-        # JSON number: "rate":1.5 — no quotes around the value
-        assert b'"rate":1.5' in result
-        # Not a string: "rate":"1.5" would have extra quotes
-        assert b'"rate":"1.5"' not in result
-
-    def test_integer_and_float_distinction(self):
-        """Integer 1 and float 1.0 may produce the same JSON representation.
-
-        Python's json.dumps serializes 1.0 as "1.0" (number) and 1 as "1"
-        (number), so they will differ in canonical JSON and hash differently.
-        """
-        int_bytes = canonical_json_bytes({"val": 1})
-        float_bytes = canonical_json_bytes({"val": 1.0})
-        # Python json.dumps: 1 → "1", 1.0 → "1.0" — these are different
-        assert int_bytes != float_bytes
-
     def test_mixed_types_hashing(self):
-        """Dict with ints, floats, strings all hash correctly."""
+        """Dict with ints, bools, strings, None all hash correctly."""
         data = {
             "name": "test",
             "count": 42,
-            "score": 0.7,
+            "score": 100,  # integers only — no non-integer floats
             "enabled": True,
             "nothing": None,
             "nested": {
-                "rate": 1.5,
-                "items": [0.1, 0.2, "text", 3],
+                "rate": 150,
+                "items": [10, 20, "text", 3],
             },
         }
-        # Should not raise — floats are now accepted
         result = canonical_json_bytes(data)
         assert isinstance(result, bytes)
+
+    def test_deterministic_across_calls(self):
+        """Same input always produces same canonical bytes."""
+        result1 = canonical_json_bytes({"count": 42.0})
+        result2 = canonical_json_bytes({"count": 42.0})
+        assert result1 == result2
 
 
 class TestFloatFallbackRemoved:

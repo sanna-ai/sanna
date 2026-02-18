@@ -31,6 +31,7 @@ Config shape::
 from __future__ import annotations
 
 import logging
+import ipaddress
 import os
 import re
 from dataclasses import dataclass, field
@@ -50,6 +51,10 @@ _VALID_POLICIES = frozenset({"can_execute", "must_escalate", "cannot_execute"})
 
 # Pattern for ${VAR_NAME} interpolation
 _ENV_VAR_PATTERN = re.compile(r"\$\{([^}]+)\}")
+
+# SSRF-blocked IP ranges not always covered by ipaddress.is_private
+_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+_NAT64_NETWORK = ipaddress.ip_network("64:ff9b::/96")
 
 
 # ---------------------------------------------------------------------------
@@ -546,6 +551,19 @@ def _is_blocked_ip(addr: "ipaddress.IPv4Address | ipaddress.IPv6Address") -> str
     if addr.is_private:
         return f"private/RFC-1918 address: {addr}"
 
+    # CGNAT / Shared Address Space (RFC 6598) — not flagged by
+    # Python's ipaddress.is_private on all versions
+    if isinstance(addr, ipaddress.IPv4Address) and addr in _CGNAT_NETWORK:
+        return f"CGNAT/shared address: {addr}"
+    if isinstance(addr, ipaddress.IPv6Address) and addr in _NAT64_NETWORK:
+        return f"NAT64 well-known prefix: {addr}"
+
+    # Check IPv4-mapped IPv6 addresses (::ffff:x.x.x.x)
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        mapped_reason = _is_blocked_ip(addr.ipv4_mapped)
+        if mapped_reason:
+            return f"IPv4-mapped: {mapped_reason}"
+
     return None
 
 
@@ -592,7 +610,7 @@ def validate_webhook_url(url: str) -> None:
     # SEC-2: Enforce HTTPS unless insecure webhook override is set
     if parsed.scheme == "http":
         _allow_insecure = os.environ.get("SANNA_ALLOW_INSECURE_WEBHOOK") == "1"
-        _is_local = hostname.lower() in ("localhost", "127.0.0.1")
+        _is_local = hostname.lower() in ("localhost", "127.0.0.1", "[::1]", "::1")
         if _allow_insecure and _is_local:
             logger.critical(
                 "SECURITY WARNING: Allowing insecure HTTP webhook to %s "
@@ -624,9 +642,18 @@ def validate_webhook_url(url: str) -> None:
         # Not an IP literal — resolve DNS and check all returned addresses
         # (SEC-6: DNS rebinding protection)
         try:
-            addrinfos = socket.getaddrinfo(
-                hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM,
-            )
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(
+                    socket.getaddrinfo,
+                    hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM,
+                )
+                try:
+                    addrinfos = future.result(timeout=5)
+                except concurrent.futures.TimeoutError:
+                    raise GatewayConfigError(
+                        f"DNS resolution timed out for webhook hostname '{hostname}'"
+                    ) from None
         except socket.gaierror as exc:
             raise GatewayConfigError(
                 f"Webhook URL hostname '{hostname}' failed DNS resolution: {exc}"

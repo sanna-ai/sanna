@@ -22,6 +22,7 @@ namespace prefix, policy overrides, and independent circuit breaker.
 
 from __future__ import annotations
 
+import copy
 import enum
 import hashlib
 import hmac
@@ -32,6 +33,7 @@ import os
 import stat
 import sys
 import time as _time_mod
+import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -93,7 +95,11 @@ def _redact_for_storage(
         Redacted string with HMAC hash reference for auditability.
     """
     if mode == "hash_only":
-        payload = (content + salt).encode()
+        # NFC-normalize Unicode before hashing so that equivalent
+        # representations (e.g. e + combining-acute vs. precomposed e-acute)
+        # always produce the same redaction hash.
+        normalized = unicodedata.normalize("NFC", content)
+        payload = (normalized + salt).encode()
         if secret:
             digest = hmac.new(secret, payload, hashlib.sha256).hexdigest()
             return f"[REDACTED \u2014 HMAC-SHA256: {digest}]"
@@ -126,7 +132,8 @@ def _make_redaction_marker(original_value: str) -> dict:
         Deterministic marker dict:
         ``{"__redacted__": True, "original_hash": "<sha256-hex>"}``
     """
-    digest = hashlib.sha256(original_value.encode("utf-8")).hexdigest()
+    normalized = unicodedata.normalize("NFC", original_value)
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
     return {"__redacted__": True, "original_hash": digest}
 
 
@@ -157,15 +164,37 @@ def _apply_redaction_markers(receipt: dict, redaction_fields: list[str]) -> tupl
     # Apply markers to specified fields
     if "arguments" in redaction_fields:
         ctx = (receipt.get("inputs") or {}).get("context")
-        if ctx and isinstance(ctx, str):
-            receipt["inputs"]["context"] = _make_redaction_marker(ctx)
-            redacted_paths.append("inputs.context")
+        if ctx:
+            # FIX-12: If the value is already a dict with __redacted__: True,
+            # an attacker may have pre-populated a fake redaction marker.
+            # Serialize the entire dict as JSON and re-redact it as content.
+            if isinstance(ctx, dict) and ctx.get("__redacted__") is True:
+                logger.warning(
+                    "Pre-existing redaction marker detected in inputs.context — "
+                    "re-redacting to prevent marker injection"
+                )
+                ctx = json.dumps(ctx, sort_keys=True)
+                receipt["inputs"]["context"] = _make_redaction_marker(ctx)
+                redacted_paths.append("inputs.context")
+            elif isinstance(ctx, str):
+                receipt["inputs"]["context"] = _make_redaction_marker(ctx)
+                redacted_paths.append("inputs.context")
 
     if "result_text" in redaction_fields:
         resp = (receipt.get("outputs") or {}).get("response")
-        if resp and isinstance(resp, str):
-            receipt["outputs"]["response"] = _make_redaction_marker(resp)
-            redacted_paths.append("outputs.response")
+        if resp:
+            # FIX-12: Same injection guard for outputs.response
+            if isinstance(resp, dict) and resp.get("__redacted__") is True:
+                logger.warning(
+                    "Pre-existing redaction marker detected in outputs.response — "
+                    "re-redacting to prevent marker injection"
+                )
+                resp = json.dumps(resp, sort_keys=True)
+                receipt["outputs"]["response"] = _make_redaction_marker(resp)
+                redacted_paths.append("outputs.response")
+            elif isinstance(resp, str):
+                receipt["outputs"]["response"] = _make_redaction_marker(resp)
+                redacted_paths.append("outputs.response")
 
     if not redacted_paths:
         return receipt, redacted_paths
@@ -587,52 +616,45 @@ class EscalationStore:
         if not self._persist_path or not os.path.exists(self._persist_path):
             return
 
-        # SEC-10: Reject symlinks
+        # FIX-3: Use O_NOFOLLOW to eliminate symlink TOCTOU race
         try:
-            st = os.lstat(self._persist_path)
-        except OSError as exc:
-            logger.warning(
-                "Cannot stat escalation store %s: %s",
-                self._persist_path, exc,
-            )
-            return
-
-        if stat.S_ISLNK(st.st_mode):
-            logger.warning(
-                "Refusing to load escalation store from symlink: %s",
-                self._persist_path,
-            )
-            return
-
-        # SEC-10: Enforce file permissions (max 0o640)
-        file_perms = stat.S_IMODE(st.st_mode)
-        if file_perms & 0o137:  # any of: group write, other read/write/exec
-            logger.warning(
-                "Refusing to load escalation store %s: "
-                "permissions %o are too open (max 0o640)",
-                self._persist_path, file_perms,
-            )
-            return
-
-        # SEC-10: Enforce max file size
-        if st.st_size > self._MAX_PERSIST_FILE_SIZE:
-            logger.warning(
-                "Refusing to load escalation store %s: "
-                "file size %d exceeds maximum %d bytes",
-                self._persist_path, st.st_size, self._MAX_PERSIST_FILE_SIZE,
-            )
+            fd = os.open(str(self._persist_path), os.O_RDONLY | os.O_NOFOLLOW)
+        except OSError as e:
+            logger.warning("Cannot open escalation persistence file: %s", e)
             return
 
         try:
-            from sanna.utils.safe_json import safe_json_load
-            with open(self._persist_path) as f:
-                data = safe_json_load(f)
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                logger.warning("Escalation persistence path is not a regular file")
+                return
+            # FIX-44: Check permissions
+            mode = st.st_mode
+            if mode & (stat.S_IRWXG | stat.S_IRWXO):
+                logger.warning(
+                    "Escalation persistence file has insecure permissions: %o",
+                    stat.S_IMODE(mode),
+                )
+            # SEC-10: Enforce max file size
+            if st.st_size > self._MAX_PERSIST_FILE_SIZE:
+                logger.warning(
+                    "Refusing to load escalation store %s: "
+                    "file size %d exceeds maximum %d bytes",
+                    self._persist_path, st.st_size, self._MAX_PERSIST_FILE_SIZE,
+                )
+                return
+            with os.fdopen(fd, 'r') as f:
+                data = json.load(f)
+            fd = -1  # fdopen took ownership
         except (json.JSONDecodeError, ValueError, OSError) as exc:
             logger.warning(
                 "Failed to load escalation store from %s: %s",
                 self._persist_path, exc,
             )
             return
+        finally:
+            if fd >= 0:
+                os.close(fd)
 
         if not isinstance(data, dict):
             logger.warning(
@@ -776,7 +798,7 @@ class EscalationStore:
             escalation_id=esc_id,
             prefixed_name=prefixed_name,
             original_name=original_name,
-            arguments=arguments,
+            arguments=copy.deepcopy(arguments),
             server_name=server_name,
             reason=reason,
             created_at=datetime.now(timezone.utc).isoformat(),
@@ -829,7 +851,7 @@ class EscalationStore:
                 escalation_id=esc_id,
                 prefixed_name=prefixed_name,
                 original_name=original_name,
-                arguments=arguments,
+                arguments=copy.deepcopy(arguments),
                 server_name=server_name,
                 reason=reason,
                 created_at=datetime.now(timezone.utc).isoformat(),
@@ -1205,16 +1227,24 @@ class SannaGateway:
                     "SANNA_GATEWAY_SECRET is not valid hex, ignoring",
                 )
 
-        # 2. Load from file (reject symlinks to prevent secret redirection)
+        # 2. Load from file — FIX-17: O_NOFOLLOW eliminates symlink TOCTOU
         path = secret_path or os.path.expanduser("~/.sanna/gateway_secret")
         if os.path.exists(path):
-            if os.path.islink(path):
+            try:
+                fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            except OSError as e:
                 raise SafeIOSecurityError(
-                    f"Gateway secret at {path} is a symlink — "
-                    f"refusing to load (potential secret redirection)"
+                    f"Cannot open gateway secret at {path}: {e}"
                 )
-            with open(path, "rb") as f:
-                secret = f.read()
+            try:
+                st = os.fstat(fd)
+                if not stat.S_ISREG(st.st_mode):
+                    raise SafeIOSecurityError(
+                        f"Gateway secret at {path} is not a regular file"
+                    )
+                secret = os.read(fd, 33)  # read 1 extra byte for length check
+            finally:
+                os.close(fd)
             if len(secret) != 32:
                 raise SafeIOSecurityError(
                     f"Gateway secret at {path} must be exactly 32 bytes, "
@@ -1553,27 +1583,68 @@ class SannaGateway:
             method="POST",
         )
 
-        # SEC-7: Disable redirect following to prevent token leak via
-        # 307/308 redirects that re-POST the body to the redirect target.
+        # SEC-7 / FIX-8: Disable ALL redirect following to prevent token
+        # leak via open-redirect chains.  Covers every standard redirect
+        # status: 301 (Moved Permanently), 302 (Found), 303 (See Other),
+        # 307 (Temporary Redirect), 308 (Permanent Redirect).
+        #
+        # We RAISE instead of returning None.  Returning None from
+        # redirect_request() is ambiguous in urllib — it means "I didn't
+        # handle this, try another handler".  Raising HTTPError makes the
+        # rejection unambiguous and ensures no redirect can slip through
+        # regardless of handler ordering or future urllib changes.
         class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-            """Reject all HTTP redirects."""
+            """Reject ALL HTTP redirects (301, 302, 303, 307, 308).
+
+            Raises ``HTTPError`` unconditionally so no redirect chain can
+            be followed — not even the first hop.  This prevents token
+            leakage via open-redirect attacks where the initial URL is
+            trusted but redirects to an attacker-controlled host.
+            """
 
             def redirect_request(
                 self, req, fp, code, msg, headers, newurl,
             ):
                 logger.warning(
                     "Webhook for %s received redirect (%d) to %s — "
-                    "not following. Webhook URLs must be direct.",
+                    "blocked. Webhook URLs must be direct (no redirects).",
                     entry.escalation_id,
                     code,
                     newurl,
                 )
-                return None  # Do not follow
+                raise urllib.error.HTTPError(
+                    req.full_url,
+                    code,
+                    f"Redirect to {newurl} blocked by security policy",
+                    headers,
+                    fp,
+                )
 
         opener = urllib.request.build_opener(_NoRedirectHandler)
 
+        # FIX-1: Re-validate webhook URL at send time to prevent DNS rebinding.
+        # An attacker can change DNS records between config validation and send.
+        try:
+            from sanna.gateway.config import validate_webhook_url
+            validate_webhook_url(self._approval_webhook_url)
+        except Exception as exc:
+            logger.warning(
+                "Webhook URL re-validation failed for %s: %s — not sending",
+                entry.escalation_id,
+                exc,
+            )
+            return
+
+        # FIX-13: Maximum response body size to prevent memory exhaustion
+        # from a malicious webhook endpoint returning a multi-GB response.
+        _MAX_WEBHOOK_RESPONSE_BYTES = 1024 * 1024  # 1 MB
+
         try:
             with opener.open(req, timeout=10) as resp:
+                # FIX-13: Read response body with a size limit.  We must
+                # consume (and discard) the body to release the connection,
+                # but we bound the read to prevent memory exhaustion.
+                resp.read(_MAX_WEBHOOK_RESPONSE_BYTES)
                 if resp.status >= 400:
                     logger.warning(
                         "Webhook delivery for %s returned HTTP %d",
@@ -1581,15 +1652,13 @@ class SannaGateway:
                         resp.status,
                     )
         except urllib.error.HTTPError as exc:
-            # Redirect responses (3xx) surface as HTTPError when the
-            # handler returns None.  Log and suppress.
+            # Redirect responses (3xx) now surface as HTTPError because
+            # _NoRedirectHandler raises instead of returning None.
             if 300 <= exc.code < 400:
                 logger.warning(
-                    "Webhook delivery for %s: redirect %d to %s — "
-                    "not followed",
+                    "Webhook delivery for %s: redirect %d blocked",
                     entry.escalation_id,
                     exc.code,
-                    exc.headers.get("Location", "<unknown>"),
                 )
             else:
                 logger.warning(
@@ -2691,8 +2760,37 @@ class SannaGateway:
         self, arguments: dict[str, Any],
     ) -> types.CallToolResult:
         """Handle sanna_approve_escalation meta-tool call."""
-        escalation_id = arguments.get("escalation_id", "")
-        approval_token = arguments.get("approval_token", "")
+        # FIX-38: Strict argument type validation
+        escalation_id = arguments.get("escalation_id")
+        approval_token = arguments.get("approval_token")
+
+        if not isinstance(escalation_id, str):
+            return types.CallToolResult(
+                content=[types.TextContent(
+                    type="text",
+                    text=json.dumps({"error": "escalation_id must be a string"}),
+                )],
+                isError=True,
+            )
+        if approval_token is not None and not isinstance(approval_token, str):
+            return types.CallToolResult(
+                content=[types.TextContent(
+                    type="text",
+                    text=json.dumps({"error": "approval_token must be a string"}),
+                )],
+                isError=True,
+            )
+        if not escalation_id.startswith("esc_"):
+            return types.CallToolResult(
+                content=[types.TextContent(
+                    type="text",
+                    text=json.dumps({"error": "invalid escalation_id format"}),
+                )],
+                isError=True,
+            )
+
+        if approval_token is None:
+            approval_token = ""
         override_reason = arguments.get("override_reason", "")
         override_detail = arguments.get("override_detail", "")
         if not escalation_id:
@@ -3014,7 +3112,26 @@ class SannaGateway:
         self, arguments: dict[str, Any],
     ) -> types.CallToolResult:
         """Handle sanna_deny_escalation meta-tool call."""
-        escalation_id = arguments.get("escalation_id", "")
+        # FIX-38: Strict argument type validation
+        escalation_id = arguments.get("escalation_id")
+
+        if not isinstance(escalation_id, str):
+            return types.CallToolResult(
+                content=[types.TextContent(
+                    type="text",
+                    text=json.dumps({"error": "escalation_id must be a string"}),
+                )],
+                isError=True,
+            )
+        if not escalation_id.startswith("esc_"):
+            return types.CallToolResult(
+                content=[types.TextContent(
+                    type="text",
+                    text=json.dumps({"error": "invalid escalation_id format"}),
+                )],
+                isError=True,
+            )
+
         if not escalation_id:
             return types.CallToolResult(
                 content=[types.TextContent(
@@ -3213,7 +3330,7 @@ class SannaGateway:
             generate_constitution_receipt,
             build_trace_data,
         )
-        from sanna.hashing import hash_text, hash_obj, normalize_floats
+        from sanna.hashing import hash_text, hash_obj
         from sanna.gateway.receipt_v2 import (
             compute_receipt_triad,
             receipt_triad_to_dict,
@@ -3231,9 +3348,13 @@ class SannaGateway:
             arguments, sort_keys=True,
         ) if arguments else ""
 
-        # Compute fidelity hashes from FULL content before truncation
+        # Compute fidelity hashes from FULL content before truncation.
+        # MCP tool arguments may contain non-integer floats, so use
+        # _coerce_floats_for_hashing to ensure deterministic hashing
+        # without crashing on arbitrary float values.
         if arguments:
-            arguments_hash = hash_obj(normalize_floats(arguments))
+            from sanna.gateway.receipt_v2 import _coerce_floats_for_hashing
+            arguments_hash = hash_obj(_coerce_floats_for_hashing(arguments))
         else:
             arguments_hash = hash_text("")
         tool_output_hash = hash_text(result_text) if result_text else hash_text("")

@@ -30,6 +30,8 @@ Requires: ``ANTHROPIC_API_KEY`` env var or explicit ``api_key`` parameter.
 from __future__ import annotations
 
 import json
+
+from ..utils.safe_json import safe_json_loads
 import os
 import urllib.request
 import urllib.error
@@ -257,8 +259,8 @@ class LLMJudge:
             raw = resp.read().decode("utf-8")
 
         try:
-            body = json.loads(raw)
-        except json.JSONDecodeError as exc:
+            body = safe_json_loads(raw)
+        except (json.JSONDecodeError, ValueError) as exc:
             raise LLMEvaluationError(
                 f"API returned non-JSON response: {raw[:200]}"
             ) from exc
@@ -270,8 +272,8 @@ class LLMJudge:
         text = content[0].get("text", "")
 
         try:
-            return json.loads(text)
-        except json.JSONDecodeError as exc:
+            return safe_json_loads(text)
+        except (json.JSONDecodeError, ValueError) as exc:
             raise LLMEvaluationError(
                 f"LLM returned non-JSON text: {text[:200]}"
             ) from exc

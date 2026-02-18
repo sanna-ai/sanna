@@ -1,6 +1,50 @@
 # Changelog
 
-**Note:** v0.13.0 is the first public PyPI release. Earlier version entries document internal pre-release development.
+**Note:** v0.13.x is the first public release series. Earlier version entries document internal pre-release development.
+
+## [0.13.2] - 2026-02-18
+
+### Security
+- HIGH: DNS rebinding TOCTOU — re-validate webhook URLs at send time
+- HIGH: Escalation webhooks now enforced with same SSRF/redirect/HTTPS protections as gateway webhooks
+- HIGH: NAT64 and CGNAT IP ranges blocked in webhook validation
+- HIGH: Meta-tool argument validation prevents gateway crashes
+- MEDIUM: Float canonicalization fully implemented (normalize_floats no longer pass-through)
+- MEDIUM: Negative zero normalized to zero in canonical JSON
+- MEDIUM: NaN/Infinity rejected by safe_json_loads
+- MEDIUM: Duplicate JSON key rejection extended to all security-sensitive parsing paths
+- MEDIUM: YAML duplicate key rejection in config validation CLI
+- MEDIUM: Redaction marker cross-validation against declared redacted_fields
+- MEDIUM: Empty tool names rejected at authority boundary
+- MEDIUM: Escalation arguments deep-copied at creation time
+- LOW: Symlink TOCTOU eliminated via O_NOFOLLOW on escalation persistence and gateway secret
+- LOW: Unicode tool name normalization via NFKC
+- LOW: IPv6 loopback added to insecure webhook allowlist
+- LOW: Escalation persistence permissions aligned with gateway secret
+
+### Specification (v1.0.2)
+- BLOCKING: Redaction marker schema defined
+- BLOCKING: Authority normalization algorithm documented with test vectors
+- IMPORTANT: HMAC token binding section corrected to match implementation
+- IMPORTANT: Canonical JSON constraints for Go/Rust (no HTML escaping, float rejection)
+- MINOR: Base64 variant pinned (RFC 4648 standard with padding)
+- MINOR: Exit code behavior precisely documented
+
+### Documentation
+- Quick-start examples now runnable under defaults (constitution public key shown)
+- Receipt persistence behavior accurately documented
+- Version strings updated to 0.13.2
+- Threat model and security claims tightened
+
+## [0.13.1] - 2026-02-17
+
+### Security
+- 10 security findings remediated across enforcement, specification, and documentation paths
+- 28 specification precision fixes
+- 17 documentation fixes
+
+### Tests
+- 2412 tests
 
 ## [0.13.0] - 2026-02-17
 
@@ -61,6 +105,12 @@ Receipt format v1.0 specification, schema migration from v0.12.x field names, an
   - `require_constitution_sig=True` by default (unsigned constitutions rejected)
   - `error_policy=fail_closed` by default (evaluator errors now count as failures)
   - `ReceiptStore` rejects `/tmp` paths
+
+### Migration from pre-v0.13.x
+1. Regenerate all receipts — old receipt format is not verifiable
+2. Re-sign constitutions with `sanna sign`
+3. Update field references: see field mapping table above
+4. Update verification scripts to use new CLI flags
 
 ### Tests
 - 2211+ passed, 17 xfailed (10 heuristic limitations, 7 MCP SDK compat)

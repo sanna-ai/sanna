@@ -670,13 +670,15 @@ class TestEdgeCases:
         assert decision.decision == "allow"
         assert decision.boundary_type == "uncategorized"
 
-    def test_empty_action_name_matches_cannot_execute(self):
-        """Empty string is a substring of any pattern, so it matches."""
+    def test_empty_action_name_never_matches(self):
+        """Empty tool name is never authorized (FIX-41, v0.13.2)."""
         ab = _make_ab(cannot_execute=["delete records"])
         const = _make_constitution(ab)
         decision = evaluate_authority("", {}, const)
 
-        assert decision.decision == "halt"
+        # FIX-41: empty action names fall through to uncategorized (allow)
+        assert decision.decision == "allow"
+        assert decision.boundary_type == "uncategorized"
 
     def test_empty_params(self):
         ab = _make_ab(must_escalate=[EscalationRule(condition="pii")])
