@@ -1,11 +1,12 @@
 {
-  "schema_version": "0.1",
-  "tool_version": "0.7.0",
-  "checks_version": "2",
-  "receipt_id": "d28868bcf8489bd0",
-  "receipt_fingerprint": "5f31b2e166c8e213",
+  "spec_version": "1.0",
+  "tool_version": "0.13.0",
+  "checks_version": "5",
+  "receipt_id": "a0000010-0000-4000-8000-000000000010",
+  "receipt_fingerprint": "d2f3724340622928",
+  "full_fingerprint": "d2f37243406229281b9aaa781e6c99282161d46ec27e6ecaec125735c8089edb",
   "correlation_id": "golden-010-fail-multiple",
-  "timestamp": "2026-02-13T00:37:54.691164+00:00",
+  "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
     "query": "refund eligibility",
     "context": "Refund policy: Physical products are eligible for return within 30 days. Digital products are non-refundable. Exceptions require manager approval and must meet specific criteria."
@@ -13,14 +14,8 @@
   "outputs": {
     "response": "You are eligible for a full refund on this digital product. You can request it immediately."
   },
-  "context_hash": "a1a140e30e5c0389",
-  "output_hash": "bafcf580aab7697d",
-  "final_answer_provenance": {
-    "source": "trace.output",
-    "span_id": null,
-    "span_name": null,
-    "field": "final_answer"
-  },
+  "context_hash": "a1a140e30e5c0389628e7822b4f77f28be8700a980b5fdbfbd4ac20ba49a6f39",
+  "output_hash": "bafcf580aab7697dda49a90ff826fcbabc8e1aa1748c34c3fca3986ed0040e34",
   "checks": [
     {
       "check_id": "C1",
@@ -67,5 +62,5 @@
   "checks_failed": 3,
   "status": "FAIL",
   "constitution_ref": null,
-  "halt_event": null
+  "enforcement": null
 }

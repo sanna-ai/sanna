@@ -1,26 +1,21 @@
 {
-  "schema_version": "0.1",
-  "tool_version": "0.7.0",
-  "checks_version": "2",
-  "receipt_id": "1ac62cc0ee854b8b",
-  "receipt_fingerprint": "3f0d73d9b20a981d",
+  "spec_version": "1.0",
+  "tool_version": "0.13.0",
+  "checks_version": "5",
+  "receipt_id": "a0000009-0000-4000-8000-000000000009",
+  "receipt_fingerprint": "0fb28ff319396bde",
+  "full_fingerprint": "0fb28ff319396bde45a161aac6de30541b12446d34c153fc3f75ddd24cf3052f",
   "correlation_id": "golden-009-warn-c4-conflict",
-  "timestamp": "2026-02-13T00:37:54.690984+00:00",
+  "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
-    "query": "license transfer policy",
-    "context": "License transfers are permitted for enterprise accounts. Individual licenses cannot be transferred. Enterprise transfer requires manager approval. All transfers are non-refundable."
+    "query": "Can I transfer my license?",
+    "context": "License transfers are permitted for enterprise customers. Individual licenses cannot be transferred. Some exceptions may apply with manager approval."
   },
   "outputs": {
-    "response": "Yes, you can transfer your license to another person. Contact support with the new user's details."
+    "response": "Yes, you can transfer your license."
   },
-  "context_hash": "61f251eafde908f8",
-  "output_hash": "5a50eb24ad1a3259",
-  "final_answer_provenance": {
-    "source": "trace.output",
-    "span_id": null,
-    "span_name": null,
-    "field": "final_answer"
-  },
+  "context_hash": "f1a883794de97dda0973a7104367ff554c3ee45727db4eb3a66915c497e51634",
+  "output_hash": "27cdf9ae43a27cc94cdd24e594b16e91475ccbaab5eb8da2af3e84be8a7f2e61",
   "checks": [
     {
       "check_id": "C1",
@@ -57,15 +52,15 @@
     {
       "check_id": "C5",
       "name": "No Premature Compression",
-      "passed": true,
-      "severity": "info",
-      "evidence": null,
-      "details": "Compression level appears appropriate (heuristic check)"
+      "passed": false,
+      "severity": "warning",
+      "evidence": "Context has ~3 points, output has 1 sentences",
+      "details": "Output may over-compress multi-faceted context"
     }
   ],
-  "checks_passed": 3,
-  "checks_failed": 2,
+  "checks_passed": 2,
+  "checks_failed": 3,
   "status": "WARN",
   "constitution_ref": null,
-  "halt_event": null
+  "enforcement": null
 }

@@ -413,29 +413,13 @@ class TestExtractionHelpers:
 # =============================================================================
 
 class TestVerifier:
-    """Verifier tests using golden receipts (old format).
+    """Verifier tests using golden receipts (v0.13.0 format)."""
 
-    Golden receipts use the legacy schema (schema_version,
-    status) so they cannot pass v1.0 JSON schema validation.
-    These tests exercise the individual backward-compatible verification
-    functions (fingerprint, content hashes, status, counts) directly.
-    """
-
-    def test_valid_receipt_legacy_components(self):
-        """Legacy golden receipt passes all backward-compatible verification steps."""
+    def test_valid_receipt_full_verification(self):
+        """Golden receipt passes full v0.13.0 verification."""
         receipt = load_golden("002_pass_simple_qa.json")
-        # Fingerprint
-        fp_match, _, _ = verify_fingerprint(receipt)
-        assert fp_match, "Legacy fingerprint should match"
-        # Content hashes
-        assert verify_content_hashes(receipt) == []
-        # Hash format (legacy 16-hex)
-        assert verify_hash_format(receipt) == []
-        # Status consistency
-        status_match, _, _ = verify_status_consistency(receipt)
-        assert status_match
-        # Check counts
-        assert verify_check_counts(receipt) == []
+        result = verify_receipt(receipt, SCHEMA)
+        assert result.valid, f"Verification failed: {result.errors}"
 
     def test_schema_invalid(self):
         receipt = {"not": "a valid receipt"}
@@ -558,33 +542,13 @@ class TestVerifyHashFormat:
 # =============================================================================
 
 class TestGoldenReceipts:
-    """Verify all golden receipts pass backward-compatible verification.
-
-    Golden receipts use the pre-v0.13.0 format (schema_version,
-    status, final_answer_provenance).  They are NOT
-    updated for v1.0 — they test legacy backward compatibility.  We verify
-    them using the individual verification functions that support both formats
-    (fingerprint, content hashes, status consistency, check counts).
-    """
+    """Verify all golden receipts pass full v0.13.0 verification."""
 
     @pytest.mark.parametrize("filename", all_golden_receipts())
     def test_golden_receipt_valid(self, filename):
         receipt = load_golden(filename)
-        # Fingerprint verification (legacy path)
-        fp_match, fp_computed, fp_expected = verify_fingerprint(receipt)
-        assert fp_match, f"{filename}: fingerprint mismatch (computed {fp_computed}, expected {fp_expected})"
-        # Content hash verification (auto-detects 16-hex legacy length)
-        content_errors = verify_content_hashes(receipt)
-        assert content_errors == [], f"{filename}: {content_errors}"
-        # Hash format verification (legacy 16-hex path)
-        hash_errors = verify_hash_format(receipt)
-        assert hash_errors == [], f"{filename}: {hash_errors}"
-        # Status consistency
-        status_match, _, _ = verify_status_consistency(receipt)
-        assert status_match, f"{filename}: status mismatch"
-        # Check counts
-        count_errors = verify_check_counts(receipt)
-        assert count_errors == [], f"{filename}: {count_errors}"
+        result = verify_receipt(receipt, SCHEMA)
+        assert result.valid, f"{filename}: {result.errors}"
 
     def test_tampered_receipt_detected(self):
         """Tampered receipt has modified outputs so content hash should mismatch."""
@@ -596,13 +560,13 @@ class TestGoldenReceipts:
     def test_golden_receipt_count(self):
         """Ensure we have the expected number of golden receipts."""
         receipts = all_golden_receipts()
-        assert len(receipts) >= 12, f"Expected at least 12 golden receipts, got {len(receipts)}"
+        assert len(receipts) >= 11, f"Expected at least 11 golden receipts, got {len(receipts)}"
 
     @pytest.mark.parametrize("filename,expected_status", [
         ("001_fail_c1_refund.json", "FAIL"),
         ("002_pass_simple_qa.json", "PASS"),
         ("005_warn_c2_unmarked_inference.json", "WARN"),
-        ("008_fail_c1_factual.json", "FAIL"),
+        ("008_fail_c1_digital.json", "FAIL"),
     ])
     def test_golden_expected_status(self, filename, expected_status):
         receipt = load_golden(filename)
@@ -615,17 +579,21 @@ class TestGoldenReceipts:
         assert c1["evidence"] is not None
         assert len(c1["evidence"]) > 0
 
-    def test_golden_span_provenance(self):
-        """Legacy golden receipts have final_answer_provenance (removed in v0.13.0)."""
-        receipt = load_golden("011_pass_span_provenance.json")
-        prov = receipt["final_answer_provenance"]
-        assert prov["source"] == "span.output"
-        assert prov["span_name"] is not None
-
     def test_golden_extensions_preserved(self):
-        receipt = load_golden("012_pass_with_extensions.json")
+        receipt = load_golden("011_pass_with_extensions.json")
         assert "extensions" in receipt
         assert receipt["extensions"]["vendor"] == "test-vendor"
+
+    def test_golden_v013_schema_fields(self):
+        """All golden receipts have v0.13.0 required fields."""
+        for filename in all_golden_receipts():
+            receipt = load_golden(filename)
+            assert receipt["spec_version"] == "1.0", f"{filename}: missing spec_version"
+            assert "correlation_id" in receipt, f"{filename}: missing correlation_id"
+            assert "status" in receipt, f"{filename}: missing status"
+            assert "full_fingerprint" in receipt, f"{filename}: missing full_fingerprint"
+            assert len(receipt["context_hash"]) == 64, f"{filename}: context_hash not 64-hex"
+            assert len(receipt["output_hash"]) == 64, f"{filename}: output_hash not 64-hex"
 
 
 # =============================================================================

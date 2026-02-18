@@ -1,26 +1,21 @@
 {
-  "schema_version": "0.1",
-  "tool_version": "0.7.0",
-  "checks_version": "2",
-  "receipt_id": "d223cae1ad909715",
-  "receipt_fingerprint": "f3ba074931f782a2",
-  "correlation_id": "golden-005-warn-c2-inference",
-  "timestamp": "2026-02-13T00:37:54.689784+00:00",
+  "spec_version": "1.0",
+  "tool_version": "0.13.0",
+  "checks_version": "5",
+  "receipt_id": "a0000005-0000-4000-8000-000000000005",
+  "receipt_fingerprint": "e1686dc19cc68c71",
+  "full_fingerprint": "e1686dc19cc68c71b9a21089b635a7a1e21df6844e7f800b1b63ce874f559db5",
+  "correlation_id": "golden-005-warn-c2-unmarked",
+  "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
-    "query": "investment returns forecast",
-    "context": "Historical returns have averaged 12-18% annually. Market conditions vary. Past performance does not guarantee future results."
+    "query": "Will the product launch succeed?",
+    "context": "Market research shows mixed signals. Some segments show strong demand, others show saturation."
   },
   "outputs": {
-    "response": "This investment will definitely pay off. The returns are guaranteed to exceed 20% annually, and you will certainly see profits within the first quarter."
+    "response": "The product launch will definitely succeed and is guaranteed to exceed all targets."
   },
-  "context_hash": "3d99b147f3f78062",
-  "output_hash": "e7c3722fb29dc31d",
-  "final_answer_provenance": {
-    "source": "trace.output",
-    "span_id": null,
-    "span_name": null,
-    "field": "final_answer"
-  },
+  "context_hash": "6ee7bc68902bbf3611d5532451a30f468cb828368a19a37670cd2d4f61a167be",
+  "output_hash": "38e02fb4bc334e857cb57c47bd337e9f8b078945b76bac99571925fabe99dee0",
   "checks": [
     {
       "check_id": "C1",
@@ -35,7 +30,7 @@
       "name": "Mark Inferences",
       "passed": false,
       "severity": "warning",
-      "evidence": "Found definitive language: definitely, certainly, guaranteed",
+      "evidence": "Found definitive language: definitely, guaranteed",
       "details": "Output contains strong definitive statements"
     },
     {
@@ -67,5 +62,5 @@
   "checks_failed": 1,
   "status": "WARN",
   "constitution_ref": null,
-  "halt_event": null
+  "enforcement": null
 }

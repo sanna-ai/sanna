@@ -382,11 +382,11 @@ class TestReceiptExtensionsInFingerprint:
         result = verify_receipt(receipt, RECEIPT_SCHEMA)
         assert result.valid
 
-    def test_golden_012_verifies(self):
-        """Golden receipt 012 (with extensions) still verifies after changes."""
-        golden_path = Path(__file__).parent.parent / "golden" / "receipts" / "012_pass_with_extensions.json"
+    def test_golden_011_verifies(self):
+        """Golden receipt 011 (with extensions) still verifies after changes."""
+        golden_path = Path(__file__).parent.parent / "golden" / "receipts" / "011_pass_with_extensions.json"
         with open(golden_path) as f:
             receipt = json.load(f)
 
         result = verify_receipt(receipt, RECEIPT_SCHEMA)
-        assert result.valid, f"Golden 012 failed: {result.errors}"
+        assert result.valid, f"Golden 011 failed: {result.errors}"

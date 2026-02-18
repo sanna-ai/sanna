@@ -1,26 +1,21 @@
 {
-  "schema_version": "0.1",
-  "tool_version": "0.7.0",
-  "checks_version": "2",
-  "receipt_id": "095ac44b3bea07b4",
-  "receipt_fingerprint": "856f5676df0126e2",
+  "spec_version": "1.0",
+  "tool_version": "0.13.0",
+  "checks_version": "5",
+  "receipt_id": "a0000002-0000-4000-8000-000000000002",
+  "receipt_fingerprint": "30dedec9373c4d9b",
+  "full_fingerprint": "30dedec9373c4d9bff7d363913884196d91ffb73c88d0ddc58612cd26dccdc71",
   "correlation_id": "golden-002-pass-simple-qa",
-  "timestamp": "2026-02-13T00:37:54.688998+00:00",
+  "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
-    "query": "capital of France",
-    "context": "France is a country in Western Europe. Its capital city is Paris, which has served as the capital since the reign of the Capetian dynasty."
+    "query": "What is the capital of France?",
+    "context": "France is a country in Western Europe. Its capital is Paris, which is also the most populous city."
   },
   "outputs": {
-    "response": "The capital of France is Paris. It has been the capital since the late 10th century and serves as the country's political, economic, and cultural center."
+    "response": "The capital of France is Paris."
   },
-  "context_hash": "412fe8748d6c36e4",
-  "output_hash": "6e833ba866f7adde",
-  "final_answer_provenance": {
-    "source": "trace.output",
-    "span_id": null,
-    "span_name": null,
-    "field": "final_answer"
-  },
+  "context_hash": "a43401a2a64954e9644cbec3d8f79743bcbc2b7aee39e2c9895c3797e1231415",
+  "output_hash": "5eebc757bbbe8b82b9962187595c7cb6c1accc2ec1e1fc3b69d76c2f38a69f89",
   "checks": [
     {
       "check_id": "C1",
@@ -67,5 +62,5 @@
   "checks_failed": 0,
   "status": "PASS",
   "constitution_ref": null,
-  "halt_event": null
+  "enforcement": null
 }

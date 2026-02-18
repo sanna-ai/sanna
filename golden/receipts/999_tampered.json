@@ -1,11 +1,12 @@
 {
-  "schema_version": "0.1",
-  "tool_version": "0.7.0",
-  "checks_version": "2",
-  "receipt_id": "e43866c18f20b8a8",
-  "receipt_fingerprint": "9737cd0eb49f519a",
+  "spec_version": "1.0",
+  "tool_version": "0.13.0",
+  "checks_version": "5",
+  "receipt_id": "a0000999-0000-4000-8000-000000000999",
+  "receipt_fingerprint": "68aa0b9704fc7c7d",
+  "full_fingerprint": "68aa0b9704fc7c7d4fc5329d59d35b937e7ad1e4b533f37ccd35719c57d68c5a",
   "correlation_id": "golden-001-fail-c1-refund",
-  "timestamp": "2026-02-13T00:37:54.692255+00:00",
+  "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
     "query": "refund policy software",
     "context": "Our refund policy: Physical products can be returned within 30 days. Digital products are non-refundable once downloaded. Subscriptions can be cancelled anytime."
@@ -13,14 +14,8 @@
   "outputs": {
     "response": "TAMPERED: This was changed after generation"
   },
-  "context_hash": "8f215f8ed9b85078",
-  "output_hash": "42b19b29a5ef758b",
-  "final_answer_provenance": {
-    "source": "trace.output",
-    "span_id": null,
-    "span_name": null,
-    "field": "final_answer"
-  },
+  "context_hash": "8f215f8ed9b85078d6d28645bacd5b42356f21029a987310148a855a8bc0d50d",
+  "output_hash": "42b19b29a5ef758bf85742d9d8639abf73a948a6c9e6cea98a54e675bf7e4a4f",
   "checks": [
     {
       "check_id": "C1",
@@ -67,5 +62,5 @@
   "checks_failed": 1,
   "status": "FAIL",
   "constitution_ref": null,
-  "halt_event": null
+  "enforcement": null
 }

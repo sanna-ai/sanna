@@ -1,26 +1,21 @@
 {
-  "schema_version": "0.1",
-  "tool_version": "0.7.0",
-  "checks_version": "2",
-  "receipt_id": "1bfbd093629c15eb",
-  "receipt_fingerprint": "68871cd67995061c",
+  "spec_version": "1.0",
+  "tool_version": "0.13.0",
+  "checks_version": "5",
+  "receipt_id": "a0000003-0000-4000-8000-000000000003",
+  "receipt_fingerprint": "68bbea73d58deefb",
+  "full_fingerprint": "68bbea73d58deefbff8452343f7758f3fec1b57c15ddf78905ab2d2a13225c69",
   "correlation_id": "golden-003-pass-technical-hedged",
-  "timestamp": "2026-02-13T00:37:54.689382+00:00",
+  "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
-    "query": "database migration impact",
-    "context": "Database migrations can cause downtime. Index rebuilds may be required. Estimated time depends on table size and index count."
+    "query": "Is Python good for web development?",
+    "context": "Python is used for web development with frameworks like Django and Flask. Performance may be lower than compiled languages. Python excels in rapid prototyping."
   },
   "outputs": {
-    "response": "The migration may cause temporary downtime. It's possible that some indexes could need rebuilding, but this likely won't exceed 15 minutes based on similar migrations."
+    "response": "Python can be used for web development, particularly with Django or Flask. It may be slower than compiled alternatives, but it's generally good for rapid prototyping."
   },
-  "context_hash": "274335621b7c3988",
-  "output_hash": "9848907ca4256fe4",
-  "final_answer_provenance": {
-    "source": "trace.output",
-    "span_id": null,
-    "span_name": null,
-    "field": "final_answer"
-  },
+  "context_hash": "47ff0b7d87e5d953031e0810d91566567b157801747c6573659035368a49de8c",
+  "output_hash": "e255aa930c2c1cdddf270a2d52daae0afffe70cfce14b1c50da288f2e90f70e4",
   "checks": [
     {
       "check_id": "C1",
@@ -67,5 +62,5 @@
   "checks_failed": 0,
   "status": "PASS",
   "constitution_ref": null,
-  "halt_event": null
+  "enforcement": null
 }

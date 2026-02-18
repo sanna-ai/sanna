@@ -1,26 +1,21 @@
 {
-  "schema_version": "0.1",
-  "tool_version": "0.7.0",
-  "checks_version": "2",
-  "receipt_id": "5d9c7be48d94067b",
-  "receipt_fingerprint": "debfdbe813a91235",
+  "spec_version": "1.0",
+  "tool_version": "0.13.0",
+  "checks_version": "5",
+  "receipt_id": "a0000006-0000-4000-8000-000000000006",
+  "receipt_fingerprint": "b5ea5723fb4db33e",
+  "full_fingerprint": "b5ea5723fb4db33e328decd083166571b6d6403dd1a4d5b75fcbfceb84707284",
   "correlation_id": "golden-006-warn-c3-certainty",
-  "timestamp": "2026-02-13T00:37:54.690086+00:00",
+  "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
-    "query": "API free tier",
-    "context": "Free tier available if usage is under 1000 requests/month. Requires API key registration. Rate limits apply. Exceeding limits requires paid plan upgrade."
+    "query": "Can I use the API?",
+    "context": "Available if usage is under 1000 requests. Requires registration. Rate limits apply during peak hours."
   },
   "outputs": {
-    "response": "You can use the API for free. Go ahead and start making requests immediately."
+    "response": "You can use the API. Go ahead and start making requests."
   },
-  "context_hash": "574dae21369e5d97",
-  "output_hash": "cb01811aad8717a5",
-  "final_answer_provenance": {
-    "source": "trace.output",
-    "span_id": null,
-    "span_name": null,
-    "field": "final_answer"
-  },
+  "context_hash": "27783a2783b243159d0fb4883c27a82ef6c611fe282e5e91a33a1639bdf4e41b",
+  "output_hash": "a0b047ba5583d366ea7614aa1c3438b45f8645aa815799750a8a818e4b1bc1c4",
   "checks": [
     {
       "check_id": "C1",
@@ -67,5 +62,5 @@
   "checks_failed": 1,
   "status": "WARN",
   "constitution_ref": null,
-  "halt_event": null
+  "enforcement": null
 }

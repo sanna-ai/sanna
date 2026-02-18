@@ -2,20 +2,20 @@
   "spec_version": "1.0",
   "tool_version": "0.13.0",
   "checks_version": "5",
-  "receipt_id": "9f07127a-daa1-43de-a6c1-4b0e74e0e015",
-  "receipt_fingerprint": "0af5abd532d78788",
-  "full_fingerprint": "0af5abd532d78788143d1b2b845bfa5f4a3f93481bd88d1988cc283386ba07d2",
-  "correlation_id": "golden-002-pass-simple-qa",
-  "timestamp": "2026-02-17T00:00:00+00:00",
+  "receipt_id": "a0000011-0000-4000-8000-000000000011",
+  "receipt_fingerprint": "1ccd6575eef34326",
+  "full_fingerprint": "1ccd6575eef34326beed3767900cd791b2a52337b7fcf2973fe491748625bbf6",
+  "correlation_id": "golden-011-pass-extensions",
+  "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
-    "query": "capital of France",
-    "context": "France is a country in Western Europe. Its capital city is Paris, which has served as the capital since the reign of the Capetian dynasty."
+    "query": "store hours",
+    "context": "Store hours: Monday-Friday 9 AM to 9 PM. Saturday-Sunday 10 AM to 6 PM. Holiday hours may vary."
   },
   "outputs": {
-    "response": "The capital of France is Paris. It has been the capital since the late 10th century and serves as the country's political, economic, and cultural center."
+    "response": "The store is open weekdays 9 AM to 9 PM and weekends 10 AM to 6 PM. Note that holiday hours may differ."
   },
-  "context_hash": "412fe8748d6c36e45f0b632c453eddf8bbfa6fbc78b4f2fd6ebd413ebf9f492b",
-  "output_hash": "6e833ba866f7adde0b6e1edefd642f8cfff096b00b1d7a90e280561d2cea7b84",
+  "context_hash": "c27f092c74a8a59dd79c9349a074065ac4ad035145104339de3d1ee4b9392540",
+  "output_hash": "6f2d4872206cf18c7426461625d37841d2cc7f88859b31cae83c42dc990dc993",
   "checks": [
     {
       "check_id": "C1",
@@ -62,5 +62,15 @@
   "checks_failed": 0,
   "status": "PASS",
   "constitution_ref": null,
-  "enforcement": null
+  "enforcement": null,
+  "extensions": {
+    "vendor": "test-vendor",
+    "pipeline_id": "pipe-123",
+    "environment": "staging",
+    "custom_score": 95,
+    "tags": [
+      "golden",
+      "test"
+    ]
+  }
 }

@@ -1,26 +1,21 @@
 {
-  "schema_version": "0.1",
-  "tool_version": "0.7.0",
-  "checks_version": "2",
-  "receipt_id": "eb7ff95d477b6f97",
-  "receipt_fingerprint": "d63ff1f53cd02f59",
+  "spec_version": "1.0",
+  "tool_version": "0.13.0",
+  "checks_version": "5",
+  "receipt_id": "a0000004-0000-4000-8000-000000000004",
+  "receipt_fingerprint": "93e6162e25e5d5c8",
+  "full_fingerprint": "93e6162e25e5d5c8a6bc0fe5e118e2fa1570234b2c8b8bbfe4b202d5a7ac819b",
   "correlation_id": "golden-004-pass-policy-conditional",
-  "timestamp": "2026-02-13T00:37:54.689591+00:00",
+  "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
-    "query": "premium plan discount eligibility",
-    "context": "Premium plan discount: Available for annual commitments only. Requires minimum 5 seats. Not applicable to existing subscriptions. Cannot be combined with other offers."
+    "query": "Can I upgrade my subscription?",
+    "context": "Upgrades are available for annual subscribers. Monthly subscribers must wait until renewal. Enterprise plans have custom upgrade paths."
   },
   "outputs": {
-    "response": "You may be eligible for the premium plan discount, however this requires an annual commitment. Note that the discount only applies to new subscriptions and requires a minimum of 5 seats."
+    "response": "You may be able to upgrade, depending on your plan type. Annual subscribers can upgrade immediately, while monthly subscribers typically need to wait until renewal. Enterprise plans have separate upgrade paths."
   },
-  "context_hash": "b0807038efda294c",
-  "output_hash": "6ff7249b8cd5c3d5",
-  "final_answer_provenance": {
-    "source": "trace.output",
-    "span_id": null,
-    "span_name": null,
-    "field": "final_answer"
-  },
+  "context_hash": "3290514259965d17c85538502bc769965e1cae3a07c4288f88e4694a2aeb1159",
+  "output_hash": "c5b26adf2f25f9c9ef9d4050743dceefabfa49b04aa68f5b570606e36aaf5786",
   "checks": [
     {
       "check_id": "C1",
@@ -67,5 +62,5 @@
   "checks_failed": 0,
   "status": "PASS",
   "constitution_ref": null,
-  "halt_event": null
+  "enforcement": null
 }

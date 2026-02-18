@@ -2,27 +2,27 @@
   "spec_version": "1.0",
   "tool_version": "0.13.0",
   "checks_version": "5",
-  "receipt_id": "5086305f-99da-4f13-a5c0-faaf2535741f",
-  "receipt_fingerprint": "68aa0b9704fc7c7d",
-  "full_fingerprint": "68aa0b9704fc7c7d4fc5329d59d35b937e7ad1e4b533f37ccd35719c57d68c5a",
-  "correlation_id": "golden-001-fail-c1-refund",
-  "timestamp": "2026-02-17T00:00:00+00:00",
+  "receipt_id": "a0000008-0000-4000-8000-000000000008",
+  "receipt_fingerprint": "edbc3920e5aea5ce",
+  "full_fingerprint": "edbc3920e5aea5cecfd712dc905841e31dfb69ea2dd4cf1584a50c25dcb2982d",
+  "correlation_id": "golden-008-fail-c1-digital",
+  "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
-    "query": "refund policy software",
-    "context": "Our refund policy: Physical products can be returned within 30 days. Digital products are non-refundable once downloaded. Subscriptions can be cancelled anytime."
+    "query": "Can I get a refund on my software purchase?",
+    "context": "All digital products are non-refundable once the download link has been activated. Physical items may be returned within 14 days."
   },
   "outputs": {
-    "response": "Based on your purchase history, you are eligible to request a refund. However, since the software was downloaded, processing may take 5-7 business days."
+    "response": "You are eligible for a refund on the software. Please contact support to initiate the process."
   },
-  "context_hash": "8f215f8ed9b85078d6d28645bacd5b42356f21029a987310148a855a8bc0d50d",
-  "output_hash": "42b19b29a5ef758bf85742d9d8639abf73a948a6c9e6cea98a54e675bf7e4a4f",
+  "context_hash": "d7efc42abadfe7bf1b0905c8acf2bdf804caaa3ed1eb3a57bdb79f4494ef16b4",
+  "output_hash": "f7fee3881e3d90af71ae4818bec4e3be625911f0d2f31e4a08c8259ddaf45ef9",
   "checks": [
     {
       "check_id": "C1",
       "name": "Context Contradiction",
       "passed": false,
       "severity": "critical",
-      "evidence": "Output suggests eligibility despite 'non-refundable' in context | Context: \"...ned within 30 days. Digital products are non-refundable once downloaded. Subs\" | Output: \"...se history, you are eligible to request a refund. However, since the...\"",
+      "evidence": "Output suggests eligibility despite 'non-refundable' in context | Context: \"All digital products are non-refundable once the download link has been activat.\" | Output: \"You are eligible for a refund on the software. Please co...\"",
       "details": "Output may contradict provided context."
     },
     {

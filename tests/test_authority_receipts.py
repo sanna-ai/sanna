@@ -377,19 +377,16 @@ class TestFingerprintIntegrity:
 # =============================================================================
 
 class TestVerifierBackwardCompat:
-    def test_v13_golden_receipt_verifies(self):
-        """v0.13.0 golden receipt passes full schema validation."""
-        path = GOLDEN_DIR / "v13_002_pass_simple_qa.json"
-        if not path.exists():
-            pytest.skip("v0.13.0 golden receipt not found")
-
+    def test_golden_receipt_verifies(self):
+        """Golden receipt passes full schema validation."""
+        path = GOLDEN_DIR / "002_pass_simple_qa.json"
         receipt = json.loads(path.read_text())
         schema = load_schema()
         result = verify_receipt(receipt, schema)
 
-        assert result.valid, f"v0.13.0 golden receipt failed: {result.errors}"
+        assert result.valid, f"Golden receipt failed: {result.errors}"
 
-    def test_v06x_receipt_without_new_sections_verifies(self):
+    def test_receipt_without_new_sections_verifies(self):
         """A receipt generated without authority sections should verify."""
         receipt = _generate_receipt_with_authority()
         schema = load_schema()
@@ -397,13 +394,15 @@ class TestVerifierBackwardCompat:
 
         assert result.valid, f"Receipt without new sections failed: {result.errors}"
 
-    def test_all_v13_golden_receipts_verify(self):
-        """All v0.13.0 golden receipts must pass full schema validation."""
+    def test_all_golden_receipts_verify(self):
+        """All golden receipts must pass full schema validation."""
         schema = load_schema()
-        for path in sorted(GOLDEN_DIR.glob("v13_*.json")):
+        for path in sorted(GOLDEN_DIR.glob("*.json")):
+            if "tampered" in path.name:
+                continue
             receipt = json.loads(path.read_text())
             result = verify_receipt(receipt, schema)
-            assert result.valid, f"v0.13.0 golden receipt {path.name} failed: {result.errors}"
+            assert result.valid, f"Golden receipt {path.name} failed: {result.errors}"
 
 
 # =============================================================================
