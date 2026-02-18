@@ -32,6 +32,10 @@ import asyncio as _asyncio
 import os
 import stat
 import sys
+
+# O_NOFOLLOW is POSIX-only; on Windows it doesn't exist, so fall back to 0
+# (no symlink protection, but Windows doesn't have the same symlink threat model).
+_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 import time as _time_mod
 import unicodedata
 import uuid
@@ -618,7 +622,7 @@ class EscalationStore:
 
         # FIX-3: Use O_NOFOLLOW to eliminate symlink TOCTOU race
         try:
-            fd = os.open(str(self._persist_path), os.O_RDONLY | os.O_NOFOLLOW)
+            fd = os.open(str(self._persist_path), os.O_RDONLY | _O_NOFOLLOW)
         except OSError as e:
             logger.warning("Cannot open escalation persistence file: %s", e)
             return
@@ -1231,7 +1235,7 @@ class SannaGateway:
         path = secret_path or os.path.expanduser("~/.sanna/gateway_secret")
         if os.path.exists(path):
             try:
-                fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                fd = os.open(path, os.O_RDONLY | _O_NOFOLLOW)
             except OSError as e:
                 raise SafeIOSecurityError(
                     f"Cannot open gateway secret at {path}: {e}"

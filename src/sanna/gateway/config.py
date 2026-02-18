@@ -643,17 +643,20 @@ def validate_webhook_url(url: str) -> None:
         # (SEC-6: DNS rebinding protection)
         try:
             import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(
-                    socket.getaddrinfo,
-                    hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM,
-                )
-                try:
-                    addrinfos = future.result(timeout=5)
-                except concurrent.futures.TimeoutError:
-                    raise GatewayConfigError(
-                        f"DNS resolution timed out for webhook hostname '{hostname}'"
-                    ) from None
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            future = pool.submit(
+                socket.getaddrinfo,
+                hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM,
+            )
+            try:
+                addrinfos = future.result(timeout=5)
+            except concurrent.futures.TimeoutError:
+                pool.shutdown(wait=False)
+                raise GatewayConfigError(
+                    f"DNS resolution timed out for webhook hostname '{hostname}'"
+                ) from None
+            finally:
+                pool.shutdown(wait=False)
         except socket.gaierror as exc:
             raise GatewayConfigError(
                 f"Webhook URL hostname '{hostname}' failed DNS resolution: {exc}"

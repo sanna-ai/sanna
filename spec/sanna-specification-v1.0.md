@@ -1100,6 +1100,15 @@ security boundaries of the Sanna receipt system.
   gateway attests to what it forwarded, not what the downstream
   server actually executed.
 
+**MCP transport boundary note:**
+
+Tool argument parsing semantics (including duplicate key handling)
+at the gateway boundary are determined by the MCP transport layer.
+Duplicate keys in raw JSON tool arguments are resolved by the MCP
+library before governance evaluation. Sanna's duplicate key
+rejection applies to artifacts it parses directly: receipts,
+constitutions, configuration files, and escalation persistence.
+
 ### 12.4 Key Management
 
 Private keys MUST be stored securely with restricted file permissions
@@ -1309,7 +1318,7 @@ the following steps in order:
    ```
 
 3. **Split on separators:** Split on the character class
-   `[_\-./:@]+` (underscore, hyphen, dot, slash, colon, at-sign).
+   `[_\-./:\\@]+` (underscore, hyphen, dot, slash, colon, backslash, at-sign).
    One or more consecutive separator characters produce a single
    split. In practice, this is implemented by replacing all
    separator runs with a single space.
