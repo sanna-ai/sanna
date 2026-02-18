@@ -127,13 +127,16 @@ class ReceiptStore:
         from sanna.utils.safe_io import ensure_secure_dir, SecurityError
 
         # HIGH-04: Refuse /tmp paths (world-writable, insecure for receipts)
+        # Set SANNA_ALLOW_TEMP_DB=1 for CI/testing only — do not use in production.
         resolved = Path(db_path).resolve()
         _tmp_prefixes = ("/tmp", "/var/tmp", "/private/tmp")
         if any(str(resolved).startswith(prefix) for prefix in _tmp_prefixes):
-            raise SecurityError(
-                f"Refusing to store receipts in temp directory: {db_path}. "
-                f"Use a persistent, user-owned path like ~/.sanna/receipts.db"
-            )
+            if os.environ.get("SANNA_ALLOW_TEMP_DB") != "1":
+                raise SecurityError(
+                    f"Refusing to store receipts in temp directory: {db_path}. "
+                    f"Use a persistent, user-owned path like ~/.sanna/receipts.db. "
+                    f"Set SANNA_ALLOW_TEMP_DB=1 to bypass (CI/testing only)."
+                )
 
         # HIGH-04: Bare filename → resolve to ~/.sanna/receipts/
         if os.sep not in db_path and not db_path.startswith("."):

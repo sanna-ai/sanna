@@ -26,6 +26,8 @@ jobs:
 
       - name: Run tests
         run: python -m pytest tests/ -v
+        env:
+          SANNA_ALLOW_TEMP_DB: "1"
 
       - name: Verify golden receipts
         run: |
