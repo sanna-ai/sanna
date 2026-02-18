@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sanna"
 version = "0.13.2"
-description = "Coherence checks for AI agents — portable, offline-verifiable reasoning receipts"
+description = "Trust infrastructure for AI agents — constitution enforcement, cryptographic receipts, MCP governance gateway"
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.10"
 authors = [{name = "nicallen-exd"}]
-keywords = ["ai", "governance", "reasoning", "receipts", "verification", "observability"]
+keywords = ["ai", "governance", "trust", "constitution", "receipts", "verification", "mcp", "agents", "cryptographic"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
