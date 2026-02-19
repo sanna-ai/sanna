@@ -3,7 +3,7 @@
 **Status:** Released
 **Version:** 1.0.2
 **Date:** 2026-02-17
-**Reference implementation:** sanna v0.13.2
+**Reference implementation:** sanna v0.13.4
 
 ---
 
