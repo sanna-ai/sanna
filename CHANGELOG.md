@@ -2,6 +2,20 @@
 
 **Note:** v0.13.x is the first public release series. Earlier version entries document internal pre-release development.
 
+## [0.13.5] - 2026-02-20
+
+Documentation and test hygiene release. No library code changes.
+
+### Documentation
+- CLAUDE.md brought current with v0.13.x (was 4 versions behind)
+- CONTRIBUTING.md updated
+- README Quick Start parameter fix
+
+### Tests
+- Stale golden receipts removed
+- v13 golden receipt vectors committed
+- Test count: 2489+
+
 ## [0.13.2] - 2026-02-18
 
 ### Security

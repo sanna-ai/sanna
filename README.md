@@ -27,7 +27,7 @@ from sanna import sanna_observe, SannaHaltError
 
 @sanna_observe(
     constitution_path="constitution.yaml",
-    public_key_path="~/.sanna/keys/<key-id>.pub",  # from sanna keygen above
+    constitution_public_key_path="~/.sanna/keys/<key-id>.pub",  # from sanna keygen above
 )
 def my_agent(query: str, context: str) -> str:
     return "Based on the data, revenue grew 12% year-over-year."

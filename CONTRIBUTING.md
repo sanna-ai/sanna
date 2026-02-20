@@ -4,7 +4,7 @@ Sanna is an AI agent governance platform that generates cryptographically signed
 
 ## Project Status
 
-Sanna is published on PyPI. The current release is v0.9.1 (1214 tests, CI green across Python 3.10–3.12). The codebase is sole-author through v0.9.x. The v0.10.0 release introduces `sanna-gateway`, the MCP enforcement proxy — this is the product form factor.
+Sanna is published on PyPI. The current release is v0.13.4 (2489+ tests, CI green across Python 3.10–3.12). The codebase is sole-author through v0.13.x. The gateway (`sanna-gateway`), MCP enforcement proxy, shipped in v0.10.0 — this is the product form factor.
 
 If you're reading this, you're likely one of: a future engineering hire, someone in the founder's trusted network evaluating the codebase, or an AI coding agent operating on the repository. Standards apply equally regardless.
 
@@ -70,7 +70,7 @@ New adapters should:
 
 ## Constitution Templates
 
-Templates are accessible via `sanna init-constitution --template <name>`. As of v0.10.0, five gateway-oriented templates ship:
+Templates are accessible via `sanna init`. Five gateway-oriented templates ship alongside three interactive templates:
 
 - `openclaw-personal` — individuals running autonomous agents
 - `openclaw-developer` — skill builders proving safety for marketplace distribution
@@ -130,20 +130,22 @@ pytest tests/test_gateway_hardening.py -v
 pytest tests/test_template_matrix.py -v
 ```
 
-The test suite has 1214 tests as of v0.9.1 (target: 1400+ for v0.10.0). PRs that reduce coverage will be rejected.
+The test suite has 2489+ tests as of v0.13.4. PRs that reduce coverage will be rejected.
 
 ## CLI Commands
 
 Sanna exposes these CLI entry points. If your change affects CLI behavior, update the relevant command's help text and test end-to-end:
 
-- `sanna check` — run checks against a constitution
 - `sanna verify` — verify receipt integrity and signature chain
 - `sanna keygen` — generate Ed25519 signing key pairs (`--label` for human-readable naming)
 - `sanna sign` — sign constitutions and receipts
-- `sanna init-constitution` — initialize constitutions from templates
-- `sanna approve-constitution` — approve a constitution with Ed25519 signature (establishes the legitimacy chain)
+- `sanna init` — initialize constitutions from templates
+- `sanna approve` — approve a constitution with Ed25519 signature (establishes the legitimacy chain)
 - `sanna diff` — compare constitution versions with content hash verification
-- `sanna-gateway` — (v0.10.0+) MCP enforcement proxy server
+- `sanna gateway` — MCP enforcement proxy server
+- `sanna demo` — run self-contained governance demo
+- `sanna inspect` — pretty-print receipt contents
+- `sanna check-config` — validate gateway config (dry-run)
 
 ## What Not to Do
 

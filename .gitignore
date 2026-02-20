@@ -39,3 +39,4 @@ sanna_ed25519*
 # Signed constitutions generated during testing
 *.signed.yaml
 *.signed.json
+sanna-audit-report.md

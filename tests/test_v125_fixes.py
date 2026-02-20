@@ -401,7 +401,7 @@ class TestEscapeAuditContent:
 class TestVersion125:
 
     def test_version_is_0_12_5(self):
-        assert sanna.__version__ == "0.13.4"
+        assert sanna.__version__ == "0.13.5"
 
     def test_tool_version_is_0_12_5(self):
-        assert TOOL_VERSION == "0.13.4"
+        assert TOOL_VERSION == "0.13.5"
