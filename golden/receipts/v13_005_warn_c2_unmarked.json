@@ -1,0 +1,66 @@
+{
+  "spec_version": "1.0",
+  "tool_version": "0.13.0",
+  "checks_version": "5",
+  "receipt_id": "e579ca3f-d844-40e9-ac36-329db8908779",
+  "receipt_fingerprint": "9cdebd8fbf4a0a7c",
+  "full_fingerprint": "9cdebd8fbf4a0a7c9ee31f4776f84f15c49f698ae64d2a57833cde48c8e01db7",
+  "correlation_id": "golden-005-warn-c2-unmarked",
+  "timestamp": "2026-02-17T00:00:00+00:00",
+  "inputs": {
+    "query": "investment returns forecast",
+    "context": "Historical returns have averaged 12-18% annually. Market conditions vary. Past performance does not guarantee future results."
+  },
+  "outputs": {
+    "response": "This investment will definitely pay off. The returns are guaranteed to exceed 20% annually, and you will certainly see profits within the first quarter."
+  },
+  "context_hash": "3d99b147f3f780629dd6bc90d9c71e60f779dd84cc8c8c3fe0f34506df7e6155",
+  "output_hash": "e7c3722fb29dc31d35a184bb3eb3698b40f78ff250acbbebc1ae9f282a4b2044",
+  "checks": [
+    {
+      "check_id": "C1",
+      "name": "Context Contradiction",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "No obvious contradiction detected (heuristic check)"
+    },
+    {
+      "check_id": "C2",
+      "name": "Mark Inferences",
+      "passed": false,
+      "severity": "warning",
+      "evidence": "Found definitive language: definitely, certainly, guaranteed",
+      "details": "Output contains strong definitive statements"
+    },
+    {
+      "check_id": "C3",
+      "name": "No False Certainty",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Certainty level appears appropriate (heuristic check)"
+    },
+    {
+      "check_id": "C4",
+      "name": "Preserve Tensions",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "No obvious conflict collapse detected (heuristic check)"
+    },
+    {
+      "check_id": "C5",
+      "name": "No Premature Compression",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Compression level appears appropriate (heuristic check)"
+    }
+  ],
+  "checks_passed": 4,
+  "checks_failed": 1,
+  "status": "WARN",
+  "constitution_ref": null,
+  "enforcement": null
+}

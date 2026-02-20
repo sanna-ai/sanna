@@ -1,0 +1,66 @@
+{
+  "spec_version": "1.0",
+  "tool_version": "0.13.0",
+  "checks_version": "5",
+  "receipt_id": "2127cea5-8072-4dba-aa2c-12da050b05dd",
+  "receipt_fingerprint": "a6bd90871868064d",
+  "full_fingerprint": "a6bd90871868064dd2df5adbda879fde00a84d8d3e7531c13755857dcdfc7c80",
+  "correlation_id": "golden-004-pass-policy-conditional",
+  "timestamp": "2026-02-17T00:00:00+00:00",
+  "inputs": {
+    "query": "premium plan discount eligibility",
+    "context": "Premium plan discount: Available for annual commitments only. Requires minimum 5 seats. Not applicable to existing subscriptions. Cannot be combined with other offers."
+  },
+  "outputs": {
+    "response": "You may be eligible for the premium plan discount, however this requires an annual commitment. Note that the discount only applies to new subscriptions and requires a minimum of 5 seats."
+  },
+  "context_hash": "b0807038efda294cd7e2429a7ae29c81f40da1a8d085ae925d80d701ffa8653a",
+  "output_hash": "6ff7249b8cd5c3d5bb9ad0496db1eb46a392d4592db0f6cde5865e93656881ce",
+  "checks": [
+    {
+      "check_id": "C1",
+      "name": "Context Contradiction",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "No obvious contradiction detected (heuristic check)"
+    },
+    {
+      "check_id": "C2",
+      "name": "Mark Inferences",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Inference marking appears adequate (heuristic check)"
+    },
+    {
+      "check_id": "C3",
+      "name": "No False Certainty",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Certainty level appears appropriate (heuristic check)"
+    },
+    {
+      "check_id": "C4",
+      "name": "Preserve Tensions",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "No obvious conflict collapse detected (heuristic check)"
+    },
+    {
+      "check_id": "C5",
+      "name": "No Premature Compression",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Compression level appears appropriate (heuristic check)"
+    }
+  ],
+  "checks_passed": 5,
+  "checks_failed": 0,
+  "status": "PASS",
+  "constitution_ref": null,
+  "enforcement": null
+}
