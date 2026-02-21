@@ -124,11 +124,11 @@ This generates keys, creates a constitution, simulates a governed tool call, gen
 
 **Authority Boundaries** — `can_execute` (forward), `must_escalate` (prompt user), `cannot_execute` (deny). Policy cascade: per-tool override > server default > constitution.
 
-**Key Management** — Public keys are stored in `~/.sanna/keys/` and referenced by their key ID (SHA-256 fingerprint of the public key). For verification, pass the public key path explicitly via `--public-key` on the CLI or `constitution_public_key_path` in code. See [docs/key-management.md](https://github.com/nicallen-exd/sanna/blob/main/docs/key-management.md) for key roles and rotation.
+**Key Management** — Public keys are stored in `~/.sanna/keys/` and referenced by their key ID (SHA-256 fingerprint of the public key). For verification, pass the public key path explicitly via `--public-key` on the CLI or `constitution_public_key_path` in code. See [docs/key-management.md](https://github.com/sanna-ai/sanna/blob/main/docs/key-management.md) for key roles and rotation.
 
 ## Receipt Format
 
-Every governed action produces a reasoning receipt — a JSON artifact that cryptographically binds inputs, outputs, check results, and constitution provenance. See [spec/sanna-specification-v1.0.md](https://github.com/nicallen-exd/sanna/blob/main/spec/sanna-specification-v1.0.md) for the full specification.
+Every governed action produces a reasoning receipt — a JSON artifact that cryptographically binds inputs, outputs, check results, and constitution provenance. See [spec/sanna-specification-v1.0.md](https://github.com/sanna-ai/sanna/blob/main/spec/sanna-specification-v1.0.md) for the full specification.
 
 **Identification**
 
@@ -191,7 +191,7 @@ Every governed action produces a reasoning receipt — a JSON artifact that cryp
 |-------|------|-------------|
 | `extensions` | object | Reverse-domain namespaced metadata (`com.sanna.gateway`, `com.sanna.middleware`) |
 
-This section provides a high-level overview. For a complete field reference and normative format details, see [spec/sanna-specification-v1.0.md](https://github.com/nicallen-exd/sanna/blob/main/spec/sanna-specification-v1.0.md).
+This section provides a high-level overview. For a complete field reference and normative format details, see [spec/sanna-specification-v1.0.md](https://github.com/sanna-ai/sanna/blob/main/spec/sanna-specification-v1.0.md).
 
 Minimal example receipt (abbreviated -- production receipts typically contain 3-7 checks):
 
@@ -436,12 +436,12 @@ No network. No API keys. No vendor dependency.
 - **Ed25519 cryptographic signatures**: Constitutions, receipts, and approval records are independently signed and verifiable.
 - **Offline verification**: No platform dependency. Verify receipts with a public key and the CLI.
 - **Evidence bundles**: Self-contained zip archives with receipt, constitution, and public keys for auditors.
-- **Drift analytics**: Per-agent failure-rate trending with linear regression and breach projection. See [docs/drift-reports.md](https://github.com/nicallen-exd/sanna/blob/main/docs/drift-reports.md).
-- **Receipt Triad**: Cryptographic binding of input, reasoning, and action for auditability. See [docs/reasoning-receipts.md](https://github.com/nicallen-exd/sanna/blob/main/docs/reasoning-receipts.md).
-- **Receipt queries**: SQL recipes, MCP query tool. See [docs/receipt-queries.md](https://github.com/nicallen-exd/sanna/blob/main/docs/receipt-queries.md).
-- **Key management**: SHA-256 key fingerprints, labeled keypairs. See [docs/key-management.md](https://github.com/nicallen-exd/sanna/blob/main/docs/key-management.md).
-- **Production deployment**: Docker, logging, retention, failure modes. See [docs/production.md](https://github.com/nicallen-exd/sanna/blob/main/docs/production.md).
-- **Gateway configuration**: Full config reference. See [docs/gateway-config.md](https://github.com/nicallen-exd/sanna/blob/main/docs/gateway-config.md).
+- **Drift analytics**: Per-agent failure-rate trending with linear regression and breach projection. See [docs/drift-reports.md](https://github.com/sanna-ai/sanna/blob/main/docs/drift-reports.md).
+- **Receipt Triad**: Cryptographic binding of input, reasoning, and action for auditability. See [docs/reasoning-receipts.md](https://github.com/sanna-ai/sanna/blob/main/docs/reasoning-receipts.md).
+- **Receipt queries**: SQL recipes, MCP query tool. See [docs/receipt-queries.md](https://github.com/sanna-ai/sanna/blob/main/docs/receipt-queries.md).
+- **Key management**: SHA-256 key fingerprints, labeled keypairs. See [docs/key-management.md](https://github.com/sanna-ai/sanna/blob/main/docs/key-management.md).
+- **Production deployment**: Docker, logging, retention, failure modes. See [docs/production.md](https://github.com/sanna-ai/sanna/blob/main/docs/production.md).
+- **Gateway configuration**: Full config reference. See [docs/gateway-config.md](https://github.com/sanna-ai/sanna/blob/main/docs/gateway-config.md).
 
 ## Security
 
@@ -458,7 +458,7 @@ No network. No API keys. No vendor dependency.
 - **Canonicalization**: Sorted keys, NFC Unicode normalization, integer-only numerics (no floats in signed content)
 - **Fingerprinting**: Pipe-delimited fields hashed with SHA-256; 16-hex truncation for display, 64-hex for full fingerprint
 
-See the [specification](https://github.com/nicallen-exd/sanna/blob/main/spec/sanna-specification-v1.0.md) for full cryptographic construction details.
+See the [specification](https://github.com/sanna-ai/sanna/blob/main/spec/sanna-specification-v1.0.md) for full cryptographic construction details.
 
 ## Threat Model
 
@@ -492,7 +492,7 @@ Sanna can emit OpenTelemetry signals to correlate governed actions with receipts
 pip install "sanna[otel]"
 ```
 
-See [docs/otel-integration.md](https://github.com/nicallen-exd/sanna/blob/main/docs/otel-integration.md) for configuration and signal reference.
+See [docs/otel-integration.md](https://github.com/sanna-ai/sanna/blob/main/docs/otel-integration.md) for configuration and signal reference.
 
 ## Install
 
@@ -505,7 +505,7 @@ pip install sanna[otel]          # OpenTelemetry bridge
 ## Development
 
 ```bash
-git clone https://github.com/nicallen-exd/sanna.git
+git clone https://github.com/sanna-ai/sanna.git
 cd sanna
 pip install -e ".[dev]"
 python -m pytest tests/ -q
@@ -513,4 +513,4 @@ python -m pytest tests/ -q
 
 ## License
 
-Apache 2.0
+AGPL-3.0

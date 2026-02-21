@@ -7,7 +7,7 @@ name = "sanna"
 version = "0.13.5"
 description = "Trust infrastructure for AI agents — constitution enforcement, cryptographic receipts, MCP governance gateway"
 readme = "README.md"
-license = {file = "LICENSE"}
+license = "AGPL-3.0-only"
 requires-python = ">=3.10"
 authors = [{name = "nicallen-exd"}]
 keywords = ["ai", "governance", "trust", "constitution", "receipts", "verification", "mcp", "agents", "cryptographic"]
@@ -61,9 +61,9 @@ sanna = "sanna.cli:main_sanna"
 [project.urls]
 Homepage = "https://sanna.dev"
 Documentation = "https://sanna.dev/docs"
-Repository = "https://github.com/nicallen-exd/sanna"
-Issues = "https://github.com/nicallen-exd/sanna/issues"
-Changelog = "https://github.com/nicallen-exd/sanna/blob/main/CHANGELOG.md"
+Repository = "https://github.com/sanna-ai/sanna"
+Issues = "https://github.com/sanna-ai/sanna/issues"
+Changelog = "https://github.com/sanna-ai/sanna/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]

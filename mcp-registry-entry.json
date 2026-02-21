@@ -1,12 +1,12 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.nicallen-exd/sanna",
+  "name": "io.github.sanna-ai/sanna",
   "title": "Sanna",
   "description": "Reasoning integrity and AI governance layer with cryptographic provenance",
   "version": "0.7.0",
-  "websiteUrl": "https://github.com/nicallen-exd/sanna",
+  "websiteUrl": "https://github.com/sanna-ai/sanna",
   "repository": {
-    "url": "https://github.com/nicallen-exd/sanna",
+    "url": "https://github.com/sanna-ai/sanna",
     "source": "github"
   },
   "packages": [
