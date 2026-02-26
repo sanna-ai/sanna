@@ -2,7 +2,7 @@
 
 **Note:** v0.13.x is the first public release series. Earlier version entries document internal pre-release development.
 
-## [0.13.6] - 2026-02-25
+## [0.13.7] - 2026-02-25
 
 Gateway constitution template standardization. No library code changes.
 

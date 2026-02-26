@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sanna"
-version = "0.13.6"
+version = "0.13.7"
 description = "Trust infrastructure for AI agents — constitution enforcement, cryptographic receipts, MCP governance gateway"
 readme = "README.md"
 license = "AGPL-3.0-only"
