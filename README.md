@@ -122,7 +122,7 @@ This generates keys, creates a constitution, simulates a governed tool call, gen
 | C4 | `INV_PRESERVE_TENSION` | Conflicting information collapsed |
 | C5 | `INV_NO_PREMATURE_COMPRESSION` | Complex input reduced to single sentence |
 
-**Authority Boundaries** — `can_execute` (forward), `must_escalate` (prompt user), `cannot_execute` (deny). Policy cascade: per-tool override > server default > constitution.
+**Authority Boundaries** — `cannot_execute` (deny, checked first, tool names only), `must_escalate` (prompt user, checked second, matches full action context including parameters), `can_execute` (allow, checked third, tool names only). A tool in `can_execute` is still subject to `must_escalate` conditions. Policy cascade: per-tool override > server default > constitution.
 
 **Key Management** — Public keys are stored in `~/.sanna/keys/` and referenced by their key ID (SHA-256 fingerprint of the public key). For verification, pass the public key path explicitly via `--public-key` on the CLI or `constitution_public_key_path` in code. See [docs/key-management.md](https://github.com/sanna-ai/sanna/blob/main/docs/key-management.md) for key roles and rotation.
 
@@ -135,7 +135,7 @@ Every governed action produces a reasoning receipt — a JSON artifact that cryp
 | Field | Type | Description |
 |-------|------|-------------|
 | `spec_version` | string | Schema version, `"1.0"` |
-| `tool_version` | string | Package version, e.g. `"0.13.4"` |
+| `tool_version` | string | Package version, e.g. `"0.13.6"` |
 | `checks_version` | string | Check algorithm version, e.g. `"5"` |
 | `receipt_id` | string | UUID v4 unique identifier |
 | `correlation_id` | string | Path-prefixed identifier for grouping related receipts |
@@ -198,7 +198,7 @@ Minimal example receipt (abbreviated -- production receipts typically contain 3-
 ```json
 {
   "spec_version": "1.0",
-  "tool_version": "0.13.4",
+  "tool_version": "0.13.6",
   "checks_version": "5",
   "receipt_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
   "receipt_fingerprint": "7b4d06e836514eef",
@@ -265,15 +265,15 @@ invariants:
     enforcement: warning
 
 authority_boundaries:
-  can_execute:
-    - Look up order status
-    - Search knowledge base
-  must_escalate:
-    - Issue refund over $500
-    - Override account restrictions
-  cannot_execute:
+  cannot_execute:    # checked FIRST — tool names only
     - Delete customer accounts
     - Access payment credentials
+  must_escalate:     # checked SECOND — matches tool name + parameters
+    - Issue refund over $500
+    - Override account restrictions
+  can_execute:       # checked THIRD — tool names only
+    - Look up order status
+    - Search knowledge base
 
 escalation_targets:
   - condition: "refund over limit"
@@ -343,7 +343,7 @@ sanna drift-report --db .sanna/receipts.db --window 30 --json
 | General Purpose | Advisory enforcement, starter template |
 | Blank | Empty constitution for custom configuration |
 
-Five additional gateway-oriented templates are available in `examples/constitutions/`:
+Five additional gateway-oriented templates are available in `examples/constitutions/`. Each includes inline documentation explaining the authority boundary evaluation order and common mistakes:
 
 | Template | Use Case |
 |----------|----------|

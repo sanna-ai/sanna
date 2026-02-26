@@ -2,6 +2,19 @@
 
 **Note:** v0.13.x is the first public release series. Earlier version entries document internal pre-release development.
 
+## [0.13.6] - 2026-02-25
+
+Gateway constitution template standardization. No library code changes.
+
+### Documentation
+- All five gateway constitution templates (`examples/constitutions/`) updated with:
+  - Evaluation order documentation header explaining boundary priority, common mistakes, and rules of thumb
+  - YAML key order matching evaluation priority (`cannot_execute` → `must_escalate` → `can_execute`)
+  - Audit for command patterns incorrectly placed in `cannot_execute` (none found)
+- README: Authority Boundaries description updated with evaluation order
+- README: Constitution Format example reordered to match evaluation priority
+- README: Constitution Templates section notes inline evaluation order documentation
+
 ## [0.13.5] - 2026-02-20
 
 Documentation and test hygiene release. No library code changes.
