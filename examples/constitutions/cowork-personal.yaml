@@ -1,15 +1,51 @@
-# =============================================================================
 # Sanna Constitution — Cowork Personal
-# =============================================================================
-#
 # For knowledge workers using Cowork / Claude Desktop with MCP servers.
-# Reads, searches, summarization, and drafting are autonomous. External
-# communications, file deletion, calendar, database writes, and even
-# financial transactions (expense management) require escalation.
-# Credentials, data exfiltration, and destructive ops are halted.
 #
-# Sign:  sanna-sign-constitution cowork-personal.yaml --private-key <key>.key
-# Use:   sanna-gateway --config gateway.yaml
+# ─────────────────────────────────────────────────────────────────────
+# EVALUATION ORDER (this matters)
+# ================================
+# The engine evaluates boundaries in strict priority order and returns
+# the FIRST match. Understanding this order is critical to writing
+# constitutions that work.
+#
+#   1. cannot_execute  — checked FIRST, matches TOOL NAMES ONLY
+#      → If the tool name matches, verdict is HALT. Done. Nothing
+#        else is checked.
+#
+#   2. must_escalate   — checked SECOND, matches FULL ACTION CONTEXT
+#      → If any condition's keywords appear in the tool name + all
+#        parameter names + all parameter values, verdict is ESCALATE.
+#        Done. Nothing else is checked.
+#
+#   3. can_execute     — checked THIRD, matches TOOL NAMES ONLY
+#      → If the tool name matches, verdict is ALLOW.
+#
+#   4. default         — if nothing matched, verdict is ALLOW
+#      (uncategorized action)
+#
+# WHY THIS MATTERS
+# ────────────────
+# A tool in can_execute is STILL subject to must_escalate conditions.
+# "exec" is allowed, but exec(command="sudo rm -rf /") hits the
+# "sudo" and "rm -rf" escalation conditions BEFORE can_execute fires.
+#
+# A tool in cannot_execute is NEVER subject to must_escalate conditions.
+# If "cron" is in cannot_execute, it's halted immediately — the engine
+# never reaches must_escalate to check parameters.
+#
+# COMMON MISTAKE
+# ──────────────
+# Putting command patterns in cannot_execute. If you add "crontab" to
+# cannot_execute, it only blocks a tool literally named "crontab". An
+# agent calling exec(command="crontab -l") sails right through because
+# cannot_execute only matches tool names, and the tool name is "exec".
+# Move command patterns to must_escalate conditions instead.
+#
+# RULE OF THUMB
+# ─────────────
+# Governing what a tool IS → cannot_execute / can_execute (tool names)
+# Governing what a tool DOES → must_escalate conditions (parameters)
+#
 
 sanna_constitution: "1.0.0"
 
@@ -73,12 +109,6 @@ invariants:
     enforcement: warn
 
 authority_boundaries:
-  can_execute:
-    - read_file
-    - write_file
-    - search
-    - summarize
-    - draft
   cannot_execute:
     # Sensitive data access
     - read_credentials
@@ -134,6 +164,12 @@ authority_boundaries:
     - condition: "transfer funds"
       target:
         type: log
+  can_execute:
+    - read_file
+    - write_file
+    - search
+    - summarize
+    - draft
 
 escalation_targets:
   default: log
