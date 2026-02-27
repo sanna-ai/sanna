@@ -1,19 +1,16 @@
-"""Template matrix tests — declarative enforcement tests for all 5 gateway templates.
+"""Template matrix tests — declarative enforcement tests for all gateway templates.
 
-Covers 10+ action categories across 5 templates:
-  1. Financial transactions
-  2. External communications
-  3. File ops (in scope)
-  4. File ops (out of scope)
-  5. File deletion
-  6. Sensitive data access
-  7. Data exfiltration
-  8. System configuration
-  9. Calendar & scheduling
-  10. Database/CRM writes
-  11. Code & deployment
-  12. Destructive operations
-  13. Shared resources (team only)
+Covers action categories across templates from two families:
+
+**OpenClaw templates** (exec/bash/write/edit/browser/web_fetch tools):
+  - openclaw-personal: lenient, broad workspace access
+  - openclaw-developer: balanced, escalation for dangerous patterns
+  - openclaw-team: strict, file modification requires escalation
+
+**Cowork + Claude Code templates** (read_file/write_file/search/summarize tools):
+  - cowork-personal: knowledge workers with Claude Desktop
+  - cowork-team: shared MCP infrastructure
+  - claude-code-standard: developers with MCP connectors
 """
 
 from pathlib import Path
@@ -32,6 +29,7 @@ _TEMPLATES_DIR = Path(__file__).parent.parent / "examples" / "constitutions"
 _TEMPLATE_PATHS = {
     "openclaw-personal": _TEMPLATES_DIR / "openclaw-personal.yaml",
     "openclaw-developer": _TEMPLATES_DIR / "openclaw-developer.yaml",
+    "openclaw-team": _TEMPLATES_DIR / "openclaw-team.yaml",
     "cowork-personal": _TEMPLATES_DIR / "cowork-personal.yaml",
     "cowork-team": _TEMPLATES_DIR / "cowork-team.yaml",
     "claude-code-standard": _TEMPLATES_DIR / "claude-code-standard.yaml",
@@ -49,7 +47,6 @@ def test_template_loads(template_name):
     c = load_constitution(str(path))
     assert c.identity.agent_name
     assert c.authority_boundaries is not None
-    assert len(c.invariants) >= 5  # C1-C5 at minimum
 
 
 @pytest.mark.parametrize("template_name", list(_TEMPLATE_PATHS.keys()))
@@ -68,73 +65,74 @@ def test_template_has_authority_boundaries(template_name):
 
 _ENFORCEMENT_MATRIX = [
     # ===================================================================
-    # openclaw-personal: individual agents on personal machines
+    # openclaw-personal: lenient governance for personal use
     # ===================================================================
 
-    # File ops in scope → allow
-    ("openclaw-personal", "read_file", "allow"),
-    ("openclaw-personal", "write_file", "allow"),
-    ("openclaw-personal", "search_files", "allow"),
-    ("openclaw-personal", "summarize_document", "allow"),
+    # Core tools → allow
+    ("openclaw-personal", "exec", "allow"),
+    ("openclaw-personal", "bash", "allow"),
+    ("openclaw-personal", "write", "allow"),
+    ("openclaw-personal", "edit", "allow"),
+    ("openclaw-personal", "browser", "allow"),
+    ("openclaw-personal", "web_fetch", "allow"),
+    ("openclaw-personal", "web_search", "allow"),
+    ("openclaw-personal", "apply_patch", "allow"),
 
-    # External communications → escalate
-    ("openclaw-personal", "send_email", "escalate"),
-    ("openclaw-personal", "post_message", "escalate"),
+    # Messaging / process control → escalate
+    ("openclaw-personal", "message", "escalate"),
+    ("openclaw-personal", "process", "escalate"),
 
-    # File deletion → escalate
-    ("openclaw-personal", "delete_file", "escalate"),
-
-    # Calendar → escalate
-    ("openclaw-personal", "create_event", "escalate"),
-
-    # Database/CRM writes → escalate
-    ("openclaw-personal", "update_page", "escalate"),
-
-    # Financial → halt
-    ("openclaw-personal", "purchase_item", "halt"),
-
-    # Sensitive data → halt
-    ("openclaw-personal", "read_credentials", "halt"),
-    ("openclaw-personal", "read_pii", "halt"),
-
-    # Data exfiltration → halt
-    ("openclaw-personal", "upload_external", "halt"),
-    ("openclaw-personal", "send_data", "halt"),
-
-    # System configuration → halt
-    ("openclaw-personal", "modify_settings", "halt"),
-
-    # Code & deployment → halt
-    ("openclaw-personal", "deploy_to_production", "halt"),
-
-    # Destructive → halt
-    ("openclaw-personal", "delete_repo", "halt"),
-    ("openclaw-personal", "force_push", "halt"),
+    # Infrastructure tools → halt
+    ("openclaw-personal", "nodes", "halt"),
+    ("openclaw-personal", "cron", "halt"),
+    ("openclaw-personal", "gateway", "halt"),
 
     # ===================================================================
-    # openclaw-developer: strict containment for skill builders
+    # openclaw-developer: balanced governance for development
     # ===================================================================
 
-    # File ops within scope → allow
-    ("openclaw-developer", "read_file", "allow"),
-    ("openclaw-developer", "search_files", "allow"),
+    # Core tools → allow
+    ("openclaw-developer", "exec", "allow"),
+    ("openclaw-developer", "bash", "allow"),
+    ("openclaw-developer", "write", "allow"),
+    ("openclaw-developer", "edit", "allow"),
+    ("openclaw-developer", "browser", "allow"),
+    ("openclaw-developer", "web_fetch", "allow"),
+    ("openclaw-developer", "web_search", "allow"),
+    ("openclaw-developer", "apply_patch", "allow"),
 
-    # File deletion (even within scope) → escalate
-    ("openclaw-developer", "delete_file", "escalate"),
+    # Messaging / process / sessions → escalate
+    ("openclaw-developer", "message", "escalate"),
+    ("openclaw-developer", "process", "escalate"),
 
-    # Database/CRM writes → escalate
-    ("openclaw-developer", "update_page", "escalate"),
+    # Infrastructure tools → halt
+    ("openclaw-developer", "nodes", "halt"),
+    ("openclaw-developer", "cron", "halt"),
+    ("openclaw-developer", "gateway", "halt"),
 
-    # Everything else → halt
-    ("openclaw-developer", "send_email", "halt"),
-    ("openclaw-developer", "purchase_item", "halt"),
-    ("openclaw-developer", "read_credentials", "halt"),
-    ("openclaw-developer", "upload_external", "halt"),
-    ("openclaw-developer", "create_event", "halt"),
-    ("openclaw-developer", "modify_settings", "halt"),
-    ("openclaw-developer", "deploy_to_production", "halt"),
-    ("openclaw-developer", "access_external_file", "halt"),
-    ("openclaw-developer", "delete_repo", "halt"),
+    # ===================================================================
+    # openclaw-team: strict governance for shared team agents
+    # ===================================================================
+
+    # Narrow direct execution → allow
+    ("openclaw-team", "exec", "allow"),
+    ("openclaw-team", "bash", "allow"),
+    ("openclaw-team", "web_search", "allow"),
+
+    # File modification tools → escalate
+    ("openclaw-team", "write", "escalate"),
+    ("openclaw-team", "edit", "escalate"),
+    ("openclaw-team", "browser", "escalate"),
+    ("openclaw-team", "apply_patch", "escalate"),
+
+    # Messaging → escalate
+    ("openclaw-team", "message", "escalate"),
+
+    # Infrastructure + process → halt
+    ("openclaw-team", "nodes", "halt"),
+    ("openclaw-team", "cron", "halt"),
+    ("openclaw-team", "gateway", "halt"),
+    ("openclaw-team", "process", "halt"),
 
     # ===================================================================
     # cowork-personal: knowledge workers with Claude Desktop
@@ -266,20 +264,27 @@ def test_template_enforcement(template, action, expected):
 
 
 # ---------------------------------------------------------------------------
-# 3. Universal invariant tests
+# 3. Universal invariant tests (scoped to template families)
 # ---------------------------------------------------------------------------
 
-_UNIVERSAL_HALTS = [
+# Cowork + Claude Code templates share generic tool names
+_COWORK_TEMPLATES = ["cowork-personal", "cowork-team", "claude-code-standard"]
+
+_COWORK_UNIVERSAL_HALTS = [
     "read_credentials",
     "upload_external",
     "delete_repo",
 ]
 
+_COWORK_UNIVERSAL_ALLOWS = [
+    "read_file",
+]
 
-@pytest.mark.parametrize("template_name", list(_TEMPLATE_PATHS.keys()))
-@pytest.mark.parametrize("action", _UNIVERSAL_HALTS)
-def test_universal_halt(template_name, action):
-    """Sensitive data, exfiltration, and destructive ops are halted in ALL templates."""
+
+@pytest.mark.parametrize("template_name", _COWORK_TEMPLATES)
+@pytest.mark.parametrize("action", _COWORK_UNIVERSAL_HALTS)
+def test_cowork_universal_halt(template_name, action):
+    """Sensitive data, exfiltration, and destructive ops are halted in cowork/claude-code templates."""
     c = load_constitution(str(_TEMPLATE_PATHS[template_name]))
     decision = evaluate_authority(action, {}, c)
     assert decision.decision == "halt", (
@@ -288,19 +293,73 @@ def test_universal_halt(template_name, action):
     )
 
 
-_UNIVERSAL_ALLOWS = [
-    "read_file",
-    "search_files",
-]
-
-
-@pytest.mark.parametrize("template_name", list(_TEMPLATE_PATHS.keys()))
-@pytest.mark.parametrize("action", _UNIVERSAL_ALLOWS)
-def test_universal_allow(template_name, action):
-    """File reads and searches are allowed in ALL templates."""
+@pytest.mark.parametrize("template_name", _COWORK_TEMPLATES)
+@pytest.mark.parametrize("action", _COWORK_UNIVERSAL_ALLOWS)
+def test_cowork_universal_allow(template_name, action):
+    """File reads are allowed in all cowork/claude-code templates."""
     c = load_constitution(str(_TEMPLATE_PATHS[template_name]))
     decision = evaluate_authority(action, {}, c)
     assert decision.decision == "allow", (
         f"{template_name}/{action}: expected allow, "
+        f"got {decision.decision} (reason: {decision.reason})"
+    )
+
+
+# OpenClaw templates share exec/bash/web_search tool names
+_OPENCLAW_TEMPLATES = ["openclaw-personal", "openclaw-developer", "openclaw-team"]
+
+_OPENCLAW_UNIVERSAL_HALTS = [
+    "nodes",
+    "cron",
+    "gateway",
+]
+
+_OPENCLAW_UNIVERSAL_ALLOWS = [
+    "exec",
+    "bash",
+    "web_search",
+]
+
+
+@pytest.mark.parametrize("template_name", _OPENCLAW_TEMPLATES)
+@pytest.mark.parametrize("action", _OPENCLAW_UNIVERSAL_HALTS)
+def test_openclaw_universal_halt(template_name, action):
+    """Infrastructure tools are halted in all OpenClaw templates."""
+    c = load_constitution(str(_TEMPLATE_PATHS[template_name]))
+    decision = evaluate_authority(action, {}, c)
+    assert decision.decision == "halt", (
+        f"{template_name}/{action}: expected halt, "
+        f"got {decision.decision} (reason: {decision.reason})"
+    )
+
+
+@pytest.mark.parametrize("template_name", _OPENCLAW_TEMPLATES)
+@pytest.mark.parametrize("action", _OPENCLAW_UNIVERSAL_ALLOWS)
+def test_openclaw_universal_allow(template_name, action):
+    """Core execution tools are allowed in all OpenClaw templates."""
+    c = load_constitution(str(_TEMPLATE_PATHS[template_name]))
+    decision = evaluate_authority(action, {}, c)
+    assert decision.decision == "allow", (
+        f"{template_name}/{action}: expected allow, "
+        f"got {decision.decision} (reason: {decision.reason})"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 4. Sensitive file read escalation tests (OpenClaw templates)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("template_name", _OPENCLAW_TEMPLATES)
+@pytest.mark.parametrize("path_fragment", [
+    ".ssh/id_rsa",
+    ".sanna/keys/signing.key",
+    ".env",
+])
+def test_openclaw_sensitive_read_escalated(template_name, path_fragment):
+    """Reading sensitive file paths triggers escalation in all OpenClaw templates."""
+    c = load_constitution(str(_TEMPLATE_PATHS[template_name]))
+    decision = evaluate_authority("read", {"path": f"/home/user/{path_fragment}"}, c)
+    assert decision.decision == "escalate", (
+        f"{template_name}/read {path_fragment}: expected escalate, "
         f"got {decision.decision} (reason: {decision.reason})"
     )

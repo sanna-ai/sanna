@@ -295,7 +295,8 @@ def _matches_condition(condition: str, action_context: str) -> bool:
        so that ``send_email`` is treated as ``send email``.
     """
     context_lower = _normalize_separators(unicodedata.normalize("NFKC", action_context)).casefold()
-    words = unicodedata.normalize("NFKC", condition).casefold().split()
+    condition_normalized = _normalize_separators(unicodedata.normalize("NFKC", condition)).casefold()
+    words = condition_normalized.split()
     significant = [w for w in words if len(w) >= 3 and w not in _STOP_WORDS]
     if not significant:
         return False

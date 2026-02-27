@@ -20,6 +20,7 @@ from ..receipt import (
     check_c5_premature_compression,
 )
 from ..evaluators import get_evaluator
+from ..evaluators.regex_deny import is_regex_deny_rule, parse_regex_deny, make_regex_deny_check
 
 
 # =============================================================================
@@ -146,7 +147,27 @@ def configure_checks(constitution) -> tuple[list[CheckConfig], list[CustomInvari
             ))
             continue
 
-        # 3. Try custom evaluator registry
+        # 3. Try regex_deny pattern in rule field
+        if is_regex_deny_rule(invariant.rule):
+            pattern = parse_regex_deny(invariant.rule)
+            if pattern is not None:
+                description = getattr(invariant, "description", "") or invariant.id
+                check_fn = make_regex_deny_check(
+                    invariant_id=invariant.id,
+                    description=description,
+                    pattern=pattern,
+                )
+                check_configs.append(CheckConfig(
+                    check_id=invariant.id,
+                    check_fn=check_fn,
+                    enforcement_level=invariant.enforcement,
+                    triggered_by=invariant.id,
+                    check_impl="regex_deny",
+                    source="regex_deny",
+                ))
+                continue
+
+        # 4. Try custom evaluator registry
         evaluator = get_evaluator(invariant.id)
         if evaluator is not None:
             check_configs.append(CheckConfig(

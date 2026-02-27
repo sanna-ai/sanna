@@ -1,7 +1,8 @@
-# Sanna Constitution: Personal Productivity
+# Sanna Constitution: Team Agent
 # ─────────────────────────────────────────────────────────────────────
-# Lenient governance for personal use. Broad workspace access with
-# guardrails on messaging and system process control.
+# Strict governance for shared team agents. Narrow direct execution
+# with broad escalation requirements. File modification, browsing,
+# and all communication require escalation.
 #
 # EVALUATION ORDER (this matters)
 # ================================
@@ -59,39 +60,54 @@ preamble: |
   approval), HALT (blocked by policy).
 
 identity:
-  agent_name: openclaw-personal
-  domain: personal-productivity
+  agent_name: openclaw-team
+  domain: team-operations
   description: >-
-    Personal productivity agent with broad file and execution access.
-    Messaging and process control require explicit approval.
+    Shared team agent with strict governance. Only basic execution and
+    web search are directly permitted. File modifications, browsing,
+    and all external communication require explicit escalation.
+    Process control and infrastructure tools are prohibited.
 
 provenance:
   authored_by: sanna-openclaw
   approved_by:
-    - user
+    - security-team
   approval_date: "2026-02-24"
   approval_method: template
 
 boundaries:
   - id: B001
-    description: Agent operates within the user's personal workspace
+    description: Agent operates within the team workspace only
     category: scope
-    severity: medium
-  - id: B002
-    description: Destructive system commands require explicit approval
-    category: safety
     severity: high
+  - id: B002
+    description: File modifications require escalation
+    category: confidentiality
+    severity: high
+  - id: B003
+    description: All external communication requires escalation
+    category: safety
+    severity: critical
+  - id: B004
+    description: Infrastructure and process control are prohibited
+    category: authorization
+    severity: critical
 
 authority_boundaries:
   cannot_execute:
+    - process
     - nodes
     - cron
     - gateway
   must_escalate:
+    - condition: write
+    - condition: edit
+    - condition: apply_patch
+    - condition: browser
+    - condition: web_fetch
     - condition: message
     - condition: sessions_send
     - condition: sessions_spawn
-    - condition: process
 
     # Sensitive file reads
     - condition: read .ssh
@@ -106,12 +122,7 @@ authority_boundaries:
   can_execute:
     - exec
     - bash
-    - write
-    - edit
-    - apply_patch
-    - browser
     - web_search
-    - web_fetch
 
 # ── INVARIANTS ────────────────────────────────────────────────────────
 # Cross-cutting safety rules evaluated on every governed tool call.

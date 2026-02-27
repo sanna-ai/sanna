@@ -1,7 +1,9 @@
-# Sanna Constitution — OpenClaw Developer
-# For skill builders proving safety for marketplace distribution.
-#
+# Sanna Constitution: Developer Workspace
 # ─────────────────────────────────────────────────────────────────────
+# Balanced governance for development workflows. Full workspace access
+# with escalation for external communication, infrastructure changes,
+# and dangerous command patterns.
+#
 # EVALUATION ORDER (this matters)
 # ================================
 # The engine evaluates boundaries in strict priority order and returns
@@ -46,114 +48,229 @@
 # Governing what a tool IS → cannot_execute / can_execute (tool names)
 # Governing what a tool DOES → must_escalate conditions (parameters)
 #
+sanna_constitution: "0.1.0"
 
-sanna_constitution: "1.0.0"
+preamble: |
+  This agent is governed by Sanna, an independent AI governance layer.
+  Sanna enforces constitutional boundaries and generates cryptographic
+  receipts for every tool call decision. When a tool call is blocked
+  or escalated, Sanna is the enforcement authority — not the host
+  platform. Governance verdicts: ALLOW, ESCALATE (requires human
+  approval), HALT (blocked by policy).
 
 identity:
-  agent_name: skill-builder-agent
-  domain: skill-development
-  description: >
-    Strict containment for skill marketplace distribution.
-    Only file operations within declared scope are autonomous.
-    Everything outside scope is halted.
+  agent_name: openclaw-developer
+  domain: software-development
+  description: >-
+    Development agent with full workspace access including process control.
+    External communication and session management require escalation.
+    Dangerous command patterns (privilege escalation, destructive operations,
+    infrastructure changes) require escalation even through allowed tools.
+    Direct infrastructure orchestration tools are prohibited.
 
 provenance:
-  authored_by: developer@skills.dev
+  authored_by: sanna-openclaw
   approved_by:
-    - security@skills.dev
-  approval_date: "2026-02-14"
-  approval_method: security-review
-  change_history: []
+    - team-lead
+  approval_date: "2026-02-26"
+  approval_method: template
 
 boundaries:
   - id: B001
-    description: Operate only within the declared skill scope directory
+    description: Agent operates within the development workspace
     category: scope
-    severity: critical
+    severity: medium
+
   - id: B002
-    description: No external network access or communication
+    description: External communication requires escalation
+    category: safety
+    severity: high
+
+  - id: B003
+    description: Infrastructure orchestration tools are prohibited
     category: authorization
     severity: critical
-  - id: B003
-    description: No access to system configuration or credentials
-    category: confidentiality
-    severity: critical
 
-halt_conditions:
-  - id: H001
-    trigger: Agent attempts any operation outside declared skill scope
-    escalate_to: security@skills.dev
+  - id: B004
+    description: >-
+      Dangerous command patterns require escalation regardless of which
+      tool executes them. Covers privilege escalation, destructive
+      operations, and system-level changes routed through exec or bash.
+    category: safety
     severity: critical
-    enforcement: halt
-
-invariants:
-  - id: INV_NO_FABRICATION
-    rule: Do not claim facts absent from provided sources.
-    enforcement: halt
-  - id: INV_MARK_INFERENCE
-    rule: Clearly mark inferences and speculation as such.
-    enforcement: halt
-  - id: INV_NO_FALSE_CERTAINTY
-    rule: Do not express certainty exceeding evidence strength.
-    enforcement: halt
-  - id: INV_PRESERVE_TENSION
-    rule: Do not collapse conflicting evidence without explicit justification.
-    enforcement: halt
-  - id: INV_NO_PREMATURE_COMPRESSION
-    rule: Do not issue unconditional conclusions when evidence is mixed.
-    enforcement: halt
 
 authority_boundaries:
+
+  # ── DENY (tool name match) ──────────────────────────────────────
+  # Matches tool names only. Use for tools that should NEVER be
+  # called directly, regardless of parameters.
   cannot_execute:
-    # Financial transactions
-    - purchase
-    - transfer_funds
-    - payment
-    # External communications
-    - send_email
-    - post_message
-    - send_slack
-    # Sensitive data access
-    - read_credentials
-    - read_api_key
-    - read_pii
-    # Data exfiltration
-    - upload_external
-    - send_data
-    # System configuration
-    - modify_settings
-    - edit_agent_config
-    # File ops outside scope
-    - access_external
-    # Code & deployment
-    - deploy
-    - execute_code
-    # Calendar (not a skill concern)
-    - create_event
-    - modify_event
-    # Destructive operations
-    - delete_repo
-    - force_push
-    - drop_table
+    - nodes       # direct Node.js orchestration
+    - cron        # direct cron management
+    - gateway     # gateway configuration
+
+  # ── ESCALATE (full context match) ───────────────────────────────
+  # Matches tool name AND parameters. Use for dangerous PATTERNS
+  # that could appear inside any allowed tool's arguments.
+  #
+  # Each condition is keyword-matched against the full action context
+  # string: "toolname paramkey paramvalue paramkey paramvalue ..."
+  # All significant words (3+ chars, no stop words) must appear.
   must_escalate:
-    - condition: "delete file"
-      target:
-        type: log
-    - condition: "remove file"
-      target:
-        type: log
-    - condition: "update page"
-      target:
-        type: log
-    - condition: "update record"
-      target:
-        type: log
+    # External communication
+    - condition: message
+    - condition: sessions_send
+    - condition: sessions_spawn
+
+    # Privilege escalation
+    - condition: sudo
+    - condition: chmod 777
+    - condition: chown
+
+    # Destructive operations
+    - condition: rm -rf
+    - condition: mkfs
+    - condition: dd if
+
+    # System/infrastructure changes via exec
+    - condition: crontab
+    - condition: shutdown
+    - condition: reboot
+    - condition: systemctl
+    - condition: iptables
+    - condition: ufw
+
+    # Package/environment modification
+    - condition: apt remove
+    - condition: pip uninstall
+    - condition: npm uninstall
+
+    # Process injection
+    - condition: process
+
+    # Sensitive file reads
+    - condition: read .ssh
+    - condition: read .sanna/keys
+    - condition: read .env
+    - condition: read .pem
+    - condition: read .key
+    - condition: read openclaw.json
+    - condition: read authorized_keys
+    - condition: read .netrc
+    - condition: read .authinfo
+
+  # ── ALLOW (tool name match) ─────────────────────────────────────
+  # Matches tool names only. These tools are permitted but still
+  # subject to must_escalate conditions on their parameters.
   can_execute:
-    - read_file
-    - write_file
-    - search
+    - exec
+    - bash
+    - write
+    - edit
+    - apply_patch
+    - browser
+    - web_search
+    - web_fetch
 
-escalation_targets:
-  default: log
+# ── INVARIANTS ────────────────────────────────────────────────────────
+# Cross-cutting safety rules evaluated on every governed tool call.
+# These prevent escalation bypass — e.g. an agent routing external
+# communication through exec instead of message.
+invariants:
+  - id: INV_NO_EXTERNAL_COMMS_VIA_EXEC
+    rule: "regex_deny pattern: /\\b(curl|wget|sendmail|mail\\b|smtp|nc\\b|ncat|netcat|telnet|ssh|scp|sftp|rsync)\\b/i"
+    enforcement: halt
+    description: "Block network/messaging commands routed through exec to prevent message escalation bypass"
+    severity: critical
+    applies_to:
+      - exec
+      - bash
+      - browser
 
-policy_hash: null
+  - id: INV_NO_HTTP_REQUESTS_VIA_EXEC
+    rule: "regex_deny pattern: /\\b(https?:\\/\\/|fetch\\(|requests\\.|urllib|http\\.client|smtplib|socket\\.connect)\\b|\\/\\/[a-zA-Z]/i"
+    enforcement: halt
+    description: "Block HTTP requests and socket connections through exec"
+    severity: critical
+
+  - id: INV_NO_SCRIPTED_OUTBOUND
+    rule: "regex_deny pattern: /\\b(python[23]?\\s+-c|node\\s+-e|ruby\\s+-e|perl\\s+-e)\\b.*\\b(http|smtp|mail|socket|fetch|request)\\b/i"
+    enforcement: halt
+    description: "Block inline scripts that make outbound connections"
+    severity: critical
+
+  - id: INV_NO_APPLESCRIPT_OUTBOUND
+    rule: "regex_deny pattern: /\\b(osascript|applescript|tell\\s+application)\\b/i"
+    enforcement: halt
+    description: "Block AppleScript execution that could trigger external applications"
+    severity: critical
+
+  - id: INV_NO_APP_LAUNCH_VIA_EXEC
+    rule: "regex_deny pattern: /\\b(open\\s+mailto|open\\s+-a|xdg-open|start\\s+\\/|cscript|wscript)\\b/i"
+    enforcement: halt
+    description: "Block launching external applications or mailto links through exec"
+    severity: critical
+
+  - id: INV_NO_DNS_EXFILTRATION
+    rule: "regex_deny pattern: /\\b(nslookup|dig\\s|host\\s)\\b/i"
+    enforcement: halt
+    description: "Block DNS lookup commands that could exfiltrate data via hostname encoding"
+    severity: critical
+
+  - id: INV_NO_BASH_TCP
+    rule: "regex_deny pattern: /\\/dev\\/(tcp|udp)\\//i"
+    enforcement: halt
+    description: "Block bash built-in TCP/UDP connections via /dev/tcp and /dev/udp"
+    severity: critical
+
+  - id: INV_NO_ENCODED_EXEC
+    rule: "regex_deny pattern: /\\b(base64|atob|decode)\\b.*\\b(exec|eval|system|popen|subprocess)\\b|\\b(exec|eval|system|popen|subprocess)\\b.*\\b(base64|atob|decode)\\b/i"
+    enforcement: halt
+    description: "Block encoded payload execution that hides blocked operations behind encoding"
+    severity: critical
+
+  - id: INV_NO_PERSISTENCE_WRITE
+    rule: "regex_deny pattern: /\\b(LaunchAgents|LaunchDaemons|cron\\.d|crontab|systemd|init\\.d|autostart|startup)\\b|\\.(?:zshrc|bashrc|bash_profile|profile|zprofile)\\b/i"
+    enforcement: halt
+    description: "Block writes to persistence mechanisms that execute on login or boot"
+    severity: critical
+    applies_to:
+      - exec
+      - bash
+      - write
+
+  - id: INV_NO_EXFIL_VIA_FETCH
+    rule: "regex_deny pattern: /\\b(webhook\\.site|requestbin|pipedream\\.net|hookbin|burpcollaborator|interact\\.sh|canarytokens|ngrok\\.io|localtunnel)\\b/i"
+    enforcement: halt
+    description: "Block web_fetch requests to known data exfiltration endpoints"
+    severity: critical
+    applies_to:
+      - exec
+      - bash
+      - web_fetch
+      - web_search
+      - browser
+
+  - id: INV_ESCALATE_DESTRUCTIVE_OPS
+    rule: "regex_deny pattern: /\\brm\\b.*(-r\\b.*-f\\b|-f\\b.*-r\\b|--recursive|--force|-rf\\b|-fr\\b)/i"
+    enforcement: warn
+    description: "Escalate recursive/forced deletion commands regardless of flag ordering"
+    severity: high
+
+  - id: INV_NO_CREDENTIAL_HARVESTING
+    rule: "regex_deny pattern: /\\b(find|locate|grep|rg|ag|printenv)\\b.*(\\.env|\\.pem|\\.key|secret|credential|password|authorized_keys|api.?key|smtp|sendgrid|resend|postmark)/i"
+    enforcement: halt
+    description: "Block credential hunting commands that search for sensitive files"
+    severity: critical
+
+  - id: INV_NO_KEYCHAIN_ACCESS
+    rule: "regex_deny pattern: /\\bsecurity\\s+(find-generic-password|find-internet-password|dump-keychain)\\b/i"
+    enforcement: halt
+    description: "Block macOS keychain credential extraction via security CLI"
+    severity: critical
+
+  - id: INV_ESCALATE_SCRIPT_EXEC
+    rule: "regex_deny pattern: /\\b(python[23]?|node|ruby|perl|bash|sh|zsh)\\s+\\S+\\.(py|js|rb|pl|sh|zsh)\\b/i"
+    enforcement: warn
+    description: "Escalate execution of script files through exec for review"
+    severity: high
