@@ -330,7 +330,8 @@ class TestMiddlewareRejectsUnsigned:
 
 class TestStorePermissionHardening:
 
-    def test_store_uses_ensure_secure_dir(self, tmp_path):
+    def test_store_uses_ensure_secure_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SANNA_ALLOW_TEMP_DB", "1")
         from sanna.store import ReceiptStore
 
         calls = []
@@ -349,7 +350,8 @@ class TestStorePermissionHardening:
         assert len(calls) == 1
         assert str(tmp_path / "subdir") in calls[0]
 
-    def test_store_db_file_created_with_restricted_perms(self, tmp_path):
+    def test_store_db_file_created_with_restricted_perms(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SANNA_ALLOW_TEMP_DB", "1")
         from sanna.store import ReceiptStore
 
         db_path = tmp_path / "test.db"

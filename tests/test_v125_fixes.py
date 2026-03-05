@@ -187,8 +187,9 @@ class TestEscalationStoreThreadSafety:
 class TestReceiptStoreHardening:
     """Verify existing file validation and WAL/SHM sidecar hardening."""
 
-    def test_store_existing_file_permissions_hardened(self, tmp_path):
+    def test_store_existing_file_permissions_hardened(self, tmp_path, monkeypatch):
         """Opening an existing 0o644 DB should harden it to 0o600."""
+        monkeypatch.setenv("SANNA_ALLOW_TEMP_DB", "1")
         if sys.platform == "win32":
             pytest.skip("POSIX-only test")
 
@@ -224,8 +225,9 @@ class TestReceiptStoreHardening:
         with pytest.raises((SecurityError, OSError)):
             ReceiptStore(str(link_db))
 
-    def test_store_wal_sidecars_hardened(self, tmp_path):
+    def test_store_wal_sidecars_hardened(self, tmp_path, monkeypatch):
         """After WAL enable, -wal and -shm files should be 0o600."""
+        monkeypatch.setenv("SANNA_ALLOW_TEMP_DB", "1")
         if sys.platform == "win32":
             pytest.skip("POSIX-only test")
 
@@ -252,8 +254,9 @@ class TestReceiptStoreHardening:
                 mode = stat.S_IMODE(os.stat(str(sidecar)).st_mode)
                 assert mode == 0o600, f"{sidecar} has mode {oct(mode)}"
 
-    def test_store_ownership_check(self, tmp_path):
+    def test_store_ownership_check(self, tmp_path, monkeypatch):
         """Verify the uid check runs for existing files."""
+        monkeypatch.setenv("SANNA_ALLOW_TEMP_DB", "1")
         if sys.platform == "win32":
             pytest.skip("POSIX-only test")
 
