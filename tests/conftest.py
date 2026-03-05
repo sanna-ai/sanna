@@ -18,3 +18,7 @@ TEST_PUBLIC_KEY = str(
 # Set environment variable so sanna_observe can find the key automatically.
 # This is the env var fallback for constitution_public_key_path.
 os.environ.setdefault("SANNA_CONSTITUTION_PUBLIC_KEY", TEST_PUBLIC_KEY)
+
+# Allow ReceiptStore to use pytest tmp_path (which lives under /tmp).
+# Without this, ReceiptStore rejects /tmp paths as insecure in CI.
+os.environ.setdefault("SANNA_ALLOW_TEMP_DB", "1")
