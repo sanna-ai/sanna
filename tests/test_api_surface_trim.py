@@ -15,18 +15,20 @@ import pytest
 # =============================================================================
 
 class TestTopLevelExportsMinimal:
-    def test_all_has_exactly_10_names(self):
-        """sanna.__all__ should contain exactly 10 curated names."""
+    def test_all_has_exactly_17_names(self):
+        """sanna.__all__ should contain exactly 17 curated names."""
         import sanna
-        assert len(sanna.__all__) == 10
+        assert len(sanna.__all__) == 17
 
     def test_expected_names_present(self):
-        """All 10 curated names should be in __all__."""
+        """All 17 curated names should be in __all__."""
         import sanna
         expected = {
             "__version__", "sanna_observe", "SannaHaltError", "SannaResult",
             "generate_receipt", "SannaReceipt", "verify_receipt",
             "VerificationResult", "ReceiptStore", "DriftAnalyzer",
+            "ReceiptSink", "SinkResult", "FailurePolicy",
+            "LocalSQLiteSink", "NullSink", "CloudHTTPSink", "CompositeSink",
         }
         assert set(sanna.__all__) == expected
 

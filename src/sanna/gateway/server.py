@@ -214,7 +214,7 @@ def _apply_redaction_markers(receipt: dict, redaction_fields: list[str]) -> tupl
     # Record redaction metadata
     receipt["redacted_fields"] = redacted_paths
 
-    # Recompute fingerprint (v0.13.0 unified 12-field formula)
+    # Recompute fingerprint (v1.0.0 unified 14-field formula)
     correlation_id = receipt.get("correlation_id", "")
     checks_version = receipt.get("checks_version", "")
 
@@ -259,11 +259,18 @@ def _apply_redaction_markers(receipt: dict, redaction_fields: list[str]) -> tupl
     extensions = receipt.get("extensions")
     extensions_hash = hash_obj(extensions) if extensions else EMPTY_HASH
 
+    # Fields 13-14 (v1.0.0)
+    parent_receipts = receipt.get("parent_receipts")
+    parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
+    workflow_id = receipt.get("workflow_id")
+    workflow_id_hash = hash_text(workflow_id) if workflow_id else EMPTY_HASH
+
     fingerprint_input = (
         f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}"
         f"|{checks_hash}|{constitution_hash}|{enforcement_hash}"
         f"|{coverage_hash}|{authority_hash}|{escalation_hash}"
         f"|{trust_hash}|{extensions_hash}"
+        f"|{parent_receipts_hash}|{workflow_id_hash}"
     )
 
     receipt["full_fingerprint"] = hash_text(fingerprint_input)
@@ -1124,6 +1131,10 @@ class SannaGateway:
 
         # Block F: hardening state
         self._receipt_store_path = receipt_store_path
+        self._sink = None  # v1.0.0: ReceiptSink, set via configure_sink()
+        self._content_mode: str = ""  # v1.0.0: content mode metadata
+        self._workflow_id: str | None = None  # v1.0.0: workflow grouping
+        self._last_receipt_fingerprint: str | None = None  # for receipt chaining
 
         # Block G: PII redaction
         from sanna.gateway.config import RedactionConfig
@@ -2180,10 +2191,29 @@ class SannaGateway:
         )
         return None
 
+    # -- sink configuration (v1.0.0) -----------------------------------------
+
+    def configure_sink(self, sink) -> None:
+        """Set the ReceiptSink for receipt persistence."""
+        self._sink = sink
+
+    def configure_content_mode(self, mode: str, source: str = "local_config") -> None:
+        """Set content mode for receipt metadata attestation."""
+        self._content_mode = mode
+        self._content_mode_source = source
+
+    def configure_workflow(self, workflow_id: str | None) -> None:
+        """Set workflow_id for receipt chaining."""
+        self._workflow_id = workflow_id
+
     # -- receipt persistence (Block F) ---------------------------------------
 
     def _persist_receipt(self, receipt: dict) -> None:
-        """Write receipt JSON to the receipt store directory.
+        """Write receipt JSON to the receipt store directory or sink.
+
+        v1.0.0: If a ReceiptSink is configured, uses the sink instead
+        of direct filesystem writes. Falls back to filesystem for
+        backward compatibility.
 
         Filename: ``{timestamp}_{receipt_id}.json`` where timestamp
         uses underscores instead of colons for filesystem safety.
@@ -2197,6 +2227,18 @@ class SannaGateway:
         When redaction is disabled, the original receipt is persisted
         as ``*.json`` with no modifications.
         """
+        # Track last fingerprint for receipt chaining (PY10)
+        self._last_receipt_fingerprint = receipt.get("full_fingerprint")
+
+        # v1.0.0: Use ReceiptSink if configured
+        if getattr(self, "_sink", None) is not None:
+            try:
+                self._sink.store(receipt)
+                logger.debug("Receipt persisted via sink")
+            except Exception as e:
+                logger.error("Sink persistence failed: %s", e)
+            return
+
         if not self._receipt_store_path:
             return
 
@@ -3458,6 +3500,14 @@ class SannaGateway:
         if override_detail:
             extensions["gateway"]["override_detail"] = override_detail
 
+        # PY10: Receipt chaining — link to prior receipt if available
+        parent_receipts_list = None
+        if escalation_receipt_id:
+            # Escalation approval: chain to the escalation receipt
+            parent_receipts_list = [escalation_receipt_id]
+        elif self._last_receipt_fingerprint:
+            parent_receipts_list = [self._last_receipt_fingerprint]
+
         receipt = generate_constitution_receipt(
             trace_data,
             check_configs=self._check_configs or [],
@@ -3470,6 +3520,10 @@ class SannaGateway:
             extensions=extensions,
             enforcement=enforcement,
             authority_decisions=authority_decisions,
+            parent_receipts=parent_receipts_list,
+            workflow_id=self._workflow_id,
+            content_mode=self._content_mode or None,
+            content_mode_source=getattr(self, '_content_mode_source', None),
         )
 
         # SEC-1: Apply redaction markers BEFORE signing so that the
@@ -3688,5 +3742,67 @@ def run_gateway() -> None:
     gateway._approval_webhook_url = config.approval_webhook_url
     gateway._token_expiry_seconds = config.token_expiry_seconds
 
+    # v1.0.0: Configure receipt sink from config
+    if config.receipt_sink is not None:
+        sink = _build_sink_from_config(config.receipt_sink)
+        gateway.configure_sink(sink)
+
+    # v1.0.0: Content mode attestation
+    if config.content_mode:
+        gateway.configure_content_mode(config.content_mode, "local_config")
+
     import asyncio
     asyncio.run(gateway.run_stdio())
+
+
+def _build_sink_from_config(sink_config) -> "ReceiptSink":
+    """Build a ReceiptSink from a ReceiptSinkConfig."""
+    from sanna.sinks import (
+        LocalSQLiteSink,
+        NullSink,
+        CloudHTTPSink,
+        CompositeSink,
+        FailurePolicy,
+    )
+
+    _POLICY_MAP = {
+        "log_and_continue": FailurePolicy.LOG_AND_CONTINUE,
+        "raise": FailurePolicy.RAISE,
+        "buffer_and_retry": FailurePolicy.BUFFER_AND_RETRY,
+    }
+
+    if sink_config.type == "local_sqlite":
+        return LocalSQLiteSink(
+            db_path=sink_config.db_path,
+            failure_policy=_POLICY_MAP.get(
+                sink_config.failure_policy, FailurePolicy.LOG_AND_CONTINUE,
+            ),
+        )
+    elif sink_config.type == "cloud_http":
+        api_key = ""
+        if sink_config.api_key_env:
+            import os
+            api_key = os.environ.get(sink_config.api_key_env, "")
+            if not api_key:
+                raise ValueError(
+                    f"Environment variable '{sink_config.api_key_env}' "
+                    f"is not set (required for cloud_http sink)"
+                )
+        return CloudHTTPSink(
+            api_url=sink_config.api_url,
+            api_key=api_key,
+            failure_policy=_POLICY_MAP.get(
+                sink_config.failure_policy, FailurePolicy.LOG_AND_CONTINUE,
+            ),
+            timeout_seconds=sink_config.timeout_seconds,
+            max_retries=sink_config.max_retries,
+            batch_size=sink_config.batch_size,
+            buffer_path=sink_config.buffer_path or None,
+        )
+    elif sink_config.type == "composite":
+        child_sinks = [_build_sink_from_config(s) for s in sink_config.sinks]
+        return CompositeSink(child_sinks)
+    elif sink_config.type == "null":
+        return NullSink()
+    else:
+        raise ValueError(f"Unknown sink type: {sink_config.type}")

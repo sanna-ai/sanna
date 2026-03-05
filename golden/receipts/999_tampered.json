@@ -1,10 +1,10 @@
 {
-  "spec_version": "1.0",
-  "tool_version": "0.13.0",
-  "checks_version": "5",
+  "spec_version": "1.1",
+  "tool_version": "1.0.0",
+  "checks_version": "6",
   "receipt_id": "a0000999-0000-4000-8000-000000000999",
-  "receipt_fingerprint": "68aa0b9704fc7c7d",
-  "full_fingerprint": "68aa0b9704fc7c7d4fc5329d59d35b937e7ad1e4b533f37ccd35719c57d68c5a",
+  "receipt_fingerprint": "d6cba5094534c5d2",
+  "full_fingerprint": "d6cba5094534c5d255056b2ded22b147a463b599bf62c600eeba6af1cb762a96",
   "correlation_id": "golden-001-fail-c1-refund",
   "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
@@ -62,5 +62,9 @@
   "checks_failed": 1,
   "status": "FAIL",
   "constitution_ref": null,
-  "enforcement": null
+  "enforcement": null,
+  "parent_receipts": null,
+  "workflow_id": null,
+  "content_mode": null,
+  "content_mode_source": null
 }

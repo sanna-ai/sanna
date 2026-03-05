@@ -268,7 +268,11 @@ def verify_fingerprint(receipt: dict) -> tuple:
 
 
 def _verify_fingerprint_v013(receipt: dict) -> tuple:
-    """Unified v0.13.0 fingerprint verification (12-field formula)."""
+    """Unified v1.0.0 fingerprint verification (14-field formula).
+
+    Supports both v0.13.x receipts (12 fields) and v1.0.0+ (14 fields).
+    Auto-detects format by checking checks_version.
+    """
     correlation_id = receipt.get("correlation_id", "")
     context_hash = receipt.get("context_hash", "")
     output_hash = receipt.get("output_hash", "")
@@ -319,13 +323,26 @@ def _verify_fingerprint_v013(receipt: dict) -> tuple:
     extensions = receipt.get("extensions")
     extensions_hash = hash_obj(extensions) if extensions else EMPTY_HASH
 
-    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}"
+    # Fields 13-14: parent_receipts and workflow_id (v1.0.0, CHECKS_VERSION >= 6)
+    parent_receipts = receipt.get("parent_receipts")
+    parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
+    workflow_id = receipt.get("workflow_id")
+    workflow_id_hash = hash_text(workflow_id) if workflow_id else EMPTY_HASH
+
+    # Detect field count: CHECKS_VERSION "6"+ uses 14 fields, "5" uses 12
+    try:
+        cv_int = int(checks_version)
+    except (ValueError, TypeError):
+        cv_int = 5
+    if cv_int >= 6:
+        fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
+    else:
+        fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}"
 
     computed_full = hash_text(fingerprint_input)
     computed_short = hash_text(fingerprint_input, truncate=16)
     expected = receipt.get("receipt_fingerprint", "")
 
-    # v0.13.0: receipt_fingerprint is 16-hex truncation
     matches = computed_short == expected
 
     # Also check full_fingerprint if present

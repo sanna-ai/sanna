@@ -1,10 +1,10 @@
 {
-  "spec_version": "1.0",
-  "tool_version": "0.13.0",
-  "checks_version": "5",
+  "spec_version": "1.1",
+  "tool_version": "1.0.0",
+  "checks_version": "6",
   "receipt_id": "a0000011-0000-4000-8000-000000000011",
-  "receipt_fingerprint": "1ccd6575eef34326",
-  "full_fingerprint": "1ccd6575eef34326beed3767900cd791b2a52337b7fcf2973fe491748625bbf6",
+  "receipt_fingerprint": "4512c208472ece9b",
+  "full_fingerprint": "4512c208472ece9b27e298f051d129ebbbee14d58394b037b06d403f15b35d40",
   "correlation_id": "golden-011-pass-extensions",
   "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
@@ -63,6 +63,10 @@
   "status": "PASS",
   "constitution_ref": null,
   "enforcement": null,
+  "parent_receipts": null,
+  "workflow_id": null,
+  "content_mode": null,
+  "content_mode_source": null,
   "extensions": {
     "vendor": "test-vendor",
     "pipeline_id": "pipe-123",

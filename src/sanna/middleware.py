@@ -382,6 +382,10 @@ def _generate_constitution_receipt(
     source_trust_evaluations: Optional[list] = None,
     structured_context: Optional[list] = None,
     error_policy: str = "fail_closed",
+    parent_receipts: Optional[list] = None,
+    workflow_id: Optional[str] = None,
+    content_mode: Optional[str] = None,
+    content_mode_source: Optional[str] = None,
 ) -> dict:
     """Generate a receipt using constitution-driven check configs.
 
@@ -556,17 +560,21 @@ def _generate_constitution_receipt(
     checks_hash = hash_obj(checks_fingerprint_data)
     coverage_hash = hash_obj(evaluation_coverage)
 
-    # Unified fingerprint formula (v0.13.0) — always 12 pipe-delimited fields
+    # Unified fingerprint formula (v1.0.0) — always 14 pipe-delimited fields
     correlation_id = trace_data.get("correlation_id", "")
     authority_hash = hash_obj(authority_decisions) if authority_decisions else EMPTY_HASH
     escalation_hash = hash_obj(escalation_events) if escalation_events else EMPTY_HASH
     trust_hash = hash_obj(source_trust_evaluations) if source_trust_evaluations else EMPTY_HASH
 
-    # Namespace extensions for v0.13.0
+    # Namespace extensions for v0.13.0+
     namespaced_ext = _namespace_extensions(extensions) if extensions else {}
     extensions_hash = hash_obj(namespaced_ext) if namespaced_ext else EMPTY_HASH
 
-    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{enforcement_hash_val}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}"
+    # Fields 13-14: parent_receipts and workflow_id (v1.0.0)
+    parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
+    workflow_id_hash = hash_text(workflow_id) if workflow_id else EMPTY_HASH
+
+    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{enforcement_hash_val}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
 
     full_fp = hash_text(fingerprint_input)
     receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
@@ -606,6 +614,16 @@ def _generate_constitution_receipt(
 
     receipt_dict["extensions"] = namespaced_ext
 
+    # v1.0.0 fields
+    if parent_receipts is not None:
+        receipt_dict["parent_receipts"] = parent_receipts
+    if workflow_id is not None:
+        receipt_dict["workflow_id"] = workflow_id
+    if content_mode is not None:
+        receipt_dict["content_mode"] = content_mode
+    if content_mode_source is not None:
+        receipt_dict["content_mode_source"] = content_mode_source
+
     return receipt_dict
 
 
@@ -613,11 +631,15 @@ def _generate_no_invariants_receipt(
     trace_data: dict,
     constitution_ref: Optional[dict],
     extensions: Optional[dict] = None,
+    parent_receipts: Optional[list] = None,
+    workflow_id: Optional[str] = None,
+    content_mode: Optional[str] = None,
+    content_mode_source: Optional[str] = None,
 ) -> dict:
     """Generate a receipt for a constitution with no invariants.
 
     No checks run. The receipt documents that no invariants were defined.
-    Uses the unified fingerprint formula (v0.13.0).
+    Uses the unified fingerprint formula (v1.0.0, 14 fields).
     """
     final_answer, _answer_provenance = select_final_answer(trace_data)
     context = extract_context(trace_data)
@@ -636,15 +658,19 @@ def _generate_no_invariants_receipt(
     else:
         constitution_hash_val = EMPTY_HASH
 
-    # Unified fingerprint formula — always 12 pipe-delimited fields
+    # Unified fingerprint formula — always 14 pipe-delimited fields
     correlation_id = trace_data.get("correlation_id", "")
     checks_hash = hash_obj([])
 
-    # Namespace extensions for v0.13.0
+    # Namespace extensions for v0.13.0+
     namespaced_ext = _namespace_extensions(extensions) if extensions else {}
     extensions_hash = hash_obj(namespaced_ext) if namespaced_ext else EMPTY_HASH
 
-    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{extensions_hash}"
+    # Fields 13-14: parent_receipts and workflow_id (v1.0.0)
+    parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
+    workflow_id_hash = hash_text(workflow_id) if workflow_id else EMPTY_HASH
+
+    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
 
     full_fp = hash_text(fingerprint_input)
     receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
@@ -670,6 +696,16 @@ def _generate_no_invariants_receipt(
     }
 
     receipt_dict["extensions"] = namespaced_ext
+
+    # v1.0.0 fields
+    if parent_receipts is not None:
+        receipt_dict["parent_receipts"] = parent_receipts
+    if workflow_id is not None:
+        receipt_dict["workflow_id"] = workflow_id
+    if content_mode is not None:
+        receipt_dict["content_mode"] = content_mode
+    if content_mode_source is not None:
+        receipt_dict["content_mode_source"] = content_mode_source
 
     return receipt_dict
 
@@ -802,6 +838,7 @@ def sanna_observe(
     *,
     receipt_dir: Optional[str] = None,
     store=None,
+    sink=None,
     context_param: Optional[str] = None,
     query_param: Optional[str] = None,
     constitution_path: Optional[str] = None,
@@ -811,6 +848,8 @@ def sanna_observe(
     require_constitution_sig: bool = True,
     error_policy: str = "fail_closed",
     strict: bool = True,
+    parent_receipts: Optional[list] = None,
+    workflow_id: Optional[str] = None,
     # Legacy parameters — ignored when constitution has invariants
     on_violation: str = "halt",
     checks: Optional[List[str]] = None,
@@ -1105,6 +1144,8 @@ def sanna_observe(
                     trace_data,
                     constitution_ref=constitution_ref_override,
                     extensions=extensions,
+                    parent_receipts=parent_receipts,
+                    workflow_id=workflow_id,
                 )
             else:
                 receipt = _generate_constitution_receipt(
@@ -1117,6 +1158,8 @@ def sanna_observe(
                     source_trust_evaluations=source_trust_evals,
                     structured_context=resolved_structured,
                     error_policy=error_policy,
+                    parent_receipts=parent_receipts,
+                    workflow_id=workflow_id,
                 )
 
                 halt_checks = []
@@ -1169,6 +1212,8 @@ def sanna_observe(
                         source_trust_evaluations=source_trust_evals,
                         structured_context=resolved_structured,
                         error_policy=error_policy,
+                        parent_receipts=parent_receipts,
+                        workflow_id=workflow_id,
                     )
 
         else:
@@ -1176,6 +1221,8 @@ def sanna_observe(
                 trace_data,
                 constitution_ref=asdict(constitution) if constitution else None,
                 extensions=extensions,
+                parent_receipts=parent_receipts,
+                workflow_id=workflow_id,
             )
             enforcement_decision = "PASSED"
 
@@ -1218,6 +1265,13 @@ def sanna_observe(
                 _store_instance.save(receipt)
             except Exception:
                 logger.warning("Failed to save receipt to store", exc_info=True)
+
+        # 6c. Persist to sink if configured
+        if sink is not None:
+            try:
+                sink.store(receipt)
+            except Exception:
+                logger.warning("Failed to persist receipt to sink", exc_info=True)
 
         # 7. Apply enforcement
         if enforcement_decision == "HALTED":

@@ -501,7 +501,7 @@ class TestVerifyHashFormat:
     def test_valid_hashes_v013(self):
         """v0.13.0 receipts: receipt_id=UUID4, fingerprint=16-hex, hashes=64-hex."""
         receipt = {
-            "spec_version": "1.0",
+            "spec_version": "1.1",
             "correlation_id": "sanna-test",
             "receipt_id": "12345678-1234-4123-8123-123456789abc",
             "receipt_fingerprint": "0123456789abcdef",
@@ -525,7 +525,7 @@ class TestVerifyHashFormat:
     def test_invalid_hash_format_v013(self):
         """v0.13.0: receipt_id must be UUID v4."""
         receipt = {
-            "spec_version": "1.0",
+            "spec_version": "1.1",
             "correlation_id": "sanna-test",
             "receipt_id": "not-a-uuid",
             "receipt_fingerprint": "0123456789abcdef",
@@ -588,7 +588,7 @@ class TestGoldenReceipts:
         """All golden receipts have v0.13.0 required fields."""
         for filename in all_golden_receipts():
             receipt = load_golden(filename)
-            assert receipt["spec_version"] == "1.0", f"{filename}: missing spec_version"
+            assert receipt["spec_version"] == "1.1", f"{filename}: missing spec_version"
             assert "correlation_id" in receipt, f"{filename}: missing correlation_id"
             assert "status" in receipt, f"{filename}: missing status"
             assert "full_fingerprint" in receipt, f"{filename}: missing full_fingerprint"

@@ -116,6 +116,22 @@ class RedactionConfig:
 
 
 @dataclass
+class ReceiptSinkConfig:
+    """Receipt sink configuration for gateway.yaml."""
+    type: str = "local_sqlite"
+    db_path: str = ".sanna/receipts.db"
+    api_url: str = ""
+    api_key_env: str = ""
+    failure_policy: str = "log_and_continue"
+    buffer_path: str = ""
+    timeout_seconds: float = 10.0
+    max_retries: int = 3
+    batch_size: int = 50
+    sinks: list["ReceiptSinkConfig"] = field(default_factory=list)
+    content_mode: str = ""
+
+
+@dataclass
 class GatewayConfig:
     """Top-level gateway configuration."""
     transport: str = "stdio"
@@ -145,6 +161,10 @@ class GatewayConfig:
     )
     # Block G: receipt store mode
     receipt_store_mode: str = "filesystem"
+    # v1.0.0: receipt sink configuration
+    receipt_sink: ReceiptSinkConfig | None = None
+    # v1.0.0: content mode for receipt metadata
+    content_mode: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +371,26 @@ def load_gateway_config(config_path: str) -> GatewayConfig:
             fields=redaction_fields,
         )
 
+    # -- receipt_sink section (v1.0.0) --
+    receipt_sink: ReceiptSinkConfig | None = None
+    receipt_sink_raw = gw_raw.get("receipt_sink")
+    if receipt_sink_raw and isinstance(receipt_sink_raw, dict):
+        receipt_sink = _parse_receipt_sink(receipt_sink_raw, config_dir)
+
+    # Deprecation warning for legacy receipt_store when receipt_sink is present
+    if receipt_store and receipt_sink:
+        logger.warning(
+            "Both receipt_store and receipt_sink are configured. "
+            "receipt_sink takes precedence. receipt_store is deprecated."
+        )
+    elif receipt_store and not receipt_sink:
+        logger.warning(
+            "receipt_store is deprecated, use receipt_sink configuration instead."
+        )
+
+    # -- content_mode --
+    content_mode = str(gw_raw.get("content_mode", ""))
+
     # -- downstream section --
     ds_raw = raw.get("downstream")
     if not ds_raw or not isinstance(ds_raw, list) or len(ds_raw) == 0:
@@ -386,6 +426,68 @@ def load_gateway_config(config_path: str) -> GatewayConfig:
         token_expiry_seconds=token_expiry_seconds,
         redaction=redaction,
         receipt_store_mode=receipt_store_mode,
+        receipt_sink=receipt_sink,
+        content_mode=content_mode,
+    )
+
+
+def _parse_receipt_sink(
+    raw: dict[str, Any], config_dir: Path,
+) -> ReceiptSinkConfig:
+    """Parse a receipt_sink config block."""
+    sink_type = str(raw.get("type", "local_sqlite"))
+    valid_types = {"local_sqlite", "cloud_http", "composite", "null"}
+    if sink_type not in valid_types:
+        raise GatewayConfigError(
+            f"Invalid receipt_sink type: '{sink_type}'. "
+            f"Must be one of: {', '.join(sorted(valid_types))}"
+        )
+
+    db_path = str(raw.get("db_path", ".sanna/receipts.db"))
+    if not Path(db_path).is_absolute():
+        db_path = str(config_dir / db_path)
+
+    api_url = str(raw.get("api_url", ""))
+    api_key_env = str(raw.get("api_key_env", ""))
+
+    failure_policy = str(raw.get("failure_policy", "log_and_continue"))
+    valid_policies = {"log_and_continue", "raise", "buffer_and_retry"}
+    if failure_policy not in valid_policies:
+        raise GatewayConfigError(
+            f"Invalid failure_policy: '{failure_policy}'. "
+            f"Must be one of: {', '.join(sorted(valid_policies))}"
+        )
+
+    buffer_path = str(raw.get("buffer_path", ""))
+    if buffer_path and not Path(buffer_path).is_absolute():
+        buffer_path = str(config_dir / buffer_path)
+
+    # Parse child sinks for composite type
+    child_sinks: list[ReceiptSinkConfig] = []
+    if sink_type == "composite":
+        sinks_raw = raw.get("sinks", [])
+        if not isinstance(sinks_raw, list) or not sinks_raw:
+            raise GatewayConfigError(
+                "Composite receipt_sink requires a non-empty 'sinks' list"
+            )
+        for idx, s in enumerate(sinks_raw):
+            if not isinstance(s, dict):
+                raise GatewayConfigError(
+                    f"receipt_sink.sinks[{idx}]: expected a mapping"
+                )
+            child_sinks.append(_parse_receipt_sink(s, config_dir))
+
+    return ReceiptSinkConfig(
+        type=sink_type,
+        db_path=db_path,
+        api_url=api_url,
+        api_key_env=api_key_env,
+        failure_policy=failure_policy,
+        buffer_path=buffer_path,
+        timeout_seconds=float(raw.get("timeout_seconds", 10.0)),
+        max_retries=int(raw.get("max_retries", 3)),
+        batch_size=int(raw.get("batch_size", 50)),
+        sinks=child_sinks,
     )
 
 

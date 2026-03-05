@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from sanna.receipt import (
     generate_receipt, CheckResult, SannaReceipt,
-    SCHEMA_VERSION, TOOL_VERSION, CHECKS_VERSION,
+    SPEC_VERSION, TOOL_VERSION, CHECKS_VERSION,
 )
 from sanna.hashing import hash_text, hash_obj
 
@@ -32,7 +32,7 @@ TRACES = [
         "id": "001_fail_c1_refund",
         "description": "C1 FAIL: Output contradicts non-refundable policy in context",
         "trace_data": {
-            "trace_id": "golden-001-fail-c1-refund",
+            "correlation_id": "golden-001-fail-c1-refund",
             "name": "refund-check",
             "timestamp": "2026-01-03T00:00:00Z",
             "input": {"query": "Can I get a refund on my software purchase?"},
@@ -56,7 +56,7 @@ TRACES = [
         "id": "002_pass_simple_qa",
         "description": "PASS: Simple Q&A with no violations",
         "trace_data": {
-            "trace_id": "golden-002-pass-simple-qa",
+            "correlation_id": "golden-002-pass-simple-qa",
             "name": "simple-qa",
             "timestamp": "2026-01-03T00:00:00Z",
             "input": {"query": "What is the capital of France?"},
@@ -80,7 +80,7 @@ TRACES = [
         "id": "003_pass_technical_hedged",
         "description": "PASS: Technical answer with proper hedging",
         "trace_data": {
-            "trace_id": "golden-003-pass-technical-hedged",
+            "correlation_id": "golden-003-pass-technical-hedged",
             "name": "tech-qa",
             "timestamp": "2026-01-03T00:00:00Z",
             "input": {"query": "Will this migration break my database?"},
@@ -104,7 +104,7 @@ TRACES = [
         "id": "004_pass_policy_conditional",
         "description": "PASS: Policy answer that acknowledges conditions",
         "trace_data": {
-            "trace_id": "golden-004-pass-policy-conditional",
+            "correlation_id": "golden-004-pass-policy-conditional",
             "name": "policy-check",
             "timestamp": "2026-01-03T00:00:00Z",
             "input": {"query": "Am I eligible for the premium plan discount?"},
@@ -128,7 +128,7 @@ TRACES = [
         "id": "005_warn_c2_unmarked_inference",
         "description": "WARN: C2 fires — definitive language without hedging",
         "trace_data": {
-            "trace_id": "golden-005-warn-c2-inference",
+            "correlation_id": "golden-005-warn-c2-inference",
             "name": "inference-check",
             "timestamp": "2026-01-03T00:00:00Z",
             "input": {"query": "Will this investment pay off?"},
@@ -152,7 +152,7 @@ TRACES = [
         "id": "006_warn_c3_false_certainty",
         "description": "WARN: C3 fires — confident claim ignoring conditions",
         "trace_data": {
-            "trace_id": "golden-006-warn-c3-certainty",
+            "correlation_id": "golden-006-warn-c3-certainty",
             "name": "certainty-check",
             "timestamp": "2026-01-03T00:00:00Z",
             "input": {"query": "Can I use the API for free?"},
@@ -176,7 +176,7 @@ TRACES = [
         "id": "007_warn_c5_compression",
         "description": "WARN: C5 fires — complex context compressed to single sentence",
         "trace_data": {
-            "trace_id": "golden-007-warn-c5-compression",
+            "correlation_id": "golden-007-warn-c5-compression",
             "name": "compression-check",
             "timestamp": "2026-01-03T00:00:00Z",
             "input": {"query": "What are the deployment options?"},
@@ -200,7 +200,7 @@ TRACES = [
         "id": "008_fail_c1_factual",
         "description": "FAIL: C1 fires — factual contradiction of non-refundable context",
         "trace_data": {
-            "trace_id": "golden-008-fail-c1-factual",
+            "correlation_id": "golden-008-fail-c1-factual",
             "name": "factual-check",
             "timestamp": "2026-01-03T00:00:00Z",
             "input": {"query": "I bought a digital game, can I get my money back?"},
@@ -224,7 +224,7 @@ TRACES = [
         "id": "009_warn_c4_conflict",
         "description": "WARN: C4 fires — conflicting rules collapsed without acknowledgment",
         "trace_data": {
-            "trace_id": "golden-009-warn-c4-conflict",
+            "correlation_id": "golden-009-warn-c4-conflict",
             "name": "conflict-check",
             "timestamp": "2026-01-03T00:00:00Z",
             "input": {"query": "Can I transfer my license to another person?"},
@@ -248,7 +248,7 @@ TRACES = [
         "id": "010_fail_multiple",
         "description": "FAIL: Multiple checks fire — C1 contradiction + C3 false certainty",
         "trace_data": {
-            "trace_id": "golden-010-fail-multiple",
+            "correlation_id": "golden-010-fail-multiple",
             "name": "multi-fail",
             "timestamp": "2026-01-03T00:00:00Z",
             "input": {"query": "Is this product eligible for a refund?"},
@@ -272,7 +272,7 @@ TRACES = [
         "id": "011_pass_span_provenance",
         "description": "PASS: Multi-step trace with span.output provenance",
         "trace_data": {
-            "trace_id": "golden-011-pass-span-provenance",
+            "correlation_id": "golden-011-pass-span-provenance",
             "name": "multistep",
             "timestamp": "2026-01-03T00:00:00Z",
             "input": {"query": "Summarize the document"},
@@ -306,7 +306,7 @@ TRACES = [
         "id": "012_pass_with_extensions",
         "description": "PASS: Receipt with vendor extensions (extensions not in trace_data, added post-generation)",
         "trace_data": {
-            "trace_id": "golden-012-pass-extensions",
+            "correlation_id": "golden-012-pass-extensions",
             "name": "ext-test",
             "timestamp": "2026-01-03T00:00:00Z",
             "input": {"query": "What time does the store close?"},
@@ -362,7 +362,7 @@ def generate_golden_receipts():
         with open(filepath, "w") as f:
             json.dump(receipt_dict, f, indent=2)
 
-        status = receipt_dict["coherence_status"]
+        status = receipt_dict.get("status") or receipt_dict.get("coherence_status", "UNKNOWN")
         icon = {"PASS": "✓", "WARN": "⚠", "FAIL": "✗"}[status]
         print(f"  [{icon}] {filename}: {status} — {trace_def['description']}")
 

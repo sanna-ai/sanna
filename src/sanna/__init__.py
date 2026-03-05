@@ -10,6 +10,15 @@ from .receipt import generate_receipt, SannaReceipt
 from .verify import verify_receipt, VerificationResult
 from .store import ReceiptStore
 from .drift import DriftAnalyzer
+from .sinks import (
+    ReceiptSink,
+    SinkResult,
+    FailurePolicy,
+    LocalSQLiteSink,
+    NullSink,
+    CloudHTTPSink,
+    CompositeSink,
+)
 
 __all__ = [
     "__version__",
@@ -22,6 +31,13 @@ __all__ = [
     "VerificationResult",
     "ReceiptStore",
     "DriftAnalyzer",
+    "ReceiptSink",
+    "SinkResult",
+    "FailurePolicy",
+    "LocalSQLiteSink",
+    "NullSink",
+    "CloudHTTPSink",
+    "CompositeSink",
 ]
 
 

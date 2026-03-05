@@ -1,10 +1,10 @@
 {
-  "spec_version": "1.0",
-  "tool_version": "0.13.0",
-  "checks_version": "5",
+  "spec_version": "1.1",
+  "tool_version": "1.0.0",
+  "checks_version": "6",
   "receipt_id": "9f07127a-daa1-43de-a6c1-4b0e74e0e015",
-  "receipt_fingerprint": "0af5abd532d78788",
-  "full_fingerprint": "0af5abd532d78788143d1b2b845bfa5f4a3f93481bd88d1988cc283386ba07d2",
+  "receipt_fingerprint": "34972c005fec2593",
+  "full_fingerprint": "34972c005fec259318ab4bfb57c4106383d195f2026396bfb68c3a3fe6ac91bb",
   "correlation_id": "golden-002-pass-simple-qa",
   "timestamp": "2026-02-17T00:00:00+00:00",
   "inputs": {

@@ -54,9 +54,9 @@ def _make_receipt_with_triad(
     args_json = json.dumps(args, sort_keys=True)
 
     receipt = {
-        "spec_version": "1.0",
+        "spec_version": "1.1",
         "tool_version": "0.13.0",
-        "checks_version": "5",
+        "checks_version": "6",
         "receipt_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
         "receipt_fingerprint": "b" * 16,
         "full_fingerprint": "b" * 64,
@@ -222,7 +222,7 @@ class TestV1ReceiptFallback:
     def test_verify_v1_receipt_no_triad(self):
         """v1 receipt without triad hashes returns present=False, no errors."""
         receipt = {
-            "spec_version": "1.0",
+            "spec_version": "1.1",
             "receipt_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
             "extensions": {
                 "gateway": {

@@ -1,10 +1,10 @@
 {
-  "spec_version": "1.0",
-  "tool_version": "0.13.0",
-  "checks_version": "5",
+  "spec_version": "1.1",
+  "tool_version": "1.0.0",
+  "checks_version": "6",
   "receipt_id": "f8951681-e38c-4f4c-a760-7d6c58cc30a6",
-  "receipt_fingerprint": "34dee938183237d4",
-  "full_fingerprint": "34dee938183237d40bd7d3dbcd4702335adffc26223512a6959acf87480527d7",
+  "receipt_fingerprint": "bc9844b172f99bdf",
+  "full_fingerprint": "bc9844b172f99bdfbff2c65fd64ecff571508d811d28156833b719f022c0aa54",
   "correlation_id": "golden-006-warn-c3-certainty",
   "timestamp": "2026-02-17T00:00:00+00:00",
   "inputs": {

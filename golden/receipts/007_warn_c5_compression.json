@@ -1,10 +1,10 @@
 {
-  "spec_version": "1.0",
-  "tool_version": "0.13.0",
-  "checks_version": "5",
+  "spec_version": "1.1",
+  "tool_version": "1.0.0",
+  "checks_version": "6",
   "receipt_id": "a0000007-0000-4000-8000-000000000007",
-  "receipt_fingerprint": "4120119b80190043",
-  "full_fingerprint": "4120119b8019004396a5626cddbf372b755119e1127cc6f31d4c039c89a358a2",
+  "receipt_fingerprint": "2d6d530738b02cf6",
+  "full_fingerprint": "2d6d530738b02cf66d574563f4028e3b9c53c00f044eef3677e7a9cde262df9b",
   "correlation_id": "golden-007-warn-c5-compression",
   "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
@@ -62,5 +62,9 @@
   "checks_failed": 1,
   "status": "WARN",
   "constitution_ref": null,
-  "enforcement": null
+  "enforcement": null,
+  "parent_receipts": null,
+  "workflow_id": null,
+  "content_mode": null,
+  "content_mode_source": null
 }

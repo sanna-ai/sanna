@@ -140,7 +140,7 @@ def format_verify_summary(result: VerificationResult, receipt: dict, signature_s
         "=" * 50,
         "",
         f"Status:      {'✓ VALID' if result.valid else '✗ INVALID'}",
-        f"Spec:        v{receipt.get('spec_version', receipt.get('schema_version', '?'))}",
+        f"Spec:        v{receipt.get('spec_version', '?')}",
         f"Fingerprint: {'✓ Match' if result.computed_fingerprint == result.expected_fingerprint else '✗ Mismatch'}",
         f"Consistency: {'✓ OK' if result.computed_status == result.expected_status else '✗ Mismatch'}",
         f"Signature:   {sig_line}",
@@ -239,7 +239,7 @@ def format_verify_json(result: VerificationResult, receipt: dict) -> str:
     output = {
         "valid": result.valid,
         "exit_code": result.exit_code,
-        "spec_version": receipt.get("spec_version", receipt.get("schema_version")),
+        "spec_version": receipt.get("spec_version"),
         "receipt_id": receipt.get("receipt_id"),
         "fingerprint_match": result.computed_fingerprint == result.expected_fingerprint,
         "status_match": result.computed_status == result.expected_status,
@@ -1212,7 +1212,7 @@ def main_inspect():
     print(f"  Correlation:   {receipt.get('correlation_id', 'N/A')}")
     print(f"  Timestamp:     {receipt.get('timestamp', 'N/A')}")
     print(f"  Tool Version:  {receipt.get('tool_version', 'N/A')}")
-    print(f"  Spec:          {receipt.get('spec_version', receipt.get('schema_version', 'N/A'))}")
+    print(f"  Spec:          {receipt.get('spec_version', 'N/A')}")
     print(f"  Fingerprint:   {receipt.get('receipt_fingerprint', 'N/A')[:32]}...")
     print()
 

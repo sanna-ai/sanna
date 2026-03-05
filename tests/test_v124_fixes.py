@@ -410,7 +410,7 @@ class TestMCPEndpointSignatureCheck:
         result = json.loads(result_json)
         # Successful receipts are returned directly (not wrapped in {"receipt": ...})
         assert "error" not in result, f"Unexpected error: {result.get('error')}"
-        assert result.get("spec_version") == "1.0"
+        assert result.get("spec_version") == "1.1"
         assert result.get("status") in ("PASS", "WARN", "FAIL", "PARTIAL")
 
 
@@ -571,7 +571,7 @@ class TestVersionBump:
 
     def test_version_is_0_12_4(self):
         import sanna
-        assert sanna.__version__ == "0.13.7"
+        assert sanna.__version__ == "1.0.0"
 
     def test_tool_version_is_0_12_4(self):
-        assert TOOL_VERSION == "0.13.7"
+        assert TOOL_VERSION == "1.0.0"

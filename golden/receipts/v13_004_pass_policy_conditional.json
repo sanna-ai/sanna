@@ -1,10 +1,10 @@
 {
-  "spec_version": "1.0",
-  "tool_version": "0.13.0",
-  "checks_version": "5",
+  "spec_version": "1.1",
+  "tool_version": "1.0.0",
+  "checks_version": "6",
   "receipt_id": "2127cea5-8072-4dba-aa2c-12da050b05dd",
-  "receipt_fingerprint": "a6bd90871868064d",
-  "full_fingerprint": "a6bd90871868064dd2df5adbda879fde00a84d8d3e7531c13755857dcdfc7c80",
+  "receipt_fingerprint": "9a1bb976214cf479",
+  "full_fingerprint": "9a1bb976214cf479ad1cb88d56cfee5137db2dd5ae1483a06b858557cb1755b1",
   "correlation_id": "golden-004-pass-policy-conditional",
   "timestamp": "2026-02-17T00:00:00+00:00",
   "inputs": {

@@ -84,7 +84,9 @@ def add_extensions(receipt_dict, extensions):
     trust_hash = EMPTY_HASH
     extensions_hash = hash_obj(extensions)
 
-    fp_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}"
+    parent_receipts_hash = EMPTY_HASH
+    workflow_id_hash = EMPTY_HASH
+    fp_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
     receipt_dict["full_fingerprint"] = hash_text(fp_input)
     receipt_dict["receipt_fingerprint"] = hash_text(fp_input, truncate=16)
     return receipt_dict

@@ -1,10 +1,10 @@
 {
-  "spec_version": "1.0",
-  "tool_version": "0.13.0",
-  "checks_version": "5",
+  "spec_version": "1.1",
+  "tool_version": "1.0.0",
+  "checks_version": "6",
   "receipt_id": "a0000009-0000-4000-8000-000000000009",
-  "receipt_fingerprint": "0fb28ff319396bde",
-  "full_fingerprint": "0fb28ff319396bde45a161aac6de30541b12446d34c153fc3f75ddd24cf3052f",
+  "receipt_fingerprint": "d093a2041086e012",
+  "full_fingerprint": "d093a2041086e012a6cc049c59c74fd056eef1593e8be9c98a6bbbdade6c281d",
   "correlation_id": "golden-009-warn-c4-conflict",
   "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
@@ -62,5 +62,9 @@
   "checks_failed": 3,
   "status": "WARN",
   "constitution_ref": null,
-  "enforcement": null
+  "enforcement": null,
+  "parent_receipts": null,
+  "workflow_id": null,
+  "content_mode": null,
+  "content_mode_source": null
 }

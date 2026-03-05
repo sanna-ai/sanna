@@ -1402,18 +1402,19 @@ class TestFingerprintExcludesApproval:
         _cref = {k: v for k, v in constitution_ref.items() if k != "constitution_approval"}
         const_hash = hash_obj(_cref)
 
-        # v0.13.0: 12 pipe-delimited fields, absent optional fields use EMPTY_HASH
+        # v1.0.0: 14 pipe-delimited fields, absent optional fields use EMPTY_HASH
         fp_input = (
-            f"{correlation_id}|{context_hash}|{output_hash}|5|{checks_hash}|{const_hash}"
+            f"{correlation_id}|{context_hash}|{output_hash}|6|{checks_hash}|{const_hash}"
             f"|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}"
+            f"|{EMPTY_HASH}|{EMPTY_HASH}"
         )
         full_fp = hash_text(fp_input)
         short_fp = hash_text(fp_input, truncate=16)
 
         receipt = {
-            "spec_version": "1.0",
+            "spec_version": "1.1",
             "tool_version": "0.13.0",
-            "checks_version": "5",
+            "checks_version": "6",
             "receipt_id": "test-id",
             "receipt_fingerprint": short_fp,
             "full_fingerprint": full_fp,

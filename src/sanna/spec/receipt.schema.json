@@ -331,6 +331,28 @@
       "description": "Reverse-domain-namespaced vendor metadata. Verifiers MUST ignore unknown extensions.",
       "additionalProperties": true
     },
+    "parent_receipts": {
+      "type": ["array", "null"],
+      "description": "Receipt fingerprints of parent receipts in a chained workflow (e.g., escalation approval chain)",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "workflow_id": {
+      "type": ["string", "null"],
+      "description": "Workflow identifier linking related receipts across a multi-step process",
+      "minLength": 1
+    },
+    "content_mode": {
+      "type": ["string", "null"],
+      "description": "Content mode attestation metadata (e.g., 'cloud', 'local'). NOT included in fingerprint.",
+      "enum": ["cloud", "local", "hybrid", null]
+    },
+    "content_mode_source": {
+      "type": ["string", "null"],
+      "description": "Source of content mode determination. NOT included in fingerprint."
+    },
     "identity_verification": {
       "description": "Identity claim verification results. Present only when constitution has identity_claims.",
       "oneOf": [

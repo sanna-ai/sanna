@@ -121,7 +121,7 @@ def _make_receipt(extensions=None) -> dict:
     receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
 
     return {
-        "spec_version": "1.0",
+        "spec_version": "1.1",
         "tool_version": "0.13.0",
         "checks_version": checks_version,
         "receipt_id": str(_uuid.uuid4()),

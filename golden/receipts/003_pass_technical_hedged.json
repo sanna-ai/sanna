@@ -1,10 +1,10 @@
 {
-  "spec_version": "1.0",
-  "tool_version": "0.13.0",
-  "checks_version": "5",
+  "spec_version": "1.1",
+  "tool_version": "1.0.0",
+  "checks_version": "6",
   "receipt_id": "a0000003-0000-4000-8000-000000000003",
-  "receipt_fingerprint": "68bbea73d58deefb",
-  "full_fingerprint": "68bbea73d58deefbff8452343f7758f3fec1b57c15ddf78905ab2d2a13225c69",
+  "receipt_fingerprint": "03cab8926d8809d5",
+  "full_fingerprint": "03cab8926d8809d5e046567db6ef0193002a69a350f4b679849a69025cae79fc",
   "correlation_id": "golden-003-pass-technical-hedged",
   "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
@@ -62,5 +62,9 @@
   "checks_failed": 0,
   "status": "PASS",
   "constitution_ref": null,
-  "enforcement": null
+  "enforcement": null,
+  "parent_receipts": null,
+  "workflow_id": null,
+  "content_mode": null,
+  "content_mode_source": null
 }

@@ -328,7 +328,7 @@ class TestVerifyReceiptSignatureCrashGuard:
 
         # Build a receipt with a non-integer float in extensions
         receipt = {
-            "spec_version": "1.0",
+            "spec_version": "1.1",
             "receipt_id": "test-id",
             "extensions": {"com.test.score": 0.85},  # non-integer float
             "receipt_signature": {

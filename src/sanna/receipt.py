@@ -17,8 +17,8 @@ from .hashing import hash_text, hash_obj, EMPTY_HASH
 # =============================================================================
 
 from .version import __version__ as TOOL_VERSION  # single source of truth
-SPEC_VERSION = "1.0"
-CHECKS_VERSION = "5"  # v0.13.0: schema migration, fail_closed default, Sanna Canonical JSON
+SPEC_VERSION = "1.1"
+CHECKS_VERSION = "6"  # v1.0.0: 14-field fingerprint (parent_receipts, workflow_id)
 
 
 # =============================================================================
@@ -87,7 +87,7 @@ class Enforcement:
 
 @dataclass
 class SannaReceipt:
-    """The reasoning receipt artifact (v0.13.0 format)."""
+    """The reasoning receipt artifact (v1.0.0 format)."""
     spec_version: str
     tool_version: str
     checks_version: str
@@ -106,6 +106,10 @@ class SannaReceipt:
     status: str  # "PASS", "WARN", "FAIL", "PARTIAL"
     constitution_ref: Optional[dict] = None
     enforcement: Optional[dict] = None
+    parent_receipts: Optional[List[str]] = None
+    workflow_id: Optional[str] = None
+    content_mode: Optional[str] = None  # "full", "redacted", "hashes_only"
+    content_mode_source: Optional[str] = None
 
 
 # =============================================================================
@@ -571,6 +575,10 @@ def generate_receipt(
     constitution: Optional[ConstitutionProvenance] = None,
     enforcement: Optional[HaltEvent] = None,
     constitution_ref_override: Optional[dict] = None,
+    parent_receipts: Optional[List[str]] = None,
+    workflow_id: Optional[str] = None,
+    content_mode: Optional[str] = None,
+    content_mode_source: Optional[str] = None,
 ) -> SannaReceipt:
     """Generate a Sanna receipt from trace data.
 
@@ -653,7 +661,7 @@ def generate_receipt(
         constitution_hash = EMPTY_HASH
     enforcement_hash = hash_obj(enforcement_dict) if enforcement_dict else EMPTY_HASH
 
-    # Unified fingerprint formula (v0.13.0) — always 12 pipe-delimited fields
+    # Unified fingerprint formula (v1.0.0) — always 14 pipe-delimited fields
     correlation_id = trace_data.get("correlation_id", "")
     # FIX-33: correlation_id must not contain pipe (used as fingerprint delimiter)
     if correlation_id and "|" in correlation_id:
@@ -666,7 +674,11 @@ def generate_receipt(
     trust_hash = EMPTY_HASH
     extensions_hash = EMPTY_HASH
 
-    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}"
+    # Fields 13-14: parent_receipts and workflow_id (v1.0.0)
+    parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
+    workflow_id_hash = hash_text(workflow_id) if workflow_id else EMPTY_HASH
+
+    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
     full_fp = hash_text(fingerprint_input)
     receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
 
@@ -689,6 +701,10 @@ def generate_receipt(
         status=status,
         constitution_ref=constitution_dict,
         enforcement=enforcement_dict,
+        parent_receipts=parent_receipts,
+        workflow_id=workflow_id,
+        content_mode=content_mode,
+        content_mode_source=content_mode_source,
     )
 
 

@@ -1,10 +1,10 @@
 {
-  "spec_version": "1.0",
-  "tool_version": "0.13.0",
-  "checks_version": "5",
+  "spec_version": "1.1",
+  "tool_version": "1.0.0",
+  "checks_version": "6",
   "receipt_id": "5de34bd2-a571-4b69-aa1d-8af4f8c851e6",
-  "receipt_fingerprint": "d03403da38a2365b",
-  "full_fingerprint": "d03403da38a2365b1ad2e2638c57b6a88d0cc88bebe75e10c01417cffadcba43",
+  "receipt_fingerprint": "474f1ba480d77e6e",
+  "full_fingerprint": "474f1ba480d77e6e1d4d0bbeebe9ab6d6c2d8c7710ba9837bc238cc0a2e66be0",
   "correlation_id": "golden-007-warn-c5-compression",
   "timestamp": "2026-02-17T00:00:00+00:00",
   "inputs": {

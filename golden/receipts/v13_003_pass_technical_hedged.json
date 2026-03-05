@@ -1,10 +1,10 @@
 {
-  "spec_version": "1.0",
-  "tool_version": "0.13.0",
-  "checks_version": "5",
+  "spec_version": "1.1",
+  "tool_version": "1.0.0",
+  "checks_version": "6",
   "receipt_id": "384539fa-5d19-4f44-aff1-19f278fed493",
-  "receipt_fingerprint": "7b3c41f428b1e870",
-  "full_fingerprint": "7b3c41f428b1e87029ba01dd25e3a7bed8ab083a1f8c77b23306d0db2388f4d6",
+  "receipt_fingerprint": "044954cc05ebe5e8",
+  "full_fingerprint": "044954cc05ebe5e806a86c06b352259538e66921b1c737470596100a978016ea",
   "correlation_id": "golden-003-pass-technical-hedged",
   "timestamp": "2026-02-17T00:00:00+00:00",
   "inputs": {
