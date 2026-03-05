@@ -9,6 +9,8 @@ from .middleware import sanna_observe, SannaResult, SannaHaltError
 from .receipt import generate_receipt, SannaReceipt
 from .verify import verify_receipt, VerificationResult
 from .store import ReceiptStore
+from .sink import ReceiptSink, SinkResult, SinkError, FailurePolicy
+from .sinks import LocalSQLiteSink, NullSink
 from .drift import DriftAnalyzer
 
 __all__ = [
@@ -21,6 +23,12 @@ __all__ = [
     "verify_receipt",
     "VerificationResult",
     "ReceiptStore",
+    "ReceiptSink",
+    "SinkResult",
+    "SinkError",
+    "FailurePolicy",
+    "LocalSQLiteSink",
+    "NullSink",
     "DriftAnalyzer",
 ]
 
