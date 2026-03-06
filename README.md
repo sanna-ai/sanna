@@ -1,6 +1,16 @@
 # Sanna — Trust Infrastructure for AI Agents
 
+[![PyPI version](https://img.shields.io/pypi/v/sanna)](https://pypi.org/project/sanna/)
+
 Sanna checks reasoning during execution, halts when constraints are violated, and generates portable cryptographic receipts proving governance was enforced. Constitution-as-code: your governance rules live in version-controlled YAML, not in a vendor dashboard.
+
+## What's New in v1.0.0
+
+- **Receipt Sinks** — Pluggable receipt persistence via `ReceiptSink` ABC. Ship with `NullSink`, `LocalSQLiteSink`, `CloudHTTPSink`, and `CompositeSink` for fan-out to multiple destinations. Configure sinks in gateway YAML or pass directly to `@sanna_observe`.
+- **Multi-Step Workflow Chaining** — `parent_receipts` and `workflow_id` fields link receipts across multi-step agent workflows. The fingerprint formula is now 14 fields (was 12).
+- **Content Mode** — `content_mode: "hash_only"` stores only hashes of inputs/outputs (no plaintext), enabling governance without data exposure. Configurable per-constitution or per-call.
+- **Spec v1.1** — `spec_version` bumped to `"1.1"`, `checks_version` bumped to `"6"`. Backward-compatible verifier auto-detects 12 vs 14 field fingerprints.
+- **17 top-level exports** — 7 new sink-related types added to `sanna.__all__`.
 
 ## Quick Start — Library Mode
 
@@ -134,9 +144,9 @@ Every governed action produces a reasoning receipt — a JSON artifact that cryp
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `spec_version` | string | Schema version, `"1.0"` |
-| `tool_version` | string | Package version, e.g. `"0.13.7"` |
-| `checks_version` | string | Check algorithm version, e.g. `"5"` |
+| `spec_version` | string | Schema version, `"1.1"` |
+| `tool_version` | string | Package version, e.g. `"1.0.0"` |
+| `checks_version` | string | Check algorithm version, e.g. `"6"` |
 | `receipt_id` | string | UUID v4 unique identifier |
 | `correlation_id` | string | Path-prefixed identifier for grouping related receipts |
 
@@ -191,15 +201,24 @@ Every governed action produces a reasoning receipt — a JSON artifact that cryp
 |-------|------|-------------|
 | `extensions` | object | Reverse-domain namespaced metadata (`com.sanna.gateway`, `com.sanna.middleware`) |
 
+**Multi-Step Workflows (v1.0.0)**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `parent_receipts` | array or null | List of parent receipt IDs for multi-step workflow chaining |
+| `workflow_id` | string or null | Shared identifier grouping receipts in a workflow |
+| `content_mode` | string or null | `"full"` or `"hash_only"` — whether inputs/outputs are stored or only hashed |
+| `content_mode_source` | string or null | Where the content_mode setting originated |
+
 This section provides a high-level overview. For a complete field reference and normative format details, see [spec/sanna-specification-v1.0.md](https://github.com/sanna-ai/sanna/blob/main/spec/sanna-specification-v1.0.md).
 
 Minimal example receipt (abbreviated -- production receipts typically contain 3-7 checks):
 
 ```json
 {
-  "spec_version": "1.0",
-  "tool_version": "0.13.7",
-  "checks_version": "5",
+  "spec_version": "1.1",
+  "tool_version": "1.0.0",
+  "checks_version": "6",
   "receipt_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
   "receipt_fingerprint": "7b4d06e836514eef",
   "full_fingerprint": "7b4d06e836514eef26ab96f5c62b193d036c92b45d966ef7025d75539ff93aca",
@@ -216,7 +235,9 @@ Minimal example receipt (abbreviated -- production receipts typically contain 3-
   "checks_failed": 0,
   "status": "PASS",
   "constitution_ref": {"document_id": "support-agent/1.0", "policy_hash": "...", "signature_verified": true},
-  "enforcement": null
+  "enforcement": null,
+  "parent_receipts": null,
+  "workflow_id": null
 }
 ```
 
@@ -332,6 +353,34 @@ Or via CLI:
 sanna drift-report --db .sanna/receipts.db --window 30 --json
 ```
 
+## Receipt Sinks
+
+Pluggable receipt persistence with the `ReceiptSink` interface:
+
+```python
+from sanna import LocalSQLiteSink, CloudHTTPSink, CompositeSink
+
+# Local SQLite persistence
+local = LocalSQLiteSink(".sanna/receipts.db")
+
+# Remote HTTP endpoint with retry
+cloud = CloudHTTPSink("https://governance.example.com/receipts", api_key="...")
+
+# Fan-out to both
+sink = CompositeSink([local, cloud])
+```
+
+Configure in gateway YAML:
+
+```yaml
+gateway:
+  receipt_sink:
+    type: local_sqlite
+    path: .sanna/receipts.db
+```
+
+Available sink types: `null` (no-op), `local_sqlite`, `cloud_http`, `composite`. The `FailurePolicy` enum controls behavior on sink errors: `LOG` (default), `BUFFER` (retry later), `RAISE` (fail the operation).
+
 ## Constitution Templates
 
 `sanna init` offers three interactive templates plus blank:
@@ -378,7 +427,7 @@ All commands are available as `sanna <command>` or `sanna-<command>`:
 
 ## API Reference
 
-The top-level `sanna` package exports 10 names:
+The top-level `sanna` package exports 17 names:
 
 ```python
 from sanna import (
@@ -392,10 +441,18 @@ from sanna import (
     VerificationResult,   # Verification result dataclass
     ReceiptStore,         # SQLite-backed receipt persistence
     DriftAnalyzer,        # Per-agent failure-rate trending
+    # Receipt sinks (v1.0.0)
+    ReceiptSink,          # Abstract base class for receipt persistence
+    NullSink,             # No-op sink (default)
+    LocalSQLiteSink,      # SQLite-backed local persistence
+    CloudHTTPSink,        # HTTP endpoint with retry and buffer-on-failure
+    CompositeSink,        # Fan-out to multiple sinks
+    SinkResult,           # Result from a sink.send() call
+    FailurePolicy,        # Enum: LOG, BUFFER, RAISE
 )
 ```
 
-Everything else imports from submodules: `sanna.constitution`, `sanna.crypto`, `sanna.enforcement`, `sanna.evaluators`, `sanna.verify`, `sanna.bundle`, `sanna.hashing`, `sanna.drift`.
+Everything else imports from submodules: `sanna.constitution`, `sanna.crypto`, `sanna.enforcement`, `sanna.evaluators`, `sanna.verify`, `sanna.bundle`, `sanna.hashing`, `sanna.drift`, `sanna.sinks`.
 
 ## Verification
 
@@ -456,7 +513,7 @@ No network. No API keys. No vendor dependency.
 - **Signing**: Ed25519 over canonical JSON (RFC 8785-style deterministic serialization)
 - **Hashing**: SHA-256 for all content hashes, fingerprints, and key IDs
 - **Canonicalization**: Sorted keys, NFC Unicode normalization, integer-only numerics (no floats in signed content)
-- **Fingerprinting**: Pipe-delimited fields hashed with SHA-256; 16-hex truncation for display, 64-hex for full fingerprint
+- **Fingerprinting**: 14 pipe-delimited fields hashed with SHA-256; 16-hex truncation for display, 64-hex for full fingerprint
 
 See the [specification](https://github.com/sanna-ai/sanna/blob/main/spec/sanna-specification-v1.0.md) for full cryptographic construction details.
 
