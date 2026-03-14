@@ -444,6 +444,35 @@ class CliPermissions:
 
 
 @dataclass
+class ApiEndpoint:
+    """A single API endpoint permission rule."""
+    id: str
+    url_pattern: str
+    authority: str  # can_execute | must_escalate | cannot_execute
+    methods: list = field(default_factory=lambda: ["*"])
+    description: str = ""
+    escalation_target: Optional[str] = None
+
+
+@dataclass
+class ApiInvariant:
+    """An API invariant rule checked after authority allows."""
+    id: str
+    description: str
+    verdict: str  # halt | warn
+    pattern: Optional[str] = None
+
+
+@dataclass
+class ApiPermissions:
+    """HTTP/API governance permissions."""
+    mode: str = "strict"  # strict | permissive
+    justification_required: bool = True
+    endpoints: list = field(default_factory=list)
+    invariants: list = field(default_factory=list)
+
+
+@dataclass
 class Constitution:
     schema_version: str
     identity: AgentIdentity
@@ -459,6 +488,7 @@ class Constitution:
     version: str = "1.0"
     reasoning: Optional[ReasoningConfig] = None
     cli_permissions: Optional[CliPermissions] = None
+    api_permissions: Optional[ApiPermissions] = None
 
 
 # =============================================================================
@@ -1000,6 +1030,39 @@ def parse_constitution(data: dict) -> Constitution:
             invariants=invariants_list,
         )
 
+    # API permissions (optional, v1.2+)
+    api_permissions = None
+    api_perms_data = data.get("api_permissions")
+    if api_perms_data is not None and isinstance(api_perms_data, dict):
+        endpoints = []
+        for ep_data in api_perms_data.get("endpoints", []):
+            if isinstance(ep_data, dict):
+                endpoints.append(ApiEndpoint(
+                    id=ep_data.get("id", ""),
+                    url_pattern=ep_data.get("url_pattern", ""),
+                    authority=ep_data.get("authority", "can_execute"),
+                    methods=ep_data.get("methods", ["*"]),
+                    description=ep_data.get("description", ""),
+                    escalation_target=ep_data.get("escalation_target"),
+                ))
+
+        api_invariants_list = []
+        for inv_data in api_perms_data.get("invariants", []):
+            if isinstance(inv_data, dict):
+                api_invariants_list.append(ApiInvariant(
+                    id=inv_data.get("id", ""),
+                    description=inv_data.get("description", ""),
+                    verdict=inv_data.get("verdict", "halt"),
+                    pattern=inv_data.get("pattern"),
+                ))
+
+        api_permissions = ApiPermissions(
+            mode=api_perms_data.get("mode", "strict"),
+            justification_required=api_perms_data.get("justification_required", True),
+            endpoints=endpoints,
+            invariants=api_invariants_list,
+        )
+
     return Constitution(
         schema_version=str(schema_version),
         identity=identity,
@@ -1015,6 +1078,7 @@ def parse_constitution(data: dict) -> Constitution:
         version=version,
         reasoning=reasoning,
         cli_permissions=cli_permissions,
+        api_permissions=api_permissions,
     )
 
 

@@ -84,7 +84,7 @@ class TestVersionBump:
 
     def test_all_exports(self):
         import sanna
-        assert len(sanna.__all__) == 19  # 10 original + 7 sink exports + 2 interceptor exports
+        assert len(sanna.__all__) == 21  # 10 original + 7 sink exports + 4 interceptor exports
 
 
 # ============================================================================
