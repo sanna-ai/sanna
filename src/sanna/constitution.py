@@ -414,6 +414,36 @@ class ApprovalChain:
 
 
 @dataclass
+class CliCommand:
+    """A single CLI command permission rule."""
+    id: str
+    binary: str
+    authority: str  # can_execute | must_escalate | cannot_execute
+    argv_pattern: str = "*"
+    description: str = ""
+    escalation_target: Optional[str] = None
+
+
+@dataclass
+class CliInvariant:
+    """A CLI invariant rule checked after authority allows."""
+    id: str
+    description: str
+    verdict: str  # halt | warn
+    pattern: Optional[str] = None
+    condition: Optional[str] = None
+
+
+@dataclass
+class CliPermissions:
+    """CLI subprocess governance permissions."""
+    mode: str = "strict"  # strict | permissive
+    justification_required: bool = True
+    commands: list[CliCommand] = field(default_factory=list)
+    invariants: list[CliInvariant] = field(default_factory=list)
+
+
+@dataclass
 class Constitution:
     schema_version: str
     identity: AgentIdentity
@@ -428,6 +458,7 @@ class Constitution:
     approval: Optional[ApprovalChain] = None
     version: str = "1.0"
     reasoning: Optional[ReasoningConfig] = None
+    cli_permissions: Optional[CliPermissions] = None
 
 
 # =============================================================================
@@ -935,6 +966,40 @@ def parse_constitution(data: dict) -> Constitution:
     if reasoning_data is not None and isinstance(reasoning_data, dict) and schema_version >= "1.1":
         reasoning = _parse_reasoning_config(reasoning_data)
 
+    # CLI permissions (optional, v1.2+)
+    cli_permissions = None
+    cli_perms_data = data.get("cli_permissions")
+    if cli_perms_data is not None and isinstance(cli_perms_data, dict):
+        commands = []
+        for cmd_data in cli_perms_data.get("commands", []):
+            if isinstance(cmd_data, dict):
+                commands.append(CliCommand(
+                    id=cmd_data.get("id", ""),
+                    binary=cmd_data.get("binary", ""),
+                    authority=cmd_data.get("authority", "can_execute"),
+                    argv_pattern=cmd_data.get("argv_pattern", "*"),
+                    description=cmd_data.get("description", ""),
+                    escalation_target=cmd_data.get("escalation_target"),
+                ))
+
+        invariants_list = []
+        for inv_data in cli_perms_data.get("invariants", []):
+            if isinstance(inv_data, dict):
+                invariants_list.append(CliInvariant(
+                    id=inv_data.get("id", ""),
+                    description=inv_data.get("description", ""),
+                    verdict=inv_data.get("verdict", "halt"),
+                    pattern=inv_data.get("pattern"),
+                    condition=inv_data.get("condition"),
+                ))
+
+        cli_permissions = CliPermissions(
+            mode=cli_perms_data.get("mode", "strict"),
+            justification_required=cli_perms_data.get("justification_required", True),
+            commands=commands,
+            invariants=invariants_list,
+        )
+
     return Constitution(
         schema_version=str(schema_version),
         identity=identity,
@@ -949,6 +1014,7 @@ def parse_constitution(data: dict) -> Constitution:
         approval=approval,
         version=version,
         reasoning=reasoning,
+        cli_permissions=cli_permissions,
     )
 
 

@@ -110,6 +110,8 @@ class SannaReceipt:
     workflow_id: Optional[str] = None
     content_mode: Optional[str] = None  # "full", "redacted", "hashes_only"
     content_mode_source: Optional[str] = None
+    event_type: Optional[str] = None  # "cli_invocation_allowed", etc.
+    context_limitation: Optional[str] = None  # "cli_execution", "cli_no_justification", etc.
 
 
 # =============================================================================
@@ -579,6 +581,8 @@ def generate_receipt(
     workflow_id: Optional[str] = None,
     content_mode: Optional[str] = None,
     content_mode_source: Optional[str] = None,
+    event_type: Optional[str] = None,
+    context_limitation: Optional[str] = None,
 ) -> SannaReceipt:
     """Generate a Sanna receipt from trace data.
 
@@ -705,6 +709,8 @@ def generate_receipt(
         workflow_id=workflow_id,
         content_mode=content_mode,
         content_mode_source=content_mode_source,
+        event_type=event_type,
+        context_limitation=context_limitation,
     )
 
 

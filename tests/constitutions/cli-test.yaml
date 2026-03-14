@@ -1,0 +1,70 @@
+sanna_constitution: "1.0"
+identity:
+  agent_name: cli-test-agent
+  domain: testing
+  description: CLI interceptor test fixture
+provenance:
+  authored_by: tester@test.com
+  approved_by:
+    - approver@test.com
+  approval_date: "2026-03-14"
+  approval_method: test-approval
+  change_history: []
+boundaries:
+  - id: B001
+    description: Test boundary
+    category: scope
+    severity: info
+trust_tiers:
+  autonomous:
+    - Answer questions
+  requires_approval: []
+  prohibited: []
+halt_conditions: []
+invariants:
+  - id: INV_NO_FABRICATION
+    rule: Do not claim facts absent from provided sources.
+    enforcement: warn
+authority_boundaries:
+  can_execute:
+    - echo
+    - cat
+  cannot_execute:
+    - rm -rf
+  must_escalate:
+    - condition: "deploy"
+cli_permissions:
+  mode: strict
+  justification_required: true
+  commands:
+    - id: cli-001
+      binary: echo
+      authority: can_execute
+      description: "Echo is allowed"
+    - id: cli-002
+      binary: cat
+      authority: can_execute
+      description: "Cat is allowed"
+    - id: cli-003
+      binary: rm
+      authority: cannot_execute
+      description: "Remove is blocked"
+    - id: cli-004
+      binary: docker
+      authority: must_escalate
+      description: "Docker requires approval"
+    - id: cli-006
+      binary: git
+      authority: cannot_execute
+      argv_pattern: "push --force*"
+      description: "Git force push blocked"
+    - id: cli-005
+      binary: git
+      authority: can_execute
+      argv_pattern: "push*"
+      description: "Git push allowed"
+  invariants:
+    - id: cli-inv-001
+      description: "No recursive forced deletion"
+      pattern: "rm\\s+-rf"
+      verdict: halt

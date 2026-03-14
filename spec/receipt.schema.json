@@ -353,6 +353,16 @@
       "type": ["string", "null"],
       "description": "Source of content mode determination. NOT included in fingerprint."
     },
+    "event_type": {
+      "type": ["string", "null"],
+      "description": "Event type for execution surface receipts (e.g., 'cli_invocation_allowed'). NOT included in fingerprint.",
+      "examples": ["cli_invocation_allowed", "cli_invocation_halted", "cli_invocation_escalated"]
+    },
+    "context_limitation": {
+      "type": ["string", "null"],
+      "description": "Context limitation of the execution surface (e.g., 'cli_execution'). NOT included in fingerprint.",
+      "examples": ["cli_execution", "cli_no_justification", "gateway_boundary"]
+    },
     "identity_verification": {
       "description": "Identity claim verification results. Present only when constitution has identity_claims.",
       "oneOf": [
