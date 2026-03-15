@@ -104,5 +104,23 @@ escalation_targets:
 # No trusted_sources configured — all sources treated equally by C1.
 # Add trusted_sources section when you have distinct data source tiers.
 
+# --- CLI Permissions (v1.2+) ---
+# General purpose: permissive with no pre-configured commands.
+# Add commands as you identify which binaries your agent needs.
+cli_permissions:
+  mode: permissive
+  justification_required: false
+  commands: []
+  invariants: []
+
+# --- API Permissions (v1.2+) ---
+# General purpose: permissive with no pre-configured endpoints.
+# Add endpoints as you identify which APIs your agent needs.
+api_permissions:
+  mode: permissive
+  justification_required: false
+  endpoints: []
+  invariants: []
+
 # This field is set by `sanna-sign-constitution` — do not edit manually:
 policy_hash: null

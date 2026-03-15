@@ -160,5 +160,27 @@ trusted_sources:
 escalation_targets:
   default: "log"
 
+# --- CLI Permissions (v1.2+) ---
+# Enterprise: strict by default. No subprocess execution unless explicitly allowed.
+cli_permissions:
+  mode: strict
+  justification_required: true
+  commands: []
+  invariants:
+    - id: CLI_INV_NO_SUBPROCESS
+      description: All subprocess execution requires explicit allowlisting
+      verdict: halt
+
+# --- API Permissions (v1.2+) ---
+# Enterprise: strict by default. No outbound HTTP unless explicitly allowed.
+api_permissions:
+  mode: strict
+  justification_required: true
+  endpoints: []
+  invariants:
+    - id: API_INV_NO_OUTBOUND
+      description: All outbound API calls require explicit allowlisting
+      verdict: halt
+
 # This field is set by `sanna-sign-constitution` — do not edit manually:
 policy_hash: null

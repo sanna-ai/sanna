@@ -120,4 +120,33 @@ authority_boundaries:
 escalation_targets:
   default: log
 
+# --- CLI Permissions (v1.2+) ---
+# Skill builders need subprocess access for build/test tools.
+cli_permissions:
+  mode: permissive
+  justification_required: false
+  commands:
+    - id: CLI_BASH
+      binary: bash
+      authority: can_execute
+      args_patterns: ["*"]
+      reason: Shell scripts for build and test automation
+    - id: CLI_PYTHON
+      binary: python
+      authority: can_execute
+      args_patterns: ["*"]
+      reason: Python scripts for skill development
+    - id: CLI_NODE
+      binary: node
+      authority: can_execute
+      args_patterns: ["*"]
+      reason: Node.js scripts for skill development
+  invariants:
+    - id: CLI_INV_NO_NETWORK_TOOLS
+      description: Do not invoke network tools (curl, wget, nc)
+      verdict: halt
+    - id: CLI_INV_SCOPE_ONLY
+      description: Subprocess must operate within declared skill scope directory
+      verdict: halt
+
 policy_hash: null

@@ -626,6 +626,129 @@ def validate_constitution_data(data: dict) -> list[str]:
                     elif not rule.get("condition"):
                         errors.append(f"authority_boundaries.must_escalate[{i}].condition is required")
 
+    # CLI permissions (optional, v1.2+)
+    cli_perms = data.get("cli_permissions")
+    if cli_perms is not None:
+        if not isinstance(cli_perms, dict):
+            errors.append("cli_permissions must be a dict")
+        else:
+            mode = cli_perms.get("mode", "strict")
+            if mode not in ("strict", "permissive"):
+                errors.append(f"cli_permissions.mode '{mode}' must be 'strict' or 'permissive'")
+
+            jr = cli_perms.get("justification_required")
+            if jr is not None and not isinstance(jr, bool):
+                errors.append("cli_permissions.justification_required must be a boolean")
+
+            commands = cli_perms.get("commands", [])
+            if not isinstance(commands, list):
+                errors.append("cli_permissions.commands must be a list")
+            else:
+                seen_cmd_ids: set[str] = set()
+                for i, cmd in enumerate(commands):
+                    if not isinstance(cmd, dict):
+                        errors.append(f"cli_permissions.commands[{i}] must be a dict")
+                        continue
+                    cmd_id = cmd.get("id", "")
+                    if not cmd_id:
+                        errors.append(f"cli_permissions.commands[{i}].id is required")
+                    if cmd_id in seen_cmd_ids:
+                        errors.append(f"Duplicate cli_permissions command ID: {cmd_id}")
+                    seen_cmd_ids.add(cmd_id)
+                    if not cmd.get("binary"):
+                        errors.append(f"cli_permissions.commands[{i}].binary is required")
+                    binary = cmd.get("binary", "")
+                    if "/" in str(binary) or "\\" in str(binary) or "*" in str(binary) or "?" in str(binary):
+                        errors.append(f"cli_permissions.commands[{i}].binary must not contain path separators or wildcards")
+                    authority = cmd.get("authority", "")
+                    if authority not in ("can_execute", "must_escalate", "cannot_execute"):
+                        errors.append(f"cli_permissions.commands[{i}].authority '{authority}' must be 'can_execute', 'must_escalate', or 'cannot_execute'")
+
+            invariants_cli = cli_perms.get("invariants", [])
+            if not isinstance(invariants_cli, list):
+                errors.append("cli_permissions.invariants must be a list")
+            else:
+                seen_cli_inv_ids: set[str] = set()
+                for i, inv in enumerate(invariants_cli):
+                    if not isinstance(inv, dict):
+                        errors.append(f"cli_permissions.invariants[{i}] must be a dict")
+                        continue
+                    inv_id = inv.get("id", "")
+                    if not inv_id:
+                        errors.append(f"cli_permissions.invariants[{i}].id is required")
+                    if inv_id in seen_cli_inv_ids:
+                        errors.append(f"Duplicate cli_permissions invariant ID: {inv_id}")
+                    seen_cli_inv_ids.add(inv_id)
+                    if not inv.get("description"):
+                        errors.append(f"cli_permissions.invariants[{i}].description is required")
+                    verdict = inv.get("verdict", "")
+                    if verdict not in ("halt", "warn"):
+                        errors.append(f"cli_permissions.invariants[{i}].verdict '{verdict}' must be 'halt' or 'warn'")
+
+    # API permissions (optional, v1.2+)
+    api_perms = data.get("api_permissions")
+    if api_perms is not None:
+        if not isinstance(api_perms, dict):
+            errors.append("api_permissions must be a dict")
+        else:
+            mode = api_perms.get("mode", "strict")
+            if mode not in ("strict", "permissive"):
+                errors.append(f"api_permissions.mode '{mode}' must be 'strict' or 'permissive'")
+
+            jr = api_perms.get("justification_required")
+            if jr is not None and not isinstance(jr, bool):
+                errors.append("api_permissions.justification_required must be a boolean")
+
+            endpoints = api_perms.get("endpoints", [])
+            if not isinstance(endpoints, list):
+                errors.append("api_permissions.endpoints must be a list")
+            else:
+                valid_methods = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "*"}
+                seen_ep_ids: set[str] = set()
+                for i, ep in enumerate(endpoints):
+                    if not isinstance(ep, dict):
+                        errors.append(f"api_permissions.endpoints[{i}] must be a dict")
+                        continue
+                    ep_id = ep.get("id", "")
+                    if not ep_id:
+                        errors.append(f"api_permissions.endpoints[{i}].id is required")
+                    if ep_id in seen_ep_ids:
+                        errors.append(f"Duplicate api_permissions endpoint ID: {ep_id}")
+                    seen_ep_ids.add(ep_id)
+                    if not ep.get("url_pattern"):
+                        errors.append(f"api_permissions.endpoints[{i}].url_pattern is required")
+                    authority = ep.get("authority", "")
+                    if authority not in ("can_execute", "must_escalate", "cannot_execute"):
+                        errors.append(f"api_permissions.endpoints[{i}].authority '{authority}' must be 'can_execute', 'must_escalate', or 'cannot_execute'")
+                    methods = ep.get("methods", ["*"])
+                    if isinstance(methods, list):
+                        for j, m in enumerate(methods):
+                            if m not in valid_methods:
+                                errors.append(f"api_permissions.endpoints[{i}].methods[{j}] '{m}' is not a valid HTTP method")
+                    elif methods is not None:
+                        errors.append(f"api_permissions.endpoints[{i}].methods must be a list")
+
+            invariants_api = api_perms.get("invariants", [])
+            if not isinstance(invariants_api, list):
+                errors.append("api_permissions.invariants must be a list")
+            else:
+                seen_api_inv_ids: set[str] = set()
+                for i, inv in enumerate(invariants_api):
+                    if not isinstance(inv, dict):
+                        errors.append(f"api_permissions.invariants[{i}] must be a dict")
+                        continue
+                    inv_id = inv.get("id", "")
+                    if not inv_id:
+                        errors.append(f"api_permissions.invariants[{i}].id is required")
+                    if inv_id in seen_api_inv_ids:
+                        errors.append(f"Duplicate api_permissions invariant ID: {inv_id}")
+                    seen_api_inv_ids.add(inv_id)
+                    if not inv.get("description"):
+                        errors.append(f"api_permissions.invariants[{i}].description is required")
+                    verdict = inv.get("verdict", "")
+                    if verdict not in ("halt", "warn"):
+                        errors.append(f"api_permissions.invariants[{i}].verdict '{verdict}' must be 'halt' or 'warn'")
+
     # Reasoning config (optional, v1.1+) — only validate when
     # sanna_constitution >= "1.1" (matches parse_constitution gating)
     reasoning = data.get("reasoning")
