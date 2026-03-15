@@ -248,6 +248,99 @@
       },
       "additionalProperties": false
     },
+    "reasoning": {
+      "type": "object",
+      "description": "Reasoning receipt configuration (v1.1+)",
+      "additionalProperties": true
+    },
+    "cli_permissions": {
+      "type": "object",
+      "description": "CLI subprocess governance — which binaries the agent may invoke (v1.2+)",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["strict", "permissive"],
+          "description": "Default policy for unlisted binaries"
+        },
+        "justification_required": {
+          "type": "boolean",
+          "description": "Whether subprocess calls require a justification"
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "binary", "authority"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "binary": {"type": "string", "minLength": 1},
+              "authority": {"type": "string", "enum": ["can_execute", "must_escalate", "cannot_execute"]},
+              "args_patterns": {"type": "array", "items": {"type": "string"}},
+              "reason": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "invariants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "description", "verdict"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "description": {"type": "string", "minLength": 1},
+              "verdict": {"type": "string", "enum": ["halt", "warn"]}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "api_permissions": {
+      "type": "object",
+      "description": "HTTP API governance — which endpoints the agent may call (v1.2+)",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["strict", "permissive"],
+          "description": "Default policy for unlisted endpoints"
+        },
+        "justification_required": {
+          "type": "boolean",
+          "description": "Whether API calls require a justification"
+        },
+        "endpoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "url_pattern", "authority"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "url_pattern": {"type": "string", "minLength": 1},
+              "methods": {"type": "array", "items": {"type": "string"}},
+              "authority": {"type": "string", "enum": ["can_execute", "must_escalate", "cannot_execute"]},
+              "reason": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "invariants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "description", "verdict"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "description": {"type": "string", "minLength": 1},
+              "verdict": {"type": "string", "enum": ["halt", "warn"]}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "policy_hash": {
       "type": ["string", "null"],
       "description": "SHA-256 hash of canonical constitution content (set by sanna-sign-constitution or sanna-hash-constitution)",

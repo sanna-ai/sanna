@@ -74,6 +74,13 @@ def _mock_response(status_code=200, content=b'{"ok":true}', headers=None):
 def cleanup():
     """Ensure HTTP is unpatched after every test."""
     yield
+    # Restore real originals that _mock_orig replaced before unpatch_http
+    # reads from _originals to restore module-level functions.
+    from sanna.interceptors import http_interceptor
+    for key, real_fn in _saved_originals.items():
+        if key in http_interceptor._originals:
+            http_interceptor._originals[key] = real_fn
+    _saved_originals.clear()
     unpatch_http()
 
 
@@ -153,10 +160,20 @@ def _patch_and_mock(sink, constitution=API_TEST_CONSTITUTION, mode="enforce", **
     return http_interceptor
 
 
+_saved_originals: dict = {}
+
+
 def _mock_orig(interceptor, key, response=None):
-    """Replace one original with a mock returning a response."""
+    """Replace one original with a mock returning a response.
+
+    Saves the real original so unpatch_http() can restore the genuine
+    function rather than the mock.
+    """
     if response is None:
         response = _mock_response()
+    # Preserve the real original before overwriting
+    if key not in _saved_originals and key in interceptor._originals:
+        _saved_originals[key] = interceptor._originals[key]
     mock = MagicMock(return_value=response)
     interceptor._originals[key] = mock
     return mock

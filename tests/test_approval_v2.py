@@ -245,6 +245,8 @@ class TestTokenDelivery:
 
         # Redirect home dir to tmp_path so we write to
         # tmp_path/.sanna/pending_tokens.json
+        # Save the real HOME so the downstream MCP process gets a valid env.
+        real_home = os.environ.get("HOME", "")
         sanna_dir = str(tmp_path / "home" / ".sanna")
         tokens_path = os.path.join(sanna_dir, "pending_tokens.json")
         monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -254,6 +256,7 @@ class TestTokenDelivery:
                 server_name="mock",
                 command=sys.executable,
                 args=[mock_server_path],
+                env={"HOME": real_home, "PATH": os.environ.get("PATH", "")},
                 constitution_path=const_path,
                 require_constitution_sig=False,
                 signing_key_path=key_path,
@@ -324,6 +327,7 @@ class TestTokenDelivery:
         """Both file and stderr delivery work together."""
         const_path, key_path, _ = escalation_constitution
 
+        real_home = os.environ.get("HOME", "")
         sanna_dir = str(tmp_path / "home" / ".sanna")
         tokens_path = os.path.join(sanna_dir, "pending_tokens.json")
         monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -333,6 +337,7 @@ class TestTokenDelivery:
                 server_name="mock",
                 command=sys.executable,
                 args=[mock_server_path],
+                env={"HOME": real_home, "PATH": os.environ.get("PATH", "")},
                 constitution_path=const_path,
                 require_constitution_sig=False,
                 signing_key_path=key_path,
