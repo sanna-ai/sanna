@@ -151,4 +151,74 @@ authority_boundaries:
 escalation_targets:
   default: log
 
+# --- CLI Permissions (v1.2+) ---
+# Subprocess governance: which binaries the agent may invoke.
+cli_permissions:
+  mode: permissive
+  justification_required: false
+  commands:
+    - id: CLI_GIT
+      binary: git
+      authority: can_execute
+      args_patterns: ["*"]
+      reason: Git operations are core to the development workflow
+    - id: CLI_NPM
+      binary: npm
+      authority: can_execute
+      args_patterns: ["*"]
+      reason: Package management for Node.js projects
+    - id: CLI_NODE
+      binary: node
+      authority: can_execute
+      args_patterns: ["*"]
+      reason: Running Node.js scripts and tests
+    - id: CLI_PYTHON
+      binary: python
+      authority: can_execute
+      args_patterns: ["*"]
+      reason: Running Python scripts and tests
+    - id: CLI_DOCKER
+      binary: docker
+      authority: must_escalate
+      args_patterns: ["*"]
+      reason: Container operations may affect shared infrastructure
+  invariants:
+    - id: CLI_INV_NO_INSTALL_SCRIPTS
+      description: Do not run install scripts from untrusted packages
+      verdict: warn
+    - id: CLI_INV_NO_SUDO
+      description: Never invoke commands with elevated privileges
+      verdict: halt
+
+# --- API Permissions (v1.2+) ---
+# HTTP governance: which external endpoints the agent may call.
+api_permissions:
+  mode: permissive
+  justification_required: false
+  endpoints:
+    - id: API_LOCALHOST
+      url_pattern: "http://localhost:*/**"
+      methods: ["*"]
+      authority: can_execute
+      reason: Local development servers
+    - id: API_GITHUB
+      url_pattern: "https://api.github.com/**"
+      methods: ["GET"]
+      authority: can_execute
+      reason: Read-only GitHub API access
+    - id: API_GITHUB_WRITE
+      url_pattern: "https://api.github.com/**"
+      methods: ["POST", "PUT", "PATCH", "DELETE"]
+      authority: must_escalate
+      reason: GitHub mutations require approval
+    - id: API_NPM_REGISTRY
+      url_pattern: "https://registry.npmjs.org/**"
+      methods: ["GET"]
+      authority: can_execute
+      reason: Read-only npm registry access
+  invariants:
+    - id: API_INV_NO_CREDENTIAL_LEAK
+      description: Never send credentials or secrets in API request bodies
+      verdict: halt
+
 policy_hash: null

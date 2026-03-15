@@ -395,12 +395,13 @@ class TestRoundTrip:
 class TestBundleCLI:
     def test_create_bundle_cli(self, tmp_path, signed_receipt_path, signed_const_path, keypair):
         import subprocess
+        import sys
         _, pub_path = keypair
         bundle_path = tmp_path / "cli_bundle.zip"
 
         result = subprocess.run(
             [
-                "python", "-m", "sanna.cli",
+                sys.executable, "-m", "sanna.cli",
             ],
             capture_output=True, text=True,
         )

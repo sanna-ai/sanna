@@ -289,7 +289,7 @@ class TestEvaluateAction:
     def test_escalation_action_returns_escalate(self):
         result = json.loads(sanna_evaluate_action(
             action_name="refund",
-            action_params={"amount": 5000, "threshold": 1000},
+            action_params={"amount": 5000, "exceeds": "threshold"},
             constitution_path=WITH_AUTHORITY_CONST,
         ))
 
@@ -520,7 +520,10 @@ def approved_constitution(tmp_path):
     signed = sign_constitution(const, private_key_path=str(author_priv))
     const_path = tmp_path / "approved.yaml"
     save_constitution(signed, const_path)
-    approve_constitution(const_path, approver_priv, "bob@corp.com", "VP Compliance", "1.0")
+    approve_constitution(
+        const_path, approver_priv, "bob@corp.com", "VP Compliance", "1.0",
+        author_public_key_path=str(author_pub),
+    )
 
     return {
         "const_path": str(const_path),

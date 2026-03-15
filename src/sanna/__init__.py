@@ -19,6 +19,7 @@ from .sinks import (
     CloudHTTPSink,
     CompositeSink,
 )
+from .interceptors import patch_subprocess, unpatch_subprocess, patch_http, unpatch_http
 
 __all__ = [
     "__version__",
@@ -38,6 +39,10 @@ __all__ = [
     "NullSink",
     "CloudHTTPSink",
     "CompositeSink",
+    "patch_subprocess",
+    "unpatch_subprocess",
+    "patch_http",
+    "unpatch_http",
 ]
 
 

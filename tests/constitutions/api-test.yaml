@@ -1,0 +1,56 @@
+sanna_constitution: "1.0"
+identity:
+  agent_name: api-test-agent
+  domain: testing
+  description: API interceptor test fixture
+provenance:
+  authored_by: tester@test.com
+  approved_by:
+    - approver@test.com
+  approval_date: "2026-03-14"
+  approval_method: test-approval
+  change_history: []
+boundaries:
+  - id: B001
+    description: Test boundary
+    category: scope
+    severity: info
+trust_tiers:
+  autonomous:
+    - Answer questions
+  requires_approval: []
+  prohibited: []
+halt_conditions: []
+invariants:
+  - id: INV_NO_FABRICATION
+    rule: Do not claim facts absent from provided sources.
+    enforcement: warn
+api_permissions:
+  mode: strict
+  justification_required: true
+  endpoints:
+    - id: api-001
+      url_pattern: "https://api.example.com/*"
+      methods: [GET, POST]
+      authority: can_execute
+      description: "Example API allowed"
+    - id: api-002
+      url_pattern: "https://api.stripe.com/v1/charges"
+      methods: [POST]
+      authority: must_escalate
+      description: "Stripe charges require approval"
+    - id: api-003
+      url_pattern: "https://internal.evil.com/*"
+      methods: ["*"]
+      authority: cannot_execute
+      description: "Blocked domain"
+    - id: api-004
+      url_pattern: "https://api.example.com/admin/*"
+      methods: [DELETE]
+      authority: cannot_execute
+      description: "Admin deletion blocked"
+  invariants:
+    - id: api-inv-001
+      description: "No API keys in URL parameters"
+      pattern: "[?&](api_key|token|secret)="
+      verdict: halt

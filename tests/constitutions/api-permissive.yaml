@@ -1,0 +1,32 @@
+sanna_constitution: "1.0"
+identity:
+  agent_name: api-permissive-agent
+  domain: testing
+  description: API interceptor permissive mode test fixture
+provenance:
+  authored_by: tester@test.com
+  approved_by:
+    - approver@test.com
+  approval_date: "2026-03-14"
+  approval_method: test-approval
+  change_history: []
+boundaries:
+  - id: B001
+    description: Test boundary
+    category: scope
+    severity: info
+trust_tiers:
+  autonomous: []
+  requires_approval: []
+  prohibited: []
+halt_conditions: []
+invariants: []
+api_permissions:
+  mode: permissive
+  justification_required: false
+  endpoints:
+    - id: api-001
+      url_pattern: "https://internal.evil.com/*"
+      methods: ["*"]
+      authority: cannot_execute
+      description: "Blocked domain"
