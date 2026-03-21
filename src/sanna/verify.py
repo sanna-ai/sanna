@@ -296,7 +296,7 @@ def _verify_fingerprint_v013(receipt: dict) -> tuple:
         ]
     else:
         checks_data = [{"check_id": c.get("check_id", ""), "passed": c.get("passed"), "severity": c.get("severity", ""), "evidence": c.get("evidence")} for c in checks]
-    checks_hash = hash_obj(checks_data)
+    checks_hash = hash_obj(checks_data) if checks_data else EMPTY_HASH
 
     constitution_ref = receipt.get("constitution_ref")
     if constitution_ref:
@@ -327,7 +327,7 @@ def _verify_fingerprint_v013(receipt: dict) -> tuple:
     parent_receipts = receipt.get("parent_receipts")
     parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
     workflow_id = receipt.get("workflow_id")
-    workflow_id_hash = hash_text(workflow_id) if workflow_id else EMPTY_HASH
+    workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
 
     # Detect field count: CHECKS_VERSION "6"+ uses 14 fields, "5" uses 12
     try:

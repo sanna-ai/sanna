@@ -543,21 +543,33 @@ def _generate_constitution_receipt(
         enforcement_obj_dict = None
     enforcement_hash_val = hash_obj(enforcement_dict) if enforcement_dict else EMPTY_HASH
 
-    # Build fingerprint from check results (include all enforcement and impl fields)
-    checks_fingerprint_data = [
-        {
-            "check_id": c["check_id"],
-            "passed": c["passed"],
-            "severity": c["severity"],
-            "evidence": c["evidence"],
-            "triggered_by": c.get("triggered_by"),
-            "enforcement_level": c.get("enforcement_level"),
-            "check_impl": c.get("check_impl"),
-            "replayable": c.get("replayable"),
-        }
-        for c in check_results
-    ]
-    checks_hash = hash_obj(checks_fingerprint_data)
+    # Build fingerprint from check results (conditionally include enforcement fields)
+    has_enforcement_fields = any(c.get("triggered_by") is not None for c in check_results)
+    if has_enforcement_fields:
+        checks_fingerprint_data = [
+            {
+                "check_id": c["check_id"],
+                "passed": c["passed"],
+                "severity": c["severity"],
+                "evidence": c["evidence"],
+                "triggered_by": c.get("triggered_by"),
+                "enforcement_level": c.get("enforcement_level"),
+                "check_impl": c.get("check_impl"),
+                "replayable": c.get("replayable"),
+            }
+            for c in check_results
+        ]
+    else:
+        checks_fingerprint_data = [
+            {
+                "check_id": c["check_id"],
+                "passed": c["passed"],
+                "severity": c["severity"],
+                "evidence": c["evidence"],
+            }
+            for c in check_results
+        ]
+    checks_hash = hash_obj(checks_fingerprint_data) if checks_fingerprint_data else EMPTY_HASH
     coverage_hash = hash_obj(evaluation_coverage)
 
     # Unified fingerprint formula (v1.0.0) — always 14 pipe-delimited fields
@@ -572,7 +584,7 @@ def _generate_constitution_receipt(
 
     # Fields 13-14: parent_receipts and workflow_id (v1.0.0)
     parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
-    workflow_id_hash = hash_text(workflow_id) if workflow_id else EMPTY_HASH
+    workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
 
     fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{enforcement_hash_val}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
 
@@ -660,7 +672,7 @@ def _generate_no_invariants_receipt(
 
     # Unified fingerprint formula — always 14 pipe-delimited fields
     correlation_id = trace_data.get("correlation_id", "")
-    checks_hash = hash_obj([])
+    checks_hash = EMPTY_HASH  # Empty checks array → EMPTY_HASH (spec parity)
 
     # Namespace extensions for v0.13.0+
     namespaced_ext = _namespace_extensions(extensions) if extensions else {}
@@ -668,7 +680,7 @@ def _generate_no_invariants_receipt(
 
     # Fields 13-14: parent_receipts and workflow_id (v1.0.0)
     parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
-    workflow_id_hash = hash_text(workflow_id) if workflow_id else EMPTY_HASH
+    workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
 
     fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
 

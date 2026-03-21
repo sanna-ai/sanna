@@ -671,7 +671,7 @@ def generate_receipt(
     if correlation_id and "|" in correlation_id:
         raise ValueError("correlation_id must not contain the pipe character '|'")
     checks_data = [{"check_id": c.check_id, "passed": c.passed, "severity": c.severity, "evidence": c.evidence} for c in checks]
-    checks_hash = hash_obj(checks_data)
+    checks_hash = hash_obj(checks_data) if checks_data else EMPTY_HASH
     coverage_hash = EMPTY_HASH
     authority_hash = EMPTY_HASH
     escalation_hash = EMPTY_HASH
@@ -680,7 +680,7 @@ def generate_receipt(
 
     # Fields 13-14: parent_receipts and workflow_id (v1.0.0)
     parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
-    workflow_id_hash = hash_text(workflow_id) if workflow_id else EMPTY_HASH
+    workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
 
     fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
     full_fp = hash_text(fingerprint_input)

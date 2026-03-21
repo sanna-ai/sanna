@@ -219,20 +219,32 @@ def _apply_redaction_markers(receipt: dict, redaction_fields: list[str]) -> tupl
     checks_version = receipt.get("checks_version", "")
 
     checks = receipt.get("checks", [])
-    checks_data = [
-        {
-            "check_id": c.get("check_id", ""),
-            "passed": c.get("passed"),
-            "severity": c.get("severity", ""),
-            "evidence": c.get("evidence"),
-            "triggered_by": c.get("triggered_by"),
-            "enforcement_level": c.get("enforcement_level"),
-            "check_impl": c.get("check_impl"),
-            "replayable": c.get("replayable"),
-        }
-        for c in checks
-    ]
-    checks_hash = hash_obj(checks_data)
+    has_enforcement_fields = any(c.get("triggered_by") is not None for c in checks)
+    if has_enforcement_fields:
+        checks_data = [
+            {
+                "check_id": c.get("check_id", ""),
+                "passed": c.get("passed"),
+                "severity": c.get("severity", ""),
+                "evidence": c.get("evidence"),
+                "triggered_by": c.get("triggered_by"),
+                "enforcement_level": c.get("enforcement_level"),
+                "check_impl": c.get("check_impl"),
+                "replayable": c.get("replayable"),
+            }
+            for c in checks
+        ]
+    else:
+        checks_data = [
+            {
+                "check_id": c.get("check_id", ""),
+                "passed": c.get("passed"),
+                "severity": c.get("severity", ""),
+                "evidence": c.get("evidence"),
+            }
+            for c in checks
+        ]
+    checks_hash = hash_obj(checks_data) if checks_data else EMPTY_HASH
 
     constitution_ref = receipt.get("constitution_ref")
     if constitution_ref:
@@ -263,7 +275,7 @@ def _apply_redaction_markers(receipt: dict, redaction_fields: list[str]) -> tupl
     parent_receipts = receipt.get("parent_receipts")
     parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
     workflow_id = receipt.get("workflow_id")
-    workflow_id_hash = hash_text(workflow_id) if workflow_id else EMPTY_HASH
+    workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
 
     fingerprint_input = (
         f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}"
