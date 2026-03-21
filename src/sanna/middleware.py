@@ -409,7 +409,7 @@ def _generate_constitution_receipt(
                 )
             else:
                 result = cfg.check_fn(context, final_answer, enforcement=cfg.enforcement_level)
-        except Exception as exc:
+        except Exception as exc:  # Broad catch: custom evaluator code is untrusted
             if cfg.source == "custom_evaluator":
                 if error_policy == "fail_closed":
                     # Fail-closed: treat error as a real failure
@@ -786,7 +786,7 @@ def _run_reasoning_gate(
             "overall_score": evaluation.overall_score,
             "assurance": evaluation.assurance,
         }
-    except Exception as e:
+    except Exception as e:  # Broad catch: reasoning gate must not block function execution
         logger.warning("Pre-execution reasoning gate failed: %s", e)
         return None
 
@@ -824,7 +824,7 @@ async def _run_reasoning_gate_async(
             "overall_score": evaluation.overall_score,
             "assurance": evaluation.assurance,
         }
-    except Exception as e:
+    except Exception as e:  # Broad catch: reasoning gate must not block function execution
         logger.warning("Pre-execution reasoning gate failed: %s", e)
         return None
 
@@ -939,8 +939,8 @@ def sanna_observe(
                     _const_sig = loaded_constitution.provenance.signature if loaded_constitution.provenance else None
                     if _const_sig and getattr(_const_sig, 'key_id', None) == _env_key_id:
                         _effective_pub_key = _env_key
-                except Exception:
-                    pass  # Env var key unreadable — ignore
+                except Exception:  # Broad catch: env var key auto-detection is best-effort
+                    pass
         if not loaded_constitution.policy_hash:
             raise SannaConstitutionError(
                 f"Constitution is not signed (no policy hash): {constitution_path}. "
@@ -1263,14 +1263,14 @@ def sanna_observe(
         if _store_instance is not None:
             try:
                 _store_instance.save(receipt)
-            except Exception:
+            except Exception:  # Broad catch: receipt persistence must not block execution
                 logger.warning("Failed to save receipt to store", exc_info=True)
 
         # 6c. Persist to sink if configured
         if sink is not None:
             try:
                 sink.store(receipt)
-            except Exception:
+            except Exception:  # Broad catch: sink persistence must not block execution
                 logger.warning("Failed to persist receipt to sink", exc_info=True)
 
         # 7. Apply enforcement

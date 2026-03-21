@@ -27,7 +27,7 @@ class CompositeSink(ReceiptSink):
                 stored += result.stored
                 failed += result.failed
                 errors.extend(result.errors)
-            except Exception as e:
+            except Exception as e:  # Broad catch: failure isolation — one sink must not block others
                 failed += 1
                 errors.append(f"{type(sink).__name__}: {e}")
         return SinkResult(stored=stored, failed=failed, errors=tuple(errors))
@@ -40,7 +40,7 @@ class CompositeSink(ReceiptSink):
                 stored += result.stored
                 failed += result.failed
                 errors.extend(result.errors)
-            except Exception as e:
+            except Exception as e:  # Broad catch: failure isolation — one sink must not block others
                 failed += len(receipts)
                 errors.append(f"{type(sink).__name__}: {e}")
         return SinkResult(stored=stored, failed=failed, errors=tuple(errors))
@@ -49,12 +49,12 @@ class CompositeSink(ReceiptSink):
         for sink in self._sinks:
             try:
                 sink.flush()
-            except Exception:
+            except Exception:  # Broad catch: cleanup must not raise
                 pass
 
     def close(self) -> None:
         for sink in self._sinks:
             try:
                 sink.close()
-            except Exception:
+            except Exception:  # Broad catch: cleanup must not raise
                 pass

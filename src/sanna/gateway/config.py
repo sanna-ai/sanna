@@ -691,7 +691,7 @@ def validate_webhook_url(url: str) -> None:
 
     try:
         parsed = urlparse(url)
-    except Exception as exc:
+    except (ValueError, TypeError) as exc:
         raise GatewayConfigError(
             f"Invalid webhook URL: {exc}"
         ) from exc

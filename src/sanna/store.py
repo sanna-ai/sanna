@@ -172,7 +172,7 @@ class ReceiptStore:
 
         try:
             self._init_schema()
-        except Exception:
+        except sqlite3.Error:
             self._conn.close()
             raise
         self._has_json1 = self._detect_json1()
@@ -443,5 +443,5 @@ class ReceiptStore:
     def __del__(self):
         try:
             self.close()
-        except Exception:
+        except Exception:  # Broad catch: __del__ must never raise during GC
             pass

@@ -750,7 +750,7 @@ def main_create_bundle():
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
-    except Exception as e:
+    except Exception as e:  # Broad catch: CLI must show clean error, not traceback
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
@@ -815,7 +815,7 @@ def main_verify_bundle():
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
-    except Exception as e:
+    except Exception as e:  # Broad catch: CLI must show clean error, not traceback
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
@@ -947,7 +947,7 @@ def diff_cmd():
     except FileNotFoundError:
         print(f"Error: File not found: {args.old}", file=sys.stderr)
         return 1
-    except Exception as e:
+    except Exception as e:  # Broad catch: CLI must show clean error, not traceback
         print(f"Error loading old constitution: {e}", file=sys.stderr)
         return 1
 
@@ -956,7 +956,7 @@ def diff_cmd():
     except FileNotFoundError:
         print(f"Error: File not found: {args.new}", file=sys.stderr)
         return 1
-    except Exception as e:
+    except Exception as e:  # Broad catch: CLI must show clean error, not traceback
         print(f"Error loading new constitution: {e}", file=sys.stderr)
         return 1
 
@@ -1374,7 +1374,7 @@ def main_check_config():
                             warnings_list.append("Constitution is hashed but NOT Ed25519 signed")
                     else:
                         warnings_list.append("Constitution has no policy_hash (unsigned)")
-                except Exception as e:
+                except Exception as e:  # Broad catch: config validation reports all errors
                     errors.append(f"Constitution load error: {e}")
             else:
                 errors.append(f"Constitution file not found: {resolved}")

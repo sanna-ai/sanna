@@ -30,7 +30,7 @@ class LocalSQLiteSink(ReceiptSink):
         try:
             self._store.save(receipt)
             return SinkResult(stored=1)
-        except Exception as e:
+        except Exception as e:  # Broad catch: policy-driven — FailurePolicy controls raise vs. log
             msg = f"LocalSQLiteSink: {e}"
             logger.warning(msg)
             if self._failure_policy == FailurePolicy.RAISE:

@@ -786,7 +786,7 @@ def _verify_approval_chain(
                     valid = verify_signature(data, record.approval_signature, pub_key)
                     if not valid:
                         errors.append("Approval signature verification FAILED")
-                except Exception as e:
+                except (ValueError, TypeError, OSError) as e:
                     errors.append(f"Approval signature verification error: {e}")
         elif record.status == "approved" and record.approval_signature:
             warnings.append(

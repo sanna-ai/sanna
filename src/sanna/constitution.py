@@ -1684,7 +1684,7 @@ def verify_identity_claims(
                     status="failed",
                     detail="Signature verification failed",
                 ))
-        except Exception as exc:
+        except (ValueError, TypeError, OSError) as exc:
             results.append(IdentityVerificationResult(
                 claim=claim,
                 status="failed",

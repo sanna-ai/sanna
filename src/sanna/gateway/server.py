@@ -499,7 +499,7 @@ class EscalationStore:
                             )
                         if self._persist_path:
                             await self._save_to_disk_async()
-                except Exception:
+                except Exception:  # Broad catch: background purge must not crash gateway
                     logger.warning(
                         "Escalation purge/persist cycle failed",
                         exc_info=True,
@@ -1643,7 +1643,7 @@ class SannaGateway:
         try:
             from sanna.gateway.config import validate_webhook_url
             validate_webhook_url(self._approval_webhook_url)
-        except Exception as exc:
+        except Exception as exc:  # Broad catch: import + validation from config module
             logger.warning(
                 "Webhook URL re-validation failed for %s: %s — not sending",
                 entry.escalation_id,
@@ -1688,7 +1688,7 @@ class SannaGateway:
                 entry.escalation_id,
                 exc,
             )
-        except Exception as exc:
+        except Exception as exc:  # Broad catch: webhook delivery must not crash gateway
             logger.warning(
                 "Webhook delivery error for %s: %s",
                 entry.escalation_id,
@@ -1732,7 +1732,7 @@ class SannaGateway:
             )
             try:
                 await ds_state.connection.connect()
-            except Exception as e:
+            except Exception as e:  # Broad catch: downstream MCP connection errors are varied
                 if spec.optional:
                     logger.warning(
                         "Optional downstream '%s' failed to connect: "
@@ -1794,7 +1794,7 @@ class SannaGateway:
                         _const_sig = self._constitution.provenance.signature if self._constitution.provenance else None
                         if _const_sig and getattr(_const_sig, 'key_id', None) == _env_key_id:
                             self._constitution_public_key_path = _env_key
-                    except Exception:
+                    except Exception:  # Broad catch: env var key auto-detection is best-effort
                         pass
 
             # Reject constitutions that are hashed but not Ed25519-signed (always enforced)
@@ -2109,7 +2109,7 @@ class SannaGateway:
             await ds_state.connection.reconnect()
             self._rebuild_tool_map_for(ds_state)
             return True
-        except Exception as e:
+        except Exception as e:  # Broad catch: downstream reconnect errors are varied
             logger.error(
                 "Downstream '%s' restart failed: %s",
                 ds_state.spec.name, e,
@@ -2171,7 +2171,7 @@ class SannaGateway:
         """
         try:
             await ds_state.connection.list_tools()
-        except Exception as e:
+        except Exception as e:  # Broad catch: probe failure reopens circuit
             # Probe failed: reopen circuit
             ds_state.circuit_state = CircuitState.OPEN
             ds_state.circuit_opened_at = datetime.now(timezone.utc)
@@ -2235,7 +2235,7 @@ class SannaGateway:
             try:
                 self._sink.store(receipt)
                 logger.debug("Receipt persisted via sink")
-            except Exception as e:
+            except Exception as e:  # Broad catch: sink persistence must not block receipt generation
                 logger.error("Sink persistence failed: %s", e)
             return
 
@@ -2510,7 +2510,7 @@ class SannaGateway:
                             enforcement_level=decision.boundary_type,
                         )
                     )
-                except Exception:
+                except Exception:  # Broad catch: reasoning evaluator must not block enforcement
                     logger.exception(
                         "Reasoning evaluator error for %s", original_name,
                     )
@@ -3002,7 +3002,7 @@ class SannaGateway:
                             enforcement_level="must_escalate",
                         )
                     )
-                except Exception:
+                except Exception:  # Broad catch: reasoning evaluator must not block enforcement
                     logger.exception(
                         "Reasoning evaluator error for %s (deferred)",
                         entry.original_name,
@@ -3101,7 +3101,7 @@ class SannaGateway:
             tool_result = await ds_state.connection.call_tool(
                 entry.original_name, forward_args,
             )
-        except Exception:
+        except Exception:  # Broad catch: mark escalation failed before re-raising
             await self._escalation_store.mark_status_async(escalation_id, "failed")
             raise
         # Block F: crash recovery

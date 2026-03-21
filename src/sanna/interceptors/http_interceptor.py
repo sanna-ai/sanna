@@ -338,7 +338,7 @@ def _emit_http_receipt(
     constitution_ref = None
     try:
         constitution_ref = constitution_to_receipt_ref(_http_state["constitution"])
-    except Exception:
+    except Exception:  # Broad catch: constitution_ref is optional metadata
         logger.debug("Could not build constitution_ref", exc_info=True)
 
     receipt_extensions = {
@@ -384,7 +384,7 @@ def _emit_http_receipt(
         result = _http_state["sink"].store(receipt_dict)
         if not result.ok:
             logger.warning("Receipt sink reported failures: %s", result.errors)
-    except Exception:
+    except Exception:  # Broad catch: sink persistence must not block intercepted operation
         logger.warning("Failed to persist HTTP receipt", exc_info=True)
 
     return receipt.receipt_fingerprint

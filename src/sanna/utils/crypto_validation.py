@@ -34,5 +34,5 @@ def is_valid_signature_structure(sig) -> bool:
     try:
         decoded = base64.b64decode(value, validate=True)
         return len(decoded) == ED25519_SIGNATURE_LENGTH
-    except Exception:
+    except (ValueError, TypeError):
         return False
