@@ -17,6 +17,7 @@ from __future__ import annotations
 import errno
 import logging
 import os
+import shlex
 import subprocess
 import uuid
 from dataclasses import asdict
@@ -166,14 +167,46 @@ def unpatch_subprocess() -> None:
 # COMMAND PARSING
 # =============================================================================
 
+def _is_shell_mode(args, kwargs):
+    """Detect if the subprocess call uses shell=True."""
+    return kwargs.get("shell", False)
+
+
+# Shell metacharacters that indicate command chaining or injection.
+_SHELL_METACHAR_RE = None
+
+
+def _get_shell_metachar_re():
+    global _SHELL_METACHAR_RE
+    if _SHELL_METACHAR_RE is None:
+        import re
+        # Matches: ; | & ` $( ) || && and backticks
+        _SHELL_METACHAR_RE = re.compile(r'[;|&`$]')
+    return _SHELL_METACHAR_RE
+
+
 def _resolve_command(args, kwargs):
     """Extract binary name and argv from subprocess arguments.
 
     Returns (binary_name, argv, raw_cmd).
+
+    When shell=True with a string command, uses shlex.split() for proper
+    tokenization that respects quoting, and detects shell metacharacters
+    (pipes, semicolons, &&, ||, backticks, $()) that could chain commands.
     """
     cmd = args[0] if args else kwargs.get("args", [])
+    shell_mode = _is_shell_mode(args, kwargs)
+
     if isinstance(cmd, str):
-        parts = cmd.split()
+        if shell_mode:
+            # Use shlex for proper shell tokenization
+            try:
+                parts = shlex.split(cmd)
+            except ValueError:
+                # Malformed quoting — treat entire string as the command
+                parts = [cmd]
+        else:
+            parts = cmd.split()
         binary = parts[0] if parts else ""
         argv = parts[1:]
     else:
@@ -183,6 +216,51 @@ def _resolve_command(args, kwargs):
 
     binary_name = os.path.basename(binary)
     return binary_name, argv, cmd
+
+
+def _check_shell_chaining(cmd_str: str, constitution) -> None:
+    """Detect shell command chaining and evaluate each chained command.
+
+    When shell=True, the shell interprets metacharacters like ;, |, &&, ||,
+    backticks, and $() which can chain multiple commands. We split on these
+    operators and evaluate each sub-command against the constitution.
+
+    Raises FileNotFoundError if any chained command would be halted.
+    """
+    import re
+    # Split on shell operators: ;, |, ||, &&, `, $()
+    # This is conservative — we split and check each piece
+    sub_commands = re.split(r'\s*(?:;|\|\||&&|\|)\s*', cmd_str)
+    # Also handle $() and backtick substitutions
+    subst_re = re.compile(r'\$\(([^)]+)\)|`([^`]+)`')
+    for match in subst_re.finditer(cmd_str):
+        inner = match.group(1) or match.group(2)
+        sub_commands.append(inner.strip())
+
+    for sub_cmd in sub_commands:
+        sub_cmd = sub_cmd.strip()
+        if not sub_cmd:
+            continue
+        try:
+            parts = shlex.split(sub_cmd)
+        except ValueError:
+            parts = sub_cmd.split()
+        if not parts:
+            continue
+        sub_binary = os.path.basename(parts[0])
+        sub_argv = parts[1:]
+        decision = evaluate_cli_authority(sub_binary, sub_argv, constitution)
+        if decision.decision == "halt":
+            raise FileNotFoundError(
+                errno.ENOENT,
+                os.strerror(errno.ENOENT),
+                sub_binary,
+            )
+        if decision.decision == "escalate":
+            raise PermissionError(
+                f"Escalation required for chained command '{sub_binary}': "
+                f"{decision.reason}"
+            )
 
 
 def _build_input_obj(binary_name: str, argv: list, kwargs: dict) -> dict:
@@ -442,6 +520,11 @@ def _patched_run(*args, **kwargs):
     # 4. Evaluate authority
     decision = evaluate_cli_authority(binary_name, argv, _state["constitution"])
 
+    # 4a. Shell chaining check: when shell=True with a string command,
+    # evaluate each chained sub-command (;, |, &&, ||, $(), backticks)
+    if _is_shell_mode(args, kwargs) and isinstance(raw_cmd, str):
+        _check_shell_chaining(raw_cmd, _state["constitution"])
+
     # 5. Enforce (may raise)
     _enforce_decision(decision, binary_name, argv, cwd, input_hash, reasoning_hash, justification)
 
@@ -498,6 +581,8 @@ def _patched_call(*args, **kwargs):
     cwd = input_obj["cwd"]
 
     decision = evaluate_cli_authority(binary_name, argv, _state["constitution"])
+    if _is_shell_mode(args, kwargs) and isinstance(raw_cmd, str):
+        _check_shell_chaining(raw_cmd, _state["constitution"])
     _enforce_decision(decision, binary_name, argv, cwd, input_hash, reasoning_hash, justification)
 
     with _restore_originals():
@@ -541,6 +626,8 @@ def _patched_check_call(*args, **kwargs):
     cwd = input_obj["cwd"]
 
     decision = evaluate_cli_authority(binary_name, argv, _state["constitution"])
+    if _is_shell_mode(args, kwargs) and isinstance(raw_cmd, str):
+        _check_shell_chaining(raw_cmd, _state["constitution"])
     _enforce_decision(decision, binary_name, argv, cwd, input_hash, reasoning_hash, justification)
 
     with _restore_originals():
@@ -583,6 +670,8 @@ def _patched_check_output(*args, **kwargs):
     cwd = input_obj["cwd"]
 
     decision = evaluate_cli_authority(binary_name, argv, _state["constitution"])
+    if _is_shell_mode(args, kwargs) and isinstance(raw_cmd, str):
+        _check_shell_chaining(raw_cmd, _state["constitution"])
     _enforce_decision(decision, binary_name, argv, cwd, input_hash, reasoning_hash, justification)
 
     with _restore_originals():
@@ -641,6 +730,10 @@ class _PatchedPopen:
             self._binary_name, self._argv, _state["constitution"]
         )
         self._decision = decision
+
+        # Shell chaining check for Popen(shell=True)
+        if _is_shell_mode(args, kwargs) and isinstance(self._raw_cmd, str):
+            _check_shell_chaining(self._raw_cmd, _state["constitution"])
 
         # Enforce (may raise FileNotFoundError or PermissionError)
         _enforce_decision(
@@ -767,9 +860,12 @@ class _PatchedPopen:
 
 def _patched_os_system(command):
     """Intercepted os.system with governance enforcement."""
-    # os.system takes a string command
+    # os.system always invokes shell — parse with shlex and check chaining
     if isinstance(command, str):
-        parts = command.split()
+        try:
+            parts = shlex.split(command)
+        except ValueError:
+            parts = command.split()
         binary = parts[0] if parts else ""
         argv = parts[1:]
     else:
@@ -791,6 +887,10 @@ def _patched_os_system(command):
     reasoning_hash = EMPTY_HASH  # os.system has no justification mechanism
 
     decision = evaluate_cli_authority(binary_name, argv, _state["constitution"])
+
+    # os.system always uses shell — check all chained commands
+    if isinstance(command, str):
+        _check_shell_chaining(command, _state["constitution"])
 
     if decision.decision == "halt" and _state["mode"] == "enforce":
         action_obj = {"exit_code": None, "stderr": "", "stdout": ""}
