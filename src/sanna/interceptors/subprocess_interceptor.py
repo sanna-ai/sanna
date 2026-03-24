@@ -395,6 +395,112 @@ def _check_shell_chaining(cmd_str: str, constitution) -> None:
             )
 
 
+# Script file extensions that indicate interpretable scripts.
+_SCRIPT_EXTENSIONS = frozenset({
+    ".sh", ".bash", ".zsh", ".fish",
+    ".py", ".rb", ".pl", ".perl",
+})
+
+# Maximum bytes to read from a script file for inspection.
+_SCRIPT_INSPECT_LIMIT = 8192
+
+
+def _inspect_script_content(
+    resolved_path: Optional[str],
+    constitution,
+) -> list[str]:
+    """Best-effort script content inspection for wrapper script bypass detection.
+
+    Reads the first 8KB of a script file and checks for blocked command patterns
+    from the constitution's cannot_execute list.
+
+    Best-effort detection. Will NOT catch: obfuscated commands, variable expansion
+    ($CMD), aliases, dynamically constructed commands, commands beyond the 8KB
+    inspection window, or binary executables that invoke blocked commands.
+
+    Args:
+        resolved_path: Absolute path to the binary being executed.
+        constitution: Loaded constitution object.
+
+    Returns:
+        List of blocked command basenames found in the script, or empty list if
+        the file is clean, not a script, or cannot be read.
+    """
+    if resolved_path is None:
+        return []
+
+    cli_perms = getattr(constitution, "cli_permissions", None)
+    if cli_perms is None:
+        return []
+
+    if not cli_perms.inspect_scripts:
+        return []
+
+    # Determine if the target is a script by extension or shebang.
+    path_obj = Path(resolved_path)
+
+    # Check extension first (cheapest check).
+    is_script = path_obj.suffix.lower() in _SCRIPT_EXTENSIONS
+
+    if not is_script:
+        # Check for shebang: read first 2 bytes.
+        try:
+            fd = os.open(resolved_path, os.O_RDONLY | os.O_NOFOLLOW)
+        except (OSError, IOError):
+            return []
+        try:
+            header = os.read(fd, 2)
+        finally:
+            os.close(fd)
+        if header == b"#!":
+            is_script = True
+
+    if not is_script:
+        return []
+
+    # Read script content (up to limit).
+    try:
+        fd = os.open(resolved_path, os.O_RDONLY | os.O_NOFOLLOW)
+    except (OSError, IOError):
+        return []
+    try:
+        content_bytes = os.read(fd, _SCRIPT_INSPECT_LIMIT)
+    finally:
+        os.close(fd)
+
+    try:
+        content = content_bytes.decode("utf-8", errors="replace")
+    except Exception:
+        return []
+
+    # Build set of blocked basenames from cannot_execute commands.
+    blocked_basenames: set[str] = set()
+    for cmd in cli_perms.commands:
+        if cmd.authority == "cannot_execute":
+            blocked_basenames.add(cmd.binary)
+
+    if not blocked_basenames:
+        return []
+
+    # Tokenize script content: split on whitespace, semicolons, pipes,
+    # ampersands, parentheses, backticks, quotes, and newlines.
+    import re
+    tokens = re.split(r'[\s;|&()`\n"\']+', content)
+
+    # Check each token's basename against blocked commands.
+    found: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        if not token:
+            continue
+        basename = os.path.basename(token)
+        if basename in blocked_basenames and basename not in seen:
+            found.append(basename)
+            seen.add(basename)
+
+    return found
+
+
 def _build_input_obj(binary_name: str, argv: list, kwargs: dict) -> dict:
     """Build the canonical input object for input_hash computation.
 
@@ -620,6 +726,33 @@ def _compute_action_hash(result) -> str:
     return hash_obj(action_obj)
 
 
+def _maybe_inspect_script(
+    decision: CliAuthorityDecision,
+    resolved_path: Optional[str],
+) -> CliAuthorityDecision:
+    """If authority allows, inspect script content for blocked commands.
+
+    Returns the original decision if inspection is disabled, the file is not
+    a script, or no blocked commands are found. Returns a halt decision if
+    blocked commands are detected inside the script.
+    """
+    if decision.decision != "allow":
+        return decision
+
+    found = _inspect_script_content(resolved_path, _state["constitution"])
+    if not found:
+        return decision
+
+    return CliAuthorityDecision(
+        decision="halt",
+        reason=(
+            f"Script '{os.path.basename(resolved_path or '')}' contains "
+            f"blocked command(s): {', '.join(found)}"
+        ),
+        rule_id="script_content_inspection",
+    )
+
+
 def _determine_event_type(decision: CliAuthorityDecision) -> str:
     """Determine the event_type for a completed (non-halted) invocation."""
     mode = _state["mode"]
@@ -656,6 +789,9 @@ def _patched_run(*args, **kwargs):
     # evaluate each chained sub-command (;, |, &&, ||, $(), backticks)
     if _is_shell_mode(args, kwargs) and isinstance(raw_cmd, str):
         _check_shell_chaining(raw_cmd, _state["constitution"])
+
+    # 4b. Script content inspection (opt-in via inspect_scripts)
+    decision = _maybe_inspect_script(decision, resolved_path)
 
     # 5. Enforce (may raise)
     _enforce_decision(decision, binary_name, argv, cwd, input_hash, reasoning_hash, justification)
@@ -717,6 +853,7 @@ def _patched_call(*args, **kwargs):
     decision = evaluate_cli_authority(binary_name, argv, _state["constitution"])
     if _is_shell_mode(args, kwargs) and isinstance(raw_cmd, str):
         _check_shell_chaining(raw_cmd, _state["constitution"])
+    decision = _maybe_inspect_script(decision, resolved_path)
     _enforce_decision(decision, binary_name, argv, cwd, input_hash, reasoning_hash, justification)
 
     resolved_args, resolved_kwargs = _substitute_resolved_path(args, kwargs, resolved_path)
@@ -763,6 +900,7 @@ def _patched_check_call(*args, **kwargs):
     decision = evaluate_cli_authority(binary_name, argv, _state["constitution"])
     if _is_shell_mode(args, kwargs) and isinstance(raw_cmd, str):
         _check_shell_chaining(raw_cmd, _state["constitution"])
+    decision = _maybe_inspect_script(decision, resolved_path)
     _enforce_decision(decision, binary_name, argv, cwd, input_hash, reasoning_hash, justification)
 
     resolved_args, resolved_kwargs = _substitute_resolved_path(args, kwargs, resolved_path)
@@ -808,6 +946,7 @@ def _patched_check_output(*args, **kwargs):
     decision = evaluate_cli_authority(binary_name, argv, _state["constitution"])
     if _is_shell_mode(args, kwargs) and isinstance(raw_cmd, str):
         _check_shell_chaining(raw_cmd, _state["constitution"])
+    decision = _maybe_inspect_script(decision, resolved_path)
     _enforce_decision(decision, binary_name, argv, cwd, input_hash, reasoning_hash, justification)
 
     resolved_args, resolved_kwargs = _substitute_resolved_path(args, kwargs, resolved_path)
@@ -871,6 +1010,10 @@ class _PatchedPopen:
         # Shell chaining check for Popen(shell=True)
         if _is_shell_mode(args, kwargs) and isinstance(self._raw_cmd, str):
             _check_shell_chaining(self._raw_cmd, _state["constitution"])
+
+        # Script content inspection (opt-in via inspect_scripts)
+        decision = _maybe_inspect_script(decision, resolved_path)
+        self._decision = decision
 
         # Enforce (may raise FileNotFoundError or PermissionError)
         _enforce_decision(
@@ -1037,6 +1180,9 @@ def _patched_os_system(command):
     # os.system always uses shell — check all chained commands
     if isinstance(command, str):
         _check_shell_chaining(command, _state["constitution"])
+
+    # Script content inspection (opt-in via inspect_scripts)
+    decision = _maybe_inspect_script(decision, resolved_path)
 
     if decision.decision == "halt" and _state["mode"] == "enforce":
         action_obj = {"exit_code": None, "stderr": "", "stdout": ""}
