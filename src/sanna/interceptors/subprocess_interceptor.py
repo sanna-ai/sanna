@@ -2,7 +2,7 @@
 
 Enforces governance on CLI subprocess invocations by intercepting calls to
 subprocess.run, subprocess.Popen, subprocess.call, subprocess.check_call,
-subprocess.check_output, and os.system.
+subprocess.check_output, os.system, os.exec*, os.spawn*, and os.popen.
 
 Each intercepted call:
 1. Extracts binary name and argv
@@ -47,6 +47,7 @@ logger = logging.getLogger("sanna.interceptor.subprocess")
 _state: dict = {}
 _originals: dict = {}
 _patched: bool = False
+_patched_os_funcs: dict = {}  # Maps "os.<name>" to patched function for re-application
 
 
 class _restore_originals:
@@ -73,6 +74,13 @@ class _restore_originals:
             subprocess.check_output = _patched_check_output
             subprocess.Popen = _PatchedPopen
             os.system = _patched_os_system
+            # Re-apply os.exec*/spawn*/popen patches
+            for key in _originals:
+                if key.startswith("os.") and key != "os.system":
+                    attr_name = key.split(".", 1)[1]
+                    patched_fn = _patched_os_funcs.get(key)
+                    if patched_fn is not None:
+                        setattr(os, attr_name, patched_fn)
         return False
 
 
@@ -141,11 +149,41 @@ def patch_subprocess(
     subprocess.Popen = _PatchedPopen
     os.system = _patched_os_system
 
+    # Patch os.exec* family (platform-aware)
+    _exec_names = [
+        "execv", "execve", "execvp", "execvpe",
+        "execl", "execle", "execlp", "execlpe",
+    ]
+    for name in _exec_names:
+        if hasattr(os, name):
+            _originals[f"os.{name}"] = getattr(os, name)
+            patched_fn = _make_patched_exec(name)
+            _patched_os_funcs[f"os.{name}"] = patched_fn
+            setattr(os, name, patched_fn)
+
+    # Patch os.spawn* family (platform-aware)
+    _spawn_names = [
+        "spawnl", "spawnle", "spawnlp", "spawnlpe",
+        "spawnv", "spawnve", "spawnvp", "spawnvpe",
+    ]
+    for name in _spawn_names:
+        if hasattr(os, name):
+            _originals[f"os.{name}"] = getattr(os, name)
+            patched_fn = _make_patched_spawn(name)
+            _patched_os_funcs[f"os.{name}"] = patched_fn
+            setattr(os, name, patched_fn)
+
+    # Patch os.popen
+    if hasattr(os, "popen"):
+        _originals["os.popen"] = os.popen
+        _patched_os_funcs["os.popen"] = _patched_os_popen
+        os.popen = _patched_os_popen
+
     _patched = True
 
 
 def unpatch_subprocess() -> None:
-    """Restore all original subprocess and os.system functions."""
+    """Restore all original subprocess, os.system, os.exec*, os.spawn*, and os.popen functions."""
     global _patched
 
     if not _patched:
@@ -158,8 +196,15 @@ def unpatch_subprocess() -> None:
     subprocess.check_output = _originals["subprocess.check_output"]
     os.system = _originals["os.system"]
 
+    # Restore os.exec*, os.spawn*, os.popen
+    for key, orig in _originals.items():
+        if key.startswith("os.") and key != "os.system":
+            attr_name = key.split(".", 1)[1]
+            setattr(os, attr_name, orig)
+
     _originals.clear()
     _state.clear()
+    _patched_os_funcs.clear()
     _patched = False
 
 
@@ -956,3 +1001,361 @@ def _patched_os_system(command):
     )
 
     return retcode
+
+
+# =============================================================================
+# PATCHED OS.EXEC* FAMILY
+# =============================================================================
+
+def _parse_exec_args(name: str, args):
+    """Parse os.exec* arguments into (binary, argv).
+
+    The "l" variants pass args as individual parameters.
+    The "v" variants pass args as a list.
+    The "e" variants have an env dict as the last arg (for "l") or third arg (for "v").
+    The "p" variants use PATH lookup (no effect on parsing).
+
+    Returns (binary, argv).
+    """
+    # All exec variants: first positional arg is the path/file
+    path_or_file = args[0]
+
+    if "v" in name:
+        # execv(path, args), execve(path, args, env), execvp(file, args), execvpe(file, args, env)
+        argv = list(args[1])
+    else:
+        # execl(path, arg0, ...), execle(path, arg0, ..., env),
+        # execlp(file, arg0, ...), execlpe(file, arg0, ..., env)
+        remaining = args[1:]
+        if name.endswith("e"):
+            # Last argument is the env dict
+            argv = list(remaining[:-1])
+        else:
+            argv = list(remaining)
+
+    binary = os.path.basename(str(path_or_file))
+    return binary, argv
+
+
+def _make_patched_exec(name: str):
+    """Create a patched version of os.exec* function.
+
+    os.exec* replaces the current process — receipt MUST be generated before
+    calling the original. There is no return value to capture.
+    """
+
+    def patched_exec(*args, **kwargs):
+        binary, argv = _parse_exec_args(name, args)
+
+        input_obj = {
+            "args": argv,
+            "command": binary,
+            "cwd": os.getcwd(),
+            "env_keys": sorted(os.environ.keys()),
+        }
+        input_hash = hash_obj(input_obj)
+        reasoning_hash = EMPTY_HASH  # exec has no justification mechanism
+
+        decision = evaluate_cli_authority(binary, argv, _state["constitution"])
+
+        # Enforce (may raise)
+        if decision.decision == "halt" and _state["mode"] == "enforce":
+            action_obj = {"exit_code": None, "stderr": "", "stdout": ""}
+            action_hash = hash_obj(action_obj)
+            _emit_receipt(
+                event_type="cli_invocation_halted",
+                context_limitation="cli_execution",
+                input_hash=input_hash,
+                reasoning_hash=reasoning_hash,
+                action_hash=action_hash,
+                decision=decision,
+                binary_name=binary,
+                argv=argv,
+                cwd=os.getcwd(),
+                justification=None,
+                extensions={"capture_limitation": f"os.{name}"},
+            )
+            raise FileNotFoundError(
+                errno.ENOENT,
+                os.strerror(errno.ENOENT),
+                binary,
+            )
+
+        if decision.decision == "escalate" and _state["mode"] == "enforce":
+            action_obj = {"exit_code": None, "stderr": "", "stdout": ""}
+            action_hash = hash_obj(action_obj)
+            _emit_receipt(
+                event_type="cli_invocation_escalated",
+                context_limitation="cli_execution",
+                input_hash=input_hash,
+                reasoning_hash=reasoning_hash,
+                action_hash=action_hash,
+                decision=decision,
+                binary_name=binary,
+                argv=argv,
+                cwd=os.getcwd(),
+                justification=None,
+                extensions={"capture_limitation": f"os.{name}"},
+            )
+            raise PermissionError(f"Escalation required: {decision.reason}")
+
+        # Emit receipt BEFORE exec (process will be replaced, no return)
+        action_obj = {"exit_code": None, "stderr": "", "stdout": ""}
+        action_hash = hash_obj(action_obj)
+        event_type = _determine_event_type(decision)
+
+        _emit_receipt(
+            event_type=event_type,
+            context_limitation="cli_execution",
+            input_hash=input_hash,
+            reasoning_hash=reasoning_hash,
+            action_hash=action_hash,
+            decision=decision,
+            binary_name=binary,
+            argv=argv,
+            cwd=os.getcwd(),
+            justification=None,
+            extensions={"capture_limitation": f"os.{name}", "pre_exec_receipt": True},
+        )
+
+        # Call original — this replaces the process on success and never returns
+        with _restore_originals():
+            return _originals[f"os.{name}"](*args, **kwargs)
+
+    patched_exec.__name__ = f"_patched_os_{name}"
+    patched_exec.__qualname__ = f"_patched_os_{name}"
+    return patched_exec
+
+
+# =============================================================================
+# PATCHED OS.SPAWN* FAMILY
+# =============================================================================
+
+def _parse_spawn_args(name: str, args):
+    """Parse os.spawn* arguments into (mode, binary, argv).
+
+    All spawn variants: first arg is mode (P_WAIT/P_NOWAIT), second is path/file.
+    The "l" variants pass args as individual parameters after path.
+    The "v" variants pass args as a list.
+    The "e" variants have an env dict.
+
+    Returns (mode, binary, argv).
+    """
+    mode = args[0]
+    path_or_file = args[1]
+
+    if "v" in name:
+        # spawnv(mode, path, args), spawnve(mode, path, args, env), etc.
+        argv = list(args[2])
+    else:
+        # spawnl(mode, path, arg0, ...), spawnle(mode, path, arg0, ..., env), etc.
+        remaining = args[2:]
+        if name.endswith("e"):
+            # Last argument is the env dict
+            argv = list(remaining[:-1])
+        else:
+            argv = list(remaining)
+
+    binary = os.path.basename(str(path_or_file))
+    return mode, binary, argv
+
+
+def _make_patched_spawn(name: str):
+    """Create a patched version of os.spawn* function.
+
+    os.spawn* runs a child process and returns exit status (P_WAIT) or PID (P_NOWAIT).
+    """
+
+    def patched_spawn(*args, **kwargs):
+        mode, binary, argv = _parse_spawn_args(name, args)
+
+        input_obj = {
+            "args": argv,
+            "command": binary,
+            "cwd": os.getcwd(),
+            "env_keys": sorted(os.environ.keys()),
+        }
+        input_hash = hash_obj(input_obj)
+        reasoning_hash = EMPTY_HASH  # spawn has no justification mechanism
+        cwd = os.getcwd()
+
+        decision = evaluate_cli_authority(binary, argv, _state["constitution"])
+
+        # Enforce (may raise)
+        if decision.decision == "halt" and _state["mode"] == "enforce":
+            action_obj = {"exit_code": None, "stderr": "", "stdout": ""}
+            action_hash = hash_obj(action_obj)
+            _emit_receipt(
+                event_type="cli_invocation_halted",
+                context_limitation="cli_execution",
+                input_hash=input_hash,
+                reasoning_hash=reasoning_hash,
+                action_hash=action_hash,
+                decision=decision,
+                binary_name=binary,
+                argv=argv,
+                cwd=cwd,
+                justification=None,
+                extensions={"capture_limitation": f"os.{name}"},
+            )
+            raise FileNotFoundError(
+                errno.ENOENT,
+                os.strerror(errno.ENOENT),
+                binary,
+            )
+
+        if decision.decision == "escalate" and _state["mode"] == "enforce":
+            action_obj = {"exit_code": None, "stderr": "", "stdout": ""}
+            action_hash = hash_obj(action_obj)
+            _emit_receipt(
+                event_type="cli_invocation_escalated",
+                context_limitation="cli_execution",
+                input_hash=input_hash,
+                reasoning_hash=reasoning_hash,
+                action_hash=action_hash,
+                decision=decision,
+                binary_name=binary,
+                argv=argv,
+                cwd=cwd,
+                justification=None,
+                extensions={"capture_limitation": f"os.{name}"},
+            )
+            raise PermissionError(f"Escalation required: {decision.reason}")
+
+        # Execute
+        with _restore_originals():
+            result = _originals[f"os.{name}"](*args, **kwargs)
+
+        # result is exit status (P_WAIT) or PID (P_NOWAIT)
+        # For P_WAIT, treat as exit_code; for P_NOWAIT, it's a PID (not an exit code)
+        exit_code = result if mode == getattr(os, "P_WAIT", 0) else None
+        action_obj = {"exit_code": exit_code, "stderr": "", "stdout": ""}
+        action_hash = hash_obj(action_obj)
+
+        event_type = _determine_event_type(decision)
+
+        _emit_receipt(
+            event_type=event_type,
+            context_limitation="cli_execution",
+            input_hash=input_hash,
+            reasoning_hash=reasoning_hash,
+            action_hash=action_hash,
+            decision=decision,
+            binary_name=binary,
+            argv=argv,
+            cwd=cwd,
+            justification=None,
+            extensions={"capture_limitation": f"os.{name}"},
+        )
+
+        return result
+
+    patched_spawn.__name__ = f"_patched_os_{name}"
+    patched_spawn.__qualname__ = f"_patched_os_{name}"
+    return patched_spawn
+
+
+# =============================================================================
+# PATCHED OS.POPEN
+# =============================================================================
+
+def _patched_os_popen(cmd, mode="r", buffering=-1):
+    """Intercepted os.popen with governance enforcement.
+
+    os.popen runs a shell command and returns a file object.
+    Similar to os.system: cmd is always a string, always uses shell.
+    """
+    if isinstance(cmd, str):
+        try:
+            parts = shlex.split(cmd)
+        except ValueError:
+            parts = cmd.split()
+        binary = parts[0] if parts else ""
+        argv = parts[1:]
+    else:
+        binary = str(cmd)
+        argv = []
+
+    binary_name = os.path.basename(binary)
+
+    input_obj = {
+        "args": argv,
+        "command": binary_name,
+        "cwd": os.getcwd(),
+        "env_keys": sorted(os.environ.keys()),
+    }
+    input_hash = hash_obj(input_obj)
+    reasoning_hash = EMPTY_HASH  # os.popen has no justification mechanism
+    cwd = os.getcwd()
+
+    decision = evaluate_cli_authority(binary_name, argv, _state["constitution"])
+
+    if decision.decision == "halt" and _state["mode"] == "enforce":
+        action_obj = {"exit_code": None, "stderr": "", "stdout": ""}
+        action_hash = hash_obj(action_obj)
+        _emit_receipt(
+            event_type="cli_invocation_halted",
+            context_limitation="cli_execution",
+            input_hash=input_hash,
+            reasoning_hash=reasoning_hash,
+            action_hash=action_hash,
+            decision=decision,
+            binary_name=binary_name,
+            argv=argv,
+            cwd=cwd,
+            justification=None,
+            extensions={"capture_limitation": "os.popen"},
+        )
+        raise FileNotFoundError(
+            errno.ENOENT,
+            os.strerror(errno.ENOENT),
+            binary_name,
+        )
+
+    if decision.decision == "escalate" and _state["mode"] == "enforce":
+        action_obj = {"exit_code": None, "stderr": "", "stdout": ""}
+        action_hash = hash_obj(action_obj)
+        _emit_receipt(
+            event_type="cli_invocation_escalated",
+            context_limitation="cli_execution",
+            input_hash=input_hash,
+            reasoning_hash=reasoning_hash,
+            action_hash=action_hash,
+            decision=decision,
+            binary_name=binary_name,
+            argv=argv,
+            cwd=cwd,
+            justification=None,
+            extensions={"capture_limitation": "os.popen"},
+        )
+        raise PermissionError(f"Escalation required: {decision.reason}")
+
+    # os.popen always uses shell — check chained commands after primary enforcement
+    if isinstance(cmd, str):
+        _check_shell_chaining(cmd, _state["constitution"])
+
+    # Execute
+    with _restore_originals():
+        result = _originals["os.popen"](cmd, mode, buffering)
+
+    # os.popen returns a file object — we can't capture output without consuming it
+    action_obj = {"exit_code": None, "stderr": "", "stdout": ""}
+    action_hash = hash_obj(action_obj)
+
+    event_type = _determine_event_type(decision)
+
+    _emit_receipt(
+        event_type=event_type,
+        context_limitation="cli_execution",
+        input_hash=input_hash,
+        reasoning_hash=reasoning_hash,
+        action_hash=action_hash,
+        decision=decision,
+        binary_name=binary_name,
+        argv=argv,
+        cwd=cwd,
+        justification=None,
+        extensions={"capture_limitation": "os.popen"},
+    )
+
+    return result

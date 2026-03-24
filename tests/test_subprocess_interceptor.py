@@ -558,3 +558,237 @@ class TestCliAuthorityUnit:
         d = evaluate_cli_authority("docker", ["run", "nginx"], c)
         assert d.decision == "escalate"
         assert d.rule_id == "cli-004"
+
+
+# =============================================================================
+# 11. OS.EXEC* INTERCEPTION
+# =============================================================================
+
+class TestOsExecInterception:
+    """Verify os.exec* family is intercepted."""
+
+    def test_execv_blocked_in_enforce_mode(self, patched):
+        """os.execv with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError) as exc_info:
+            os.execv("/usr/bin/rm", ["rm", "-rf", "/"])
+        assert exc_info.value.errno == errno.ENOENT
+        assert patched.count == 1
+        assert patched.last["event_type"] == "cli_invocation_halted"
+
+    def test_execve_blocked(self, patched):
+        """os.execve with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError) as exc_info:
+            os.execve("/usr/bin/rm", ["rm", "something"], os.environ.copy())
+        assert exc_info.value.errno == errno.ENOENT
+
+    def test_execl_blocked(self, patched):
+        """os.execl with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError) as exc_info:
+            os.execl("/usr/bin/rm", "rm", "something")
+        assert exc_info.value.errno == errno.ENOENT
+
+    def test_exec_escalation(self, patched):
+        """os.execv with must_escalate command raises PermissionError."""
+        with pytest.raises(PermissionError, match="Escalation required"):
+            os.execv("/usr/bin/docker", ["docker", "run", "nginx"])
+        assert patched.count == 1
+        assert patched.last["event_type"] == "cli_invocation_escalated"
+
+    def test_exec_allowed_generates_receipt(self, patched):
+        """os.execvp with allowed command generates pre-exec receipt then calls original.
+
+        Since exec replaces the process, we mock the original to prevent that.
+        """
+        from unittest.mock import patch as mock_patch
+        from sanna.interceptors.subprocess_interceptor import _originals
+
+        # Mock the original so we don't actually replace the process
+        if "os.execvp" in _originals:
+            orig = _originals["os.execvp"]
+            _originals["os.execvp"] = MagicMock(return_value=None)
+            try:
+                os.execvp("echo", ["echo", "hello"])
+            finally:
+                _originals["os.execvp"] = orig
+        elif hasattr(os, "execvp"):
+            # execvp might not be patched if not available
+            pytest.skip("os.execvp not patched")
+        else:
+            pytest.skip("os.execvp not available")
+
+        assert patched.count == 1
+        assert patched.last["event_type"] == "cli_invocation_allowed"
+        ext = patched.last["extensions"]["com.sanna.interceptor"]
+        assert ext["pre_exec_receipt"] is True
+
+    def test_exec_audit_mode_generates_receipt(self, patched_audit):
+        """os.execv in audit mode generates receipt but doesn't raise for blocked commands."""
+        from sanna.interceptors.subprocess_interceptor import _originals
+
+        # Mock the original to prevent process replacement
+        if "os.execv" in _originals:
+            orig = _originals["os.execv"]
+            _originals["os.execv"] = MagicMock(return_value=None)
+            try:
+                os.execv("/usr/bin/rm", ["rm", "something"])
+            finally:
+                _originals["os.execv"] = orig
+        else:
+            pytest.skip("os.execv not patched")
+
+        assert patched_audit.count == 1
+        assert patched_audit.last["event_type"] == "cli_invocation_halted"
+
+    @pytest.mark.skipif(not hasattr(os, "execlp"), reason="os.execlp not available")
+    def test_execlp_blocked(self, patched):
+        """os.execlp with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            os.execlp("rm", "rm", "something")
+
+    @pytest.mark.skipif(not hasattr(os, "execle"), reason="os.execle not available")
+    def test_execle_blocked(self, patched):
+        """os.execle with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            os.execle("/usr/bin/rm", "rm", "something", os.environ.copy())
+
+
+# =============================================================================
+# 12. OS.SPAWN* INTERCEPTION
+# =============================================================================
+
+class TestOsSpawnInterception:
+    """Verify os.spawn* family is intercepted."""
+
+    @pytest.mark.skipif(not hasattr(os, "spawnv"), reason="os.spawnv not available")
+    def test_spawnv_blocked(self, patched):
+        """os.spawnv with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError) as exc_info:
+            os.spawnv(os.P_WAIT, "/usr/bin/rm", ["rm", "something"])
+        assert exc_info.value.errno == errno.ENOENT
+        assert patched.count == 1
+        assert patched.last["event_type"] == "cli_invocation_halted"
+
+    @pytest.mark.skipif(not hasattr(os, "spawnv"), reason="os.spawnv not available")
+    def test_spawnv_allowed_generates_receipt(self, patched):
+        """os.spawnv with allowed command generates receipt."""
+        result = os.spawnv(os.P_WAIT, "/bin/echo", ["echo", "hello"])
+        assert result == 0
+        assert patched.count == 1
+        assert patched.last["event_type"] == "cli_invocation_allowed"
+
+    @pytest.mark.skipif(not hasattr(os, "spawnve"), reason="os.spawnve not available")
+    def test_spawnve_blocked(self, patched):
+        """os.spawnve with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            os.spawnve(os.P_WAIT, "/usr/bin/rm", ["rm", "something"], os.environ.copy())
+
+    @pytest.mark.skipif(not hasattr(os, "spawnl"), reason="os.spawnl not available")
+    def test_spawnl_blocked(self, patched):
+        """os.spawnl with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            os.spawnl(os.P_WAIT, "/usr/bin/rm", "rm", "something")
+
+    @pytest.mark.skipif(not hasattr(os, "spawnv"), reason="os.spawnv not available")
+    def test_spawn_escalation(self, patched):
+        """os.spawnv with must_escalate command raises PermissionError."""
+        with pytest.raises(PermissionError, match="Escalation required"):
+            os.spawnv(os.P_WAIT, "/usr/bin/docker", ["docker", "run", "nginx"])
+        assert patched.count == 1
+
+    @pytest.mark.skipif(not hasattr(os, "spawnlp"), reason="os.spawnlp not available")
+    def test_spawnlp_platform_conditional(self, patched):
+        """os.spawnlp (Unix-only) is patched when available."""
+        with pytest.raises(FileNotFoundError):
+            os.spawnlp(os.P_WAIT, "rm", "rm", "something")
+
+
+# =============================================================================
+# 13. OS.POPEN INTERCEPTION
+# =============================================================================
+
+class TestOsPopenInterception:
+    """Verify os.popen is intercepted."""
+
+    def test_popen_blocked(self, patched):
+        """os.popen with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError) as exc_info:
+            os.popen("rm something")
+        assert exc_info.value.errno == errno.ENOENT
+        assert patched.count == 1
+        assert patched.last["event_type"] == "cli_invocation_halted"
+
+    def test_popen_allowed(self, patched):
+        """os.popen with allowed command generates receipt."""
+        f = os.popen("echo hello")
+        output = f.read()
+        f.close()
+        assert "hello" in output
+        assert patched.count == 1
+        assert patched.last["event_type"] == "cli_invocation_allowed"
+
+    def test_popen_escalation(self, patched):
+        """os.popen with must_escalate command raises PermissionError."""
+        with pytest.raises(PermissionError, match="Escalation required"):
+            os.popen("docker run nginx")
+
+    def test_popen_shell_chaining_blocked(self, patched):
+        """os.popen detects shell chaining with blocked commands."""
+        with pytest.raises(FileNotFoundError):
+            os.popen("echo hello; rm something")
+
+
+# =============================================================================
+# 14. UNPATCH RESTORES ALL NEW FUNCTIONS
+# =============================================================================
+
+class TestUnpatchRestoresNewFunctions:
+    """Verify unpatch_subprocess restores os.exec*, os.spawn*, os.popen."""
+
+    def test_unpatch_restores_exec(self, sink):
+        original_execv = os.execv
+        patch_subprocess(
+            constitution_path=CLI_TEST_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+        )
+        assert os.execv is not original_execv
+        unpatch_subprocess()
+        assert os.execv is original_execv
+
+    @pytest.mark.skipif(not hasattr(os, "spawnv"), reason="os.spawnv not available")
+    def test_unpatch_restores_spawn(self, sink):
+        original_spawnv = os.spawnv
+        patch_subprocess(
+            constitution_path=CLI_TEST_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+        )
+        assert os.spawnv is not original_spawnv
+        unpatch_subprocess()
+        assert os.spawnv is original_spawnv
+
+    def test_unpatch_restores_popen(self, sink):
+        original_popen = os.popen
+        patch_subprocess(
+            constitution_path=CLI_TEST_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+        )
+        assert os.popen is not original_popen
+        unpatch_subprocess()
+        assert os.popen is original_popen
+
+    @pytest.mark.skipif(not hasattr(os, "spawnlp"), reason="os.spawnlp not available (Windows)")
+    def test_platform_specific_functions_handled(self, sink):
+        """Functions that don't exist on the platform are skipped gracefully."""
+        patch_subprocess(
+            constitution_path=CLI_TEST_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+        )
+        # If we get here without error, platform-aware patching worked
+        unpatch_subprocess()
