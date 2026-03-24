@@ -6,10 +6,19 @@ subprocess.check_output, os.system, os.exec*, os.spawn*, and os.popen.
 
 Each intercepted call:
 1. Extracts binary name and argv
-2. Evaluates against constitution cli_permissions
-3. Computes receipt triad (input_hash, reasoning_hash, action_hash)
-4. Generates and persists a governance receipt
-5. Either allows, halts (FileNotFoundError), or escalates (PermissionError)
+2. Resolves binary to absolute path (TOCTOU mitigation)
+3. Evaluates against constitution cli_permissions (using basename)
+4. Computes receipt triad (input_hash, reasoning_hash, action_hash)
+5. Generates and persists a governance receipt
+6. Passes resolved absolute path to the actual subprocess call
+7. Either allows, halts (FileNotFoundError), or escalates (PermissionError)
+
+SECURITY NOTE: Binary path resolution mitigates PATH-based TOCTOU attacks by
+resolving the binary to an absolute path before authority evaluation and passing
+the resolved path to the actual subprocess call. However, filesystem-level
+attacks (replacing the binary file at the resolved path between check and exec)
+cannot be prevented in userspace. For untrusted code, use the SannaGateway
+architecture instead of the subprocess interceptor.
 """
 
 from __future__ import annotations
@@ -18,6 +27,7 @@ import errno
 import logging
 import os
 import shlex
+import shutil
 import subprocess
 import uuid
 from dataclasses import asdict
@@ -231,9 +241,15 @@ def _get_shell_metachar_re():
 
 
 def _resolve_command(args, kwargs):
-    """Extract binary name and argv from subprocess arguments.
+    """Extract binary name, resolve to absolute path, and return argv.
 
-    Returns (binary_name, argv, raw_cmd).
+    Returns (binary_name, argv, raw_cmd, resolved_path).
+
+    ``binary_name`` is the basename used for authority evaluation.
+    ``resolved_path`` is the absolute path from shutil.which() used for the
+    actual subprocess call (TOCTOU mitigation).  If the binary cannot be
+    resolved (not on PATH), ``resolved_path`` is None and the original
+    command is used as-is (letting the actual call fail naturally).
 
     When shell=True with a string command, uses shlex.split() for proper
     tokenization that respects quoting, and detects shell metacharacters
@@ -260,7 +276,78 @@ def _resolve_command(args, kwargs):
         argv = cmd[1:]
 
     binary_name = os.path.basename(binary)
-    return binary_name, argv, cmd
+
+    # Resolve binary to absolute path to prevent PATH-based TOCTOU attacks.
+    # If already absolute, resolve symlinks; otherwise use shutil.which().
+    if binary and os.path.isabs(binary):
+        resolved_path = os.path.realpath(binary)
+    elif binary:
+        resolved_path = shutil.which(binary)
+    else:
+        resolved_path = None
+
+    return binary_name, argv, cmd, resolved_path
+
+
+def _substitute_resolved_path(args, kwargs, resolved_path):
+    """Replace the binary in subprocess args with the resolved absolute path.
+
+    Returns (new_args, new_kwargs) suitable for passing to the original
+    subprocess function.  When resolved_path is None (binary not found),
+    returns the original args/kwargs unchanged.
+    """
+    if resolved_path is None:
+        return args, kwargs
+
+    cmd = args[0] if args else kwargs.get("args", [])
+    shell_mode = _is_shell_mode(args, kwargs)
+
+    if isinstance(cmd, str):
+        if shell_mode:
+            # For shell=True strings, replace the first token with the
+            # resolved path.  We cannot simply do string replacement because
+            # the binary might appear elsewhere in the command; instead we
+            # find the first token boundary.
+            try:
+                parts = shlex.split(cmd)
+            except ValueError:
+                parts = cmd.split()
+            if parts:
+                # Replace first token, preserve rest of the original string
+                # by finding where the first token ends.
+                stripped = cmd.lstrip()
+                first_token = parts[0]
+                # Handle quoted first token
+                if stripped.startswith(("'", '"')):
+                    quote = stripped[0]
+                    end = stripped.index(quote, 1) + 1
+                else:
+                    end = len(first_token)
+                prefix_ws = cmd[:len(cmd) - len(stripped)]
+                new_cmd = prefix_ws + resolved_path + stripped[end:]
+            else:
+                new_cmd = cmd
+        else:
+            # Non-shell string: split, replace first, rejoin
+            parts = cmd.split()
+            if parts:
+                parts[0] = resolved_path
+            new_cmd = " ".join(parts) if parts else cmd
+    else:
+        # List/tuple form: replace first element
+        cmd_list = list(cmd)
+        if cmd_list:
+            cmd_list[0] = resolved_path
+        new_cmd = cmd_list
+
+    # Rebuild args/kwargs
+    if args:
+        new_args = (new_cmd,) + args[1:]
+        return new_args, kwargs
+    else:
+        new_kwargs = dict(kwargs)
+        new_kwargs["args"] = new_cmd
+        return args, new_kwargs
 
 
 def _check_shell_chaining(cmd_str: str, constitution) -> None:
@@ -553,7 +640,7 @@ def _patched_run(*args, **kwargs):
     justification = kwargs.pop("justification", None)
 
     # 2. Resolve command
-    binary_name, argv, raw_cmd = _resolve_command(args, kwargs)
+    binary_name, argv, raw_cmd, resolved_path = _resolve_command(args, kwargs)
 
     # 3. Build input object and compute hashes
     input_obj = _build_input_obj(binary_name, argv, kwargs)
@@ -562,7 +649,7 @@ def _patched_run(*args, **kwargs):
 
     cwd = input_obj["cwd"]
 
-    # 4. Evaluate authority
+    # 4. Evaluate authority (uses basename, not resolved path)
     decision = evaluate_cli_authority(binary_name, argv, _state["constitution"])
 
     # 4a. Shell chaining check: when shell=True with a string command,
@@ -573,14 +660,16 @@ def _patched_run(*args, **kwargs):
     # 5. Enforce (may raise)
     _enforce_decision(decision, binary_name, argv, cwd, input_hash, reasoning_hash, justification)
 
-    # 6. Execute
+    # 6. Execute with resolved absolute path (TOCTOU mitigation)
+    resolved_args, resolved_kwargs = _substitute_resolved_path(args, kwargs, resolved_path)
+
     capture_for_hash = False
-    if "stdout" not in kwargs and "stderr" not in kwargs and not kwargs.get("capture_output"):
-        kwargs["capture_output"] = True
+    if "stdout" not in resolved_kwargs and "stderr" not in resolved_kwargs and not resolved_kwargs.get("capture_output"):
+        resolved_kwargs["capture_output"] = True
         capture_for_hash = True
 
     with _restore_originals():
-        result = _originals["subprocess.run"](*args, **kwargs)
+        result = _originals["subprocess.run"](*resolved_args, **resolved_kwargs)
 
     # 7. Compute action_hash
     action_hash = _compute_action_hash(result)
@@ -619,7 +708,7 @@ def _patched_run(*args, **kwargs):
 def _patched_call(*args, **kwargs):
     """Intercepted subprocess.call with governance enforcement."""
     justification = kwargs.pop("justification", None)
-    binary_name, argv, raw_cmd = _resolve_command(args, kwargs)
+    binary_name, argv, raw_cmd, resolved_path = _resolve_command(args, kwargs)
     input_obj = _build_input_obj(binary_name, argv, kwargs)
     input_hash = hash_obj(input_obj)
     reasoning_hash = hash_text(justification) if justification else EMPTY_HASH
@@ -630,8 +719,9 @@ def _patched_call(*args, **kwargs):
         _check_shell_chaining(raw_cmd, _state["constitution"])
     _enforce_decision(decision, binary_name, argv, cwd, input_hash, reasoning_hash, justification)
 
+    resolved_args, resolved_kwargs = _substitute_resolved_path(args, kwargs, resolved_path)
     with _restore_originals():
-        retcode = _originals["subprocess.call"](*args, **kwargs)
+        retcode = _originals["subprocess.call"](*resolved_args, **resolved_kwargs)
 
     # call() doesn't capture output
     action_obj = {"exit_code": retcode, "stderr": "", "stdout": ""}
@@ -664,7 +754,7 @@ def _patched_call(*args, **kwargs):
 def _patched_check_call(*args, **kwargs):
     """Intercepted subprocess.check_call with governance enforcement."""
     justification = kwargs.pop("justification", None)
-    binary_name, argv, raw_cmd = _resolve_command(args, kwargs)
+    binary_name, argv, raw_cmd, resolved_path = _resolve_command(args, kwargs)
     input_obj = _build_input_obj(binary_name, argv, kwargs)
     input_hash = hash_obj(input_obj)
     reasoning_hash = hash_text(justification) if justification else EMPTY_HASH
@@ -675,8 +765,9 @@ def _patched_check_call(*args, **kwargs):
         _check_shell_chaining(raw_cmd, _state["constitution"])
     _enforce_decision(decision, binary_name, argv, cwd, input_hash, reasoning_hash, justification)
 
+    resolved_args, resolved_kwargs = _substitute_resolved_path(args, kwargs, resolved_path)
     with _restore_originals():
-        retcode = _originals["subprocess.check_call"](*args, **kwargs)
+        retcode = _originals["subprocess.check_call"](*resolved_args, **resolved_kwargs)
 
     action_obj = {"exit_code": retcode, "stderr": "", "stdout": ""}
     action_hash = hash_obj(action_obj)
@@ -708,7 +799,7 @@ def _patched_check_call(*args, **kwargs):
 def _patched_check_output(*args, **kwargs):
     """Intercepted subprocess.check_output with governance enforcement."""
     justification = kwargs.pop("justification", None)
-    binary_name, argv, raw_cmd = _resolve_command(args, kwargs)
+    binary_name, argv, raw_cmd, resolved_path = _resolve_command(args, kwargs)
     input_obj = _build_input_obj(binary_name, argv, kwargs)
     input_hash = hash_obj(input_obj)
     reasoning_hash = hash_text(justification) if justification else EMPTY_HASH
@@ -719,8 +810,9 @@ def _patched_check_output(*args, **kwargs):
         _check_shell_chaining(raw_cmd, _state["constitution"])
     _enforce_decision(decision, binary_name, argv, cwd, input_hash, reasoning_hash, justification)
 
+    resolved_args, resolved_kwargs = _substitute_resolved_path(args, kwargs, resolved_path)
     with _restore_originals():
-        output = _originals["subprocess.check_output"](*args, **kwargs)
+        output = _originals["subprocess.check_output"](*resolved_args, **resolved_kwargs)
 
     stdout_str = (
         output.decode("utf-8", errors="replace")
@@ -762,7 +854,7 @@ class _PatchedPopen:
 
     def __init__(self, *args, **kwargs):
         self._justification = kwargs.pop("justification", None)
-        self._binary_name, self._argv, self._raw_cmd = _resolve_command(args, kwargs)
+        self._binary_name, self._argv, self._raw_cmd, resolved_path = _resolve_command(args, kwargs)
         self._input_obj = _build_input_obj(self._binary_name, self._argv, kwargs)
         self._input_hash = hash_obj(self._input_obj)
         self._reasoning_hash = (
@@ -786,8 +878,9 @@ class _PatchedPopen:
             self._input_hash, self._reasoning_hash, self._justification,
         )
 
-        # Create real Popen (must use original to avoid recursion)
-        self._proc = _originals["subprocess.Popen"](*args, **kwargs)
+        # Create real Popen with resolved path (TOCTOU mitigation)
+        resolved_args, resolved_kwargs = _substitute_resolved_path(args, kwargs, resolved_path)
+        self._proc = _originals["subprocess.Popen"](*resolved_args, **resolved_kwargs)
 
     def communicate(self, input=None, timeout=None):
         stdout, stderr = self._proc.communicate(input=input, timeout=timeout)
@@ -919,6 +1012,14 @@ def _patched_os_system(command):
 
     binary_name = os.path.basename(binary)
 
+    # Resolve binary to absolute path (TOCTOU mitigation)
+    if binary and os.path.isabs(binary):
+        resolved_path = os.path.realpath(binary)
+    elif binary:
+        resolved_path = shutil.which(binary)
+    else:
+        resolved_path = None
+
     env_keys = sorted(os.environ.keys())
     cwd = os.getcwd()
 
@@ -977,8 +1078,25 @@ def _patched_os_system(command):
         )
         raise PermissionError(f"Escalation required: {decision.reason}")
 
-    # Execute
-    retcode = _originals["os.system"](command)
+    # Execute with resolved path (TOCTOU mitigation)
+    resolved_command = command
+    if resolved_path is not None and isinstance(command, str):
+        try:
+            cmd_parts = shlex.split(command)
+        except ValueError:
+            cmd_parts = command.split()
+        if cmd_parts:
+            stripped = command.lstrip()
+            first_token = cmd_parts[0]
+            if stripped.startswith(("'", '"')):
+                quote = stripped[0]
+                end = stripped.index(quote, 1) + 1
+            else:
+                end = len(first_token)
+            prefix_ws = command[:len(command) - len(stripped)]
+            resolved_command = prefix_ws + resolved_path + stripped[end:]
+
+    retcode = _originals["os.system"](resolved_command)
 
     # os.system cannot capture stdout/stderr
     action_obj = {"exit_code": retcode, "stderr": "", "stdout": ""}
