@@ -204,7 +204,7 @@ def _get_shell_metachar_re():
     return _SHELL_METACHAR_RE
 
 
-def _resolve_command(args, kwargs):
+def _resolve_command(args, kwargs, env=None):
     """Extract binary name, argv, raw_cmd, and resolved binary path.
 
     Returns (binary_name, argv, raw_cmd, resolved_path).
@@ -216,6 +216,10 @@ def _resolve_command(args, kwargs):
     resolved_path is the absolute path to the binary (via shutil.which if
     the command is a bare name, or the command itself if it's already a path).
     May be None if the binary cannot be found.
+
+    If env is provided and contains a PATH key, shutil.which() uses that
+    PATH for resolution — ensuring the interceptor evaluates authority for
+    the same binary the subprocess will actually execute.
     """
     cmd = args[0] if args else kwargs.get("args", [])
     shell_mode = _is_shell_mode(args, kwargs)
@@ -241,10 +245,13 @@ def _resolve_command(args, kwargs):
 
     # Resolve the full path: if binary contains a path separator, use it
     # directly (it's already a path); otherwise look it up in $PATH.
+    # When env is provided with a PATH key, use that PATH for resolution
+    # to match what the subprocess will actually execute.
     if os.sep in str(binary) or (os.altsep and os.altsep in str(binary)):
         resolved_path = os.path.abspath(str(binary)) if binary else None
     else:
-        resolved_path = shutil.which(binary_name) if binary_name else None
+        which_path = env.get("PATH") if env else None
+        resolved_path = shutil.which(binary_name, path=which_path) if binary_name else None
 
     return binary_name, argv, cmd, resolved_path
 
@@ -542,8 +549,8 @@ def _patched_run(*args, **kwargs):
     # 1. Pop justification before forwarding
     justification = kwargs.pop("justification", None)
 
-    # 2. Resolve command
-    binary_name, argv, raw_cmd, resolved_path = _resolve_command(args, kwargs)
+    # 2. Resolve command (use subprocess env's PATH if provided)
+    binary_name, argv, raw_cmd, resolved_path = _resolve_command(args, kwargs, env=kwargs.get("env"))
 
     # 3. Build input object and compute hashes
     input_obj = _build_input_obj(binary_name, argv, kwargs)
@@ -612,7 +619,7 @@ def _patched_call(*args, **kwargs):
         return _originals["subprocess.call"](*args, **kwargs)
 
     justification = kwargs.pop("justification", None)
-    binary_name, argv, raw_cmd, resolved_path = _resolve_command(args, kwargs)
+    binary_name, argv, raw_cmd, resolved_path = _resolve_command(args, kwargs, env=kwargs.get("env"))
     input_obj = _build_input_obj(binary_name, argv, kwargs)
     input_hash = hash_obj(input_obj)
     reasoning_hash = hash_text(justification) if justification else EMPTY_HASH
@@ -660,7 +667,7 @@ def _patched_check_call(*args, **kwargs):
         return _originals["subprocess.check_call"](*args, **kwargs)
 
     justification = kwargs.pop("justification", None)
-    binary_name, argv, raw_cmd, resolved_path = _resolve_command(args, kwargs)
+    binary_name, argv, raw_cmd, resolved_path = _resolve_command(args, kwargs, env=kwargs.get("env"))
     input_obj = _build_input_obj(binary_name, argv, kwargs)
     input_hash = hash_obj(input_obj)
     reasoning_hash = hash_text(justification) if justification else EMPTY_HASH
@@ -707,7 +714,7 @@ def _patched_check_output(*args, **kwargs):
         return _originals["subprocess.check_output"](*args, **kwargs)
 
     justification = kwargs.pop("justification", None)
-    binary_name, argv, raw_cmd, resolved_path = _resolve_command(args, kwargs)
+    binary_name, argv, raw_cmd, resolved_path = _resolve_command(args, kwargs, env=kwargs.get("env"))
     input_obj = _build_input_obj(binary_name, argv, kwargs)
     input_hash = hash_obj(input_obj)
     reasoning_hash = hash_text(justification) if justification else EMPTY_HASH
@@ -769,7 +776,7 @@ class _PatchedPopen:
             return
 
         self._justification = kwargs.pop("justification", None)
-        self._binary_name, self._argv, self._raw_cmd, resolved_path = _resolve_command(args, kwargs)
+        self._binary_name, self._argv, self._raw_cmd, resolved_path = _resolve_command(args, kwargs, env=kwargs.get("env"))
         self._input_obj = _build_input_obj(self._binary_name, self._argv, kwargs)
         self._input_hash = hash_obj(self._input_obj)
         self._reasoning_hash = (

@@ -973,3 +973,92 @@ class TestTOCTOUMitigation:
         new_args, new_kwargs = _substitute_resolved_path(orig_args, orig_kwargs, None)
         assert new_args is orig_args
         assert new_kwargs is orig_kwargs
+
+
+# =============================================================================
+# ENV-BASED PATH RESOLUTION (SAN-47)
+# =============================================================================
+
+class TestEnvPathResolution:
+    """Verify that _resolve_command uses the subprocess env's PATH."""
+
+    def test_resolve_uses_custom_env_path(self, tmp_path):
+        """When env has a PATH, shutil.which resolves against that PATH."""
+        from sanna.interceptors.subprocess_interceptor import _resolve_command
+
+        # Create a fake binary in a temp directory
+        fake_bin = tmp_path / "echo"
+        fake_bin.write_text("#!/bin/sh\necho fake")
+        fake_bin.chmod(0o755)
+
+        custom_env = {"PATH": str(tmp_path)}
+        _, _, _, resolved = _resolve_command(
+            (["echo", "hello"],), {}, env=custom_env
+        )
+        assert resolved is not None
+        assert resolved == str(fake_bin)
+
+    def test_resolve_without_env_uses_default_path(self):
+        """Without env parameter, resolution uses the current process PATH."""
+        from sanna.interceptors.subprocess_interceptor import _resolve_command
+
+        _, _, _, resolved = _resolve_command((["echo", "hello"],), {})
+        # echo should resolve to the system echo
+        assert resolved is not None
+        assert "echo" in resolved
+
+    def test_resolve_env_without_path_key_falls_back(self):
+        """When env is provided but has no PATH key, falls back to default."""
+        from sanna.interceptors.subprocess_interceptor import _resolve_command
+
+        custom_env = {"HOME": "/tmp"}  # No PATH key
+        _, _, _, resolved = _resolve_command(
+            (["echo", "hello"],), {}, env=custom_env
+        )
+        # shutil.which(path=None) uses os.environ PATH
+        assert resolved is not None
+
+    def test_patched_run_resolves_with_env_path(self, tmp_path, sink):
+        """subprocess.run with env= resolves binary using that env's PATH."""
+        # Create a temp dir with a fake "mybin" script
+        fake_bin = tmp_path / "mybin"
+        fake_bin.write_text("#!/bin/sh\nexit 0")
+        fake_bin.chmod(0o755)
+
+        # Use permissive constitution so arbitrary binaries are allowed
+        patch_subprocess(
+            constitution_path=CLI_PERMISSIVE_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+        )
+
+        custom_env = {"PATH": str(tmp_path)}
+        result = subprocess.run(
+            ["mybin"], env=custom_env, capture_output=True
+        )
+        assert result.returncode == 0
+
+        # Verify a receipt was emitted
+        assert sink.count >= 1
+
+    def test_patched_popen_resolves_with_env_path(self, tmp_path, sink):
+        """Popen with env= resolves binary using that env's PATH."""
+        fake_bin = tmp_path / "mybin"
+        fake_bin.write_text("#!/bin/sh\nexit 0")
+        fake_bin.chmod(0o755)
+
+        patch_subprocess(
+            constitution_path=CLI_PERMISSIVE_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+        )
+
+        custom_env = {"PATH": str(tmp_path)}
+        proc = subprocess.Popen(
+            ["mybin"], env=custom_env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        proc.communicate()
+        assert proc.returncode == 0
