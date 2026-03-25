@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 authors = [{name = "nicallen-exd"}]
 keywords = ["ai", "governance", "trust", "constitution", "receipts", "verification", "mcp", "agents", "cryptographic"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
     "Intended Audience :: Financial and Insurance Industry",
