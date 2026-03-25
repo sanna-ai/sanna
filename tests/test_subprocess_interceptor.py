@@ -558,3 +558,507 @@ class TestCliAuthorityUnit:
         d = evaluate_cli_authority("docker", ["run", "nginx"], c)
         assert d.decision == "escalate"
         assert d.rule_id == "cli-004"
+
+
+# =============================================================================
+# 11. OS.EXEC* INTERCEPTION
+# =============================================================================
+
+class TestOsExecInterception:
+    """Verify os.exec* family is intercepted."""
+
+    def test_execv_blocked_in_enforce_mode(self, patched):
+        """os.execv with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError) as exc_info:
+            os.execv("/usr/bin/rm", ["rm", "-rf", "/"])
+        assert exc_info.value.errno == errno.ENOENT
+        assert patched.count == 1
+        assert patched.last["event_type"] == "cli_invocation_halted"
+
+    def test_execve_blocked(self, patched):
+        """os.execve with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError) as exc_info:
+            os.execve("/usr/bin/rm", ["rm", "something"], os.environ.copy())
+        assert exc_info.value.errno == errno.ENOENT
+
+    def test_execl_blocked(self, patched):
+        """os.execl with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError) as exc_info:
+            os.execl("/usr/bin/rm", "rm", "something")
+        assert exc_info.value.errno == errno.ENOENT
+
+    def test_exec_escalation(self, patched):
+        """os.execv with must_escalate command raises PermissionError."""
+        with pytest.raises(PermissionError, match="Escalation required"):
+            os.execv("/usr/bin/docker", ["docker", "run", "nginx"])
+        assert patched.count == 1
+        assert patched.last["event_type"] == "cli_invocation_escalated"
+
+    def test_exec_allowed_generates_receipt(self, patched):
+        """os.execvp with allowed command generates pre-exec receipt then calls original.
+
+        Since exec replaces the process, we mock the original to prevent that.
+        """
+        from unittest.mock import patch as mock_patch
+        from sanna.interceptors.subprocess_interceptor import _originals
+
+        # Mock the original so we don't actually replace the process
+        if "os.execvp" in _originals:
+            orig = _originals["os.execvp"]
+            _originals["os.execvp"] = MagicMock(return_value=None)
+            try:
+                os.execvp("echo", ["echo", "hello"])
+            finally:
+                _originals["os.execvp"] = orig
+        elif hasattr(os, "execvp"):
+            # execvp might not be patched if not available
+            pytest.skip("os.execvp not patched")
+        else:
+            pytest.skip("os.execvp not available")
+
+        assert patched.count == 1
+        assert patched.last["event_type"] == "cli_invocation_allowed"
+        ext = patched.last["extensions"]["com.sanna.interceptor"]
+        assert ext["pre_exec_receipt"] is True
+
+    def test_exec_audit_mode_generates_receipt(self, patched_audit):
+        """os.execv in audit mode generates receipt but doesn't raise for blocked commands."""
+        from sanna.interceptors.subprocess_interceptor import _originals
+
+        # Mock the original to prevent process replacement
+        if "os.execv" in _originals:
+            orig = _originals["os.execv"]
+            _originals["os.execv"] = MagicMock(return_value=None)
+            try:
+                os.execv("/usr/bin/rm", ["rm", "something"])
+            finally:
+                _originals["os.execv"] = orig
+        else:
+            pytest.skip("os.execv not patched")
+
+        assert patched_audit.count == 1
+        assert patched_audit.last["event_type"] == "cli_invocation_halted"
+
+    @pytest.mark.skipif(not hasattr(os, "execlp"), reason="os.execlp not available")
+    def test_execlp_blocked(self, patched):
+        """os.execlp with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            os.execlp("rm", "rm", "something")
+
+    @pytest.mark.skipif(not hasattr(os, "execle"), reason="os.execle not available")
+    def test_execle_blocked(self, patched):
+        """os.execle with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            os.execle("/usr/bin/rm", "rm", "something", os.environ.copy())
+
+
+# =============================================================================
+# 12. OS.SPAWN* INTERCEPTION
+# =============================================================================
+
+class TestOsSpawnInterception:
+    """Verify os.spawn* family is intercepted."""
+
+    @pytest.mark.skipif(not hasattr(os, "spawnv"), reason="os.spawnv not available")
+    def test_spawnv_blocked(self, patched):
+        """os.spawnv with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError) as exc_info:
+            os.spawnv(os.P_WAIT, "/usr/bin/rm", ["rm", "something"])
+        assert exc_info.value.errno == errno.ENOENT
+        assert patched.count == 1
+        assert patched.last["event_type"] == "cli_invocation_halted"
+
+    @pytest.mark.skipif(not hasattr(os, "spawnv"), reason="os.spawnv not available")
+    def test_spawnv_allowed_generates_receipt(self, patched):
+        """os.spawnv with allowed command generates receipt."""
+        result = os.spawnv(os.P_WAIT, "/bin/echo", ["echo", "hello"])
+        assert result == 0
+        assert patched.count == 1
+        assert patched.last["event_type"] == "cli_invocation_allowed"
+
+    @pytest.mark.skipif(not hasattr(os, "spawnve"), reason="os.spawnve not available")
+    def test_spawnve_blocked(self, patched):
+        """os.spawnve with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            os.spawnve(os.P_WAIT, "/usr/bin/rm", ["rm", "something"], os.environ.copy())
+
+    @pytest.mark.skipif(not hasattr(os, "spawnl"), reason="os.spawnl not available")
+    def test_spawnl_blocked(self, patched):
+        """os.spawnl with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            os.spawnl(os.P_WAIT, "/usr/bin/rm", "rm", "something")
+
+    @pytest.mark.skipif(not hasattr(os, "spawnv"), reason="os.spawnv not available")
+    def test_spawn_escalation(self, patched):
+        """os.spawnv with must_escalate command raises PermissionError."""
+        with pytest.raises(PermissionError, match="Escalation required"):
+            os.spawnv(os.P_WAIT, "/usr/bin/docker", ["docker", "run", "nginx"])
+        assert patched.count == 1
+
+    @pytest.mark.skipif(not hasattr(os, "spawnlp"), reason="os.spawnlp not available")
+    def test_spawnlp_platform_conditional(self, patched):
+        """os.spawnlp (Unix-only) is patched when available."""
+        with pytest.raises(FileNotFoundError):
+            os.spawnlp(os.P_WAIT, "rm", "rm", "something")
+
+
+# =============================================================================
+# 13. OS.POPEN INTERCEPTION
+# =============================================================================
+
+class TestOsPopenInterception:
+    """Verify os.popen is intercepted."""
+
+    def test_popen_blocked(self, patched):
+        """os.popen with blocked command raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError) as exc_info:
+            os.popen("rm something")
+        assert exc_info.value.errno == errno.ENOENT
+        assert patched.count == 1
+        assert patched.last["event_type"] == "cli_invocation_halted"
+
+    def test_popen_allowed(self, patched):
+        """os.popen with allowed command generates receipt."""
+        f = os.popen("echo hello")
+        output = f.read()
+        f.close()
+        assert "hello" in output
+        assert patched.count == 1
+        assert patched.last["event_type"] == "cli_invocation_allowed"
+
+    def test_popen_escalation(self, patched):
+        """os.popen with must_escalate command raises PermissionError."""
+        with pytest.raises(PermissionError, match="Escalation required"):
+            os.popen("docker run nginx")
+
+    def test_popen_shell_chaining_blocked(self, patched):
+        """os.popen detects shell chaining with blocked commands."""
+        with pytest.raises(FileNotFoundError):
+            os.popen("echo hello; rm something")
+
+
+# =============================================================================
+# 14. UNPATCH RESTORES ALL NEW FUNCTIONS
+# =============================================================================
+
+class TestUnpatchRestoresNewFunctions:
+    """Verify unpatch_subprocess restores os.exec*, os.spawn*, os.popen."""
+
+    def test_unpatch_restores_exec(self, sink):
+        original_execv = os.execv
+        patch_subprocess(
+            constitution_path=CLI_TEST_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+        )
+        assert os.execv is not original_execv
+        unpatch_subprocess()
+        assert os.execv is original_execv
+
+    @pytest.mark.skipif(not hasattr(os, "spawnv"), reason="os.spawnv not available")
+    def test_unpatch_restores_spawn(self, sink):
+        original_spawnv = os.spawnv
+        patch_subprocess(
+            constitution_path=CLI_TEST_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+        )
+        assert os.spawnv is not original_spawnv
+        unpatch_subprocess()
+        assert os.spawnv is original_spawnv
+
+    def test_unpatch_restores_popen(self, sink):
+        original_popen = os.popen
+        patch_subprocess(
+            constitution_path=CLI_TEST_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+        )
+        assert os.popen is not original_popen
+        unpatch_subprocess()
+        assert os.popen is original_popen
+
+    @pytest.mark.skipif(not hasattr(os, "spawnlp"), reason="os.spawnlp not available (Windows)")
+    def test_platform_specific_functions_handled(self, sink):
+        """Functions that don't exist on the platform are skipped gracefully."""
+        patch_subprocess(
+            constitution_path=CLI_TEST_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+        )
+        # If we get here without error, platform-aware patching worked
+        unpatch_subprocess()
+
+
+# =============================================================================
+# TOCTOU MITIGATION — BINARY PATH RESOLUTION [SAN-44]
+# =============================================================================
+
+class TestTOCTOUMitigation:
+    """Verify binary path resolution mitigates PATH-based TOCTOU attacks."""
+
+    def test_resolve_command_returns_absolute_path(self):
+        """_resolve_command resolves binaries to absolute paths via shutil.which."""
+        from sanna.interceptors.subprocess_interceptor import _resolve_command
+
+        binary_name, argv, raw_cmd, resolved_path = _resolve_command(
+            (["echo", "hello"],), {}
+        )
+        assert binary_name == "echo"
+        assert argv == ["hello"]
+        # echo exists on all POSIX systems — should resolve to absolute path
+        assert resolved_path is not None
+        assert os.path.isabs(resolved_path)
+        assert os.path.basename(resolved_path) == "echo"
+
+    def test_resolve_command_nonexistent_binary(self):
+        """Non-existent binary returns None for resolved_path."""
+        from sanna.interceptors.subprocess_interceptor import _resolve_command
+
+        binary_name, argv, raw_cmd, resolved_path = _resolve_command(
+            (["nonexistent_binary_xyz_12345", "arg1"],), {}
+        )
+        assert binary_name == "nonexistent_binary_xyz_12345"
+        assert resolved_path is None
+
+    def test_authority_uses_basename_not_full_path(self, patched):
+        """Authority evaluation uses the basename, not the resolved full path."""
+        # "echo" should be allowed by its basename, not by /usr/bin/echo
+        result = subprocess.run(["echo", "hello"])
+        assert patched.count == 1
+        receipt = patched.last
+        # The binary in the receipt extension should be the basename
+        ext = receipt.get("extensions", {}).get("com.sanna.interceptor", {})
+        assert ext.get("binary") == "echo"
+
+    def test_subprocess_run_passes_resolved_path(self, patched):
+        """The actual subprocess call receives the resolved absolute path."""
+        import shutil
+        from unittest.mock import patch as mock_patch
+
+        resolved = shutil.which("echo")
+        if resolved is None:
+            pytest.skip("echo not found on PATH")
+
+        calls = []
+        original_run = subprocess.run.__wrapped__ if hasattr(subprocess.run, '__wrapped__') else None
+
+        # We need to intercept what the original subprocess.run receives.
+        # Temporarily capture the args passed to the real subprocess.run
+        # by wrapping the original stored in _originals.
+        from sanna.interceptors.subprocess_interceptor import _originals
+        real_run = _originals["subprocess.run"]
+
+        def spy_run(*args, **kwargs):
+            calls.append((args, kwargs))
+            return real_run(*args, **kwargs)
+
+        _originals["subprocess.run"] = spy_run
+        try:
+            subprocess.run(["echo", "hello"])
+        finally:
+            _originals["subprocess.run"] = real_run
+
+        assert len(calls) == 1
+        spy_args, spy_kwargs = calls[0]
+        # The first positional arg should be a list with the resolved path
+        cmd = spy_args[0] if spy_args else spy_kwargs.get("args", [])
+        if isinstance(cmd, (list, tuple)):
+            assert os.path.isabs(cmd[0]), f"Expected absolute path, got {cmd[0]}"
+            assert cmd[0] == resolved, f"Expected {resolved}, got {cmd[0]}"
+
+    def test_popen_passes_resolved_path(self, patched):
+        """Popen receives the resolved absolute path."""
+        import shutil
+        from sanna.interceptors.subprocess_interceptor import _originals
+
+        resolved = shutil.which("echo")
+        if resolved is None:
+            pytest.skip("echo not found on PATH")
+
+        calls = []
+        real_popen = _originals["subprocess.Popen"]
+
+        class SpyPopen(real_popen.__class__ if isinstance(real_popen, type) else type(real_popen)):
+            pass
+
+        def spy_popen(*args, **kwargs):
+            calls.append((args, kwargs))
+            return real_popen(*args, **kwargs)
+
+        _originals["subprocess.Popen"] = spy_popen
+        try:
+            proc = subprocess.Popen(["echo", "hello"], stdout=subprocess.PIPE)
+            proc.communicate()
+        finally:
+            _originals["subprocess.Popen"] = real_popen
+
+        assert len(calls) == 1
+        spy_args, spy_kwargs = calls[0]
+        cmd = spy_args[0] if spy_args else spy_kwargs.get("args", [])
+        if isinstance(cmd, (list, tuple)):
+            assert os.path.isabs(cmd[0])
+
+    def test_os_system_passes_resolved_path(self, patched):
+        """os.system receives command with the resolved absolute path."""
+        import shutil
+        from sanna.interceptors.subprocess_interceptor import _originals
+
+        resolved = shutil.which("echo")
+        if resolved is None:
+            pytest.skip("echo not found on PATH")
+
+        calls = []
+        real_system = _originals["os.system"]
+
+        def spy_system(cmd):
+            calls.append(cmd)
+            return real_system(cmd)
+
+        _originals["os.system"] = spy_system
+        try:
+            os.system("echo hello")
+        finally:
+            _originals["os.system"] = real_system
+
+        assert len(calls) == 1
+        # The command string should start with the resolved absolute path
+        assert calls[0].startswith(resolved), (
+            f"Expected command to start with {resolved}, got {calls[0]}"
+        )
+
+    def test_resolve_command_already_absolute(self):
+        """Already-absolute paths are resolved via realpath (symlink resolution)."""
+        from sanna.interceptors.subprocess_interceptor import _resolve_command
+
+        binary_name, argv, raw_cmd, resolved_path = _resolve_command(
+            (["/usr/bin/echo", "hello"],), {}
+        )
+        assert binary_name == "echo"
+        assert resolved_path is not None
+        assert os.path.isabs(resolved_path)
+        # realpath resolves symlinks, so the resolved path may differ
+        assert os.path.basename(resolved_path) == "echo" or resolved_path == os.path.realpath("/usr/bin/echo")
+
+    def test_resolve_command_shell_mode_string(self):
+        """shell=True string commands also get path resolution."""
+        from sanna.interceptors.subprocess_interceptor import _resolve_command
+
+        binary_name, argv, raw_cmd, resolved_path = _resolve_command(
+            ("echo hello world",), {"shell": True}
+        )
+        assert binary_name == "echo"
+        if resolved_path is not None:
+            assert os.path.isabs(resolved_path)
+
+    def test_substitute_resolved_path_list_form(self):
+        """_substitute_resolved_path correctly replaces in list-form args."""
+        from sanna.interceptors.subprocess_interceptor import _substitute_resolved_path
+
+        new_args, new_kwargs = _substitute_resolved_path(
+            (["echo", "hello"],), {}, "/usr/bin/echo"
+        )
+        assert new_args[0] == ["/usr/bin/echo", "hello"]
+
+    def test_substitute_resolved_path_none(self):
+        """_substitute_resolved_path is a no-op when resolved_path is None."""
+        from sanna.interceptors.subprocess_interceptor import _substitute_resolved_path
+
+        orig_args = (["echo", "hello"],)
+        orig_kwargs = {}
+        new_args, new_kwargs = _substitute_resolved_path(orig_args, orig_kwargs, None)
+        assert new_args is orig_args
+        assert new_kwargs is orig_kwargs
+
+
+# =============================================================================
+# ENV-BASED PATH RESOLUTION (SAN-47)
+# =============================================================================
+
+class TestEnvPathResolution:
+    """Verify that _resolve_command uses the subprocess env's PATH."""
+
+    def test_resolve_uses_custom_env_path(self, tmp_path):
+        """When env has a PATH, shutil.which resolves against that PATH."""
+        from sanna.interceptors.subprocess_interceptor import _resolve_command
+
+        # Create a fake binary in a temp directory
+        fake_bin = tmp_path / "echo"
+        fake_bin.write_text("#!/bin/sh\necho fake")
+        fake_bin.chmod(0o755)
+
+        custom_env = {"PATH": str(tmp_path)}
+        _, _, _, resolved = _resolve_command(
+            (["echo", "hello"],), {}, env=custom_env
+        )
+        assert resolved is not None
+        assert resolved == str(fake_bin)
+
+    def test_resolve_without_env_uses_default_path(self):
+        """Without env parameter, resolution uses the current process PATH."""
+        from sanna.interceptors.subprocess_interceptor import _resolve_command
+
+        _, _, _, resolved = _resolve_command((["echo", "hello"],), {})
+        # echo should resolve to the system echo
+        assert resolved is not None
+        assert "echo" in resolved
+
+    def test_resolve_env_without_path_key_falls_back(self):
+        """When env is provided but has no PATH key, falls back to default."""
+        from sanna.interceptors.subprocess_interceptor import _resolve_command
+
+        custom_env = {"HOME": "/tmp"}  # No PATH key
+        _, _, _, resolved = _resolve_command(
+            (["echo", "hello"],), {}, env=custom_env
+        )
+        # shutil.which(path=None) uses os.environ PATH
+        assert resolved is not None
+
+    def test_patched_run_resolves_with_env_path(self, tmp_path, sink):
+        """subprocess.run with env= resolves binary using that env's PATH."""
+        # Create a temp dir with a fake "mybin" script
+        fake_bin = tmp_path / "mybin"
+        fake_bin.write_text("#!/bin/sh\nexit 0")
+        fake_bin.chmod(0o755)
+
+        # Use permissive constitution so arbitrary binaries are allowed
+        patch_subprocess(
+            constitution_path=CLI_PERMISSIVE_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+        )
+
+        custom_env = {"PATH": str(tmp_path)}
+        result = subprocess.run(
+            ["mybin"], env=custom_env, capture_output=True
+        )
+        assert result.returncode == 0
+
+        # Verify a receipt was emitted
+        assert sink.count >= 1
+
+    def test_patched_popen_resolves_with_env_path(self, tmp_path, sink):
+        """Popen with env= resolves binary using that env's PATH."""
+        fake_bin = tmp_path / "mybin"
+        fake_bin.write_text("#!/bin/sh\nexit 0")
+        fake_bin.chmod(0o755)
+
+        patch_subprocess(
+            constitution_path=CLI_PERMISSIVE_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+        )
+
+        custom_env = {"PATH": str(tmp_path)}
+        proc = subprocess.Popen(
+            ["mybin"], env=custom_env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        proc.communicate()
+        assert proc.returncode == 0

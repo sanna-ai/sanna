@@ -409,7 +409,7 @@ def _generate_constitution_receipt(
                 )
             else:
                 result = cfg.check_fn(context, final_answer, enforcement=cfg.enforcement_level)
-        except Exception as exc:
+        except Exception as exc:  # Broad catch: custom evaluator code is untrusted
             if cfg.source == "custom_evaluator":
                 if error_policy == "fail_closed":
                     # Fail-closed: treat error as a real failure
@@ -543,21 +543,33 @@ def _generate_constitution_receipt(
         enforcement_obj_dict = None
     enforcement_hash_val = hash_obj(enforcement_dict) if enforcement_dict else EMPTY_HASH
 
-    # Build fingerprint from check results (include all enforcement and impl fields)
-    checks_fingerprint_data = [
-        {
-            "check_id": c["check_id"],
-            "passed": c["passed"],
-            "severity": c["severity"],
-            "evidence": c["evidence"],
-            "triggered_by": c.get("triggered_by"),
-            "enforcement_level": c.get("enforcement_level"),
-            "check_impl": c.get("check_impl"),
-            "replayable": c.get("replayable"),
-        }
-        for c in check_results
-    ]
-    checks_hash = hash_obj(checks_fingerprint_data)
+    # Build fingerprint from check results (conditionally include enforcement fields)
+    has_enforcement_fields = any(c.get("triggered_by") is not None for c in check_results)
+    if has_enforcement_fields:
+        checks_fingerprint_data = [
+            {
+                "check_id": c["check_id"],
+                "passed": c["passed"],
+                "severity": c["severity"],
+                "evidence": c["evidence"],
+                "triggered_by": c.get("triggered_by"),
+                "enforcement_level": c.get("enforcement_level"),
+                "check_impl": c.get("check_impl"),
+                "replayable": c.get("replayable"),
+            }
+            for c in check_results
+        ]
+    else:
+        checks_fingerprint_data = [
+            {
+                "check_id": c["check_id"],
+                "passed": c["passed"],
+                "severity": c["severity"],
+                "evidence": c["evidence"],
+            }
+            for c in check_results
+        ]
+    checks_hash = hash_obj(checks_fingerprint_data) if checks_fingerprint_data else EMPTY_HASH
     coverage_hash = hash_obj(evaluation_coverage)
 
     # Unified fingerprint formula (v1.0.0) — always 14 pipe-delimited fields
@@ -572,7 +584,7 @@ def _generate_constitution_receipt(
 
     # Fields 13-14: parent_receipts and workflow_id (v1.0.0)
     parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
-    workflow_id_hash = hash_text(workflow_id) if workflow_id else EMPTY_HASH
+    workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
 
     fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{enforcement_hash_val}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
 
@@ -660,7 +672,7 @@ def _generate_no_invariants_receipt(
 
     # Unified fingerprint formula — always 14 pipe-delimited fields
     correlation_id = trace_data.get("correlation_id", "")
-    checks_hash = hash_obj([])
+    checks_hash = EMPTY_HASH  # Empty checks array → EMPTY_HASH (spec parity)
 
     # Namespace extensions for v0.13.0+
     namespaced_ext = _namespace_extensions(extensions) if extensions else {}
@@ -668,7 +680,7 @@ def _generate_no_invariants_receipt(
 
     # Fields 13-14: parent_receipts and workflow_id (v1.0.0)
     parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
-    workflow_id_hash = hash_text(workflow_id) if workflow_id else EMPTY_HASH
+    workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
 
     fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
 
@@ -786,7 +798,7 @@ def _run_reasoning_gate(
             "overall_score": evaluation.overall_score,
             "assurance": evaluation.assurance,
         }
-    except Exception as e:
+    except Exception as e:  # Broad catch: reasoning gate must not block function execution
         logger.warning("Pre-execution reasoning gate failed: %s", e)
         return None
 
@@ -824,7 +836,7 @@ async def _run_reasoning_gate_async(
             "overall_score": evaluation.overall_score,
             "assurance": evaluation.assurance,
         }
-    except Exception as e:
+    except Exception as e:  # Broad catch: reasoning gate must not block function execution
         logger.warning("Pre-execution reasoning gate failed: %s", e)
         return None
 
@@ -939,8 +951,8 @@ def sanna_observe(
                     _const_sig = loaded_constitution.provenance.signature if loaded_constitution.provenance else None
                     if _const_sig and getattr(_const_sig, 'key_id', None) == _env_key_id:
                         _effective_pub_key = _env_key
-                except Exception:
-                    pass  # Env var key unreadable — ignore
+                except Exception:  # Broad catch: env var key auto-detection is best-effort
+                    pass
         if not loaded_constitution.policy_hash:
             raise SannaConstitutionError(
                 f"Constitution is not signed (no policy hash): {constitution_path}. "
@@ -1263,14 +1275,14 @@ def sanna_observe(
         if _store_instance is not None:
             try:
                 _store_instance.save(receipt)
-            except Exception:
+            except Exception:  # Broad catch: receipt persistence must not block execution
                 logger.warning("Failed to save receipt to store", exc_info=True)
 
         # 6c. Persist to sink if configured
         if sink is not None:
             try:
                 sink.store(receipt)
-            except Exception:
+            except Exception:  # Broad catch: sink persistence must not block execution
                 logger.warning("Failed to persist receipt to sink", exc_info=True)
 
         # 7. Apply enforcement

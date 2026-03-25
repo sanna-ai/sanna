@@ -133,7 +133,7 @@ def _validate_escalation_url(url: str) -> Optional[str]:
         from sanna.gateway.config import validate_webhook_url
         validate_webhook_url(url)
         return None
-    except Exception as e:
+    except Exception as e:  # Broad catch: import + validation from optional gateway module
         return str(e)
 
 
@@ -183,7 +183,7 @@ def _execute_webhook(
                 "payload": payload,
             },
         )
-    except Exception as e:
+    except Exception as e:  # Broad catch: httpx exception hierarchy is external and optional
         logger.error("Webhook escalation failed: %s", e)
         return EscalationResult(
             success=False,
@@ -210,7 +210,7 @@ def _execute_callback(
             target_type="callback",
             details={"callback_result": result, "event": event_details},
         )
-    except Exception as e:
+    except Exception as e:  # Broad catch: user-provided callback code is untrusted
         logger.error("Callback escalation failed: %s", e)
         return EscalationResult(
             success=False,
@@ -296,7 +296,7 @@ async def _execute_webhook_async(
                 "async": True,
             },
         )
-    except Exception as e:
+    except Exception as e:  # Broad catch: httpx exception hierarchy is external and optional
         if "Timeout" in type(e).__name__:
             logger.warning("Escalation webhook timed out: %s", target.url)
         else:
@@ -369,7 +369,7 @@ def _webhook_threaded_fallback(
                 method="POST",
             )
             opener.open(req, timeout=timeout)
-        except Exception as exc:
+        except (OSError, urllib.error.URLError) as exc:
             logger.warning(
                 "Threaded webhook fallback failed: %s — %s", url, exc,
             )

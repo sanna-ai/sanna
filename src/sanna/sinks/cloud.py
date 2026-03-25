@@ -118,7 +118,7 @@ class CloudHTTPSink(ReceiptSink):
                 resp_body = ""
                 try:
                     resp_body = e.read().decode("utf-8", errors="replace")
-                except Exception:
+                except OSError:
                     pass
 
                 # Duplicate — treat as success

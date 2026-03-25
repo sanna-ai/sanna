@@ -158,7 +158,7 @@ class AnthropicClient(LLMClient):
             }
         except (ValueError, KeyError, IndexError) as e:
             return 0.5, {"error": "parse_error", "details": str(e)}
-        except Exception as e:
+        except Exception as e:  # Broad catch: external API errors use optional httpx hierarchy
             return 0.5, {"error": "unexpected_error", "details": str(e)}
 
 
@@ -370,7 +370,7 @@ class AnthropicJudge(BaseJudge):
                     latency_ms=latency_ms,
                 )
 
-        except Exception as e:
+        except Exception as e:  # Broad catch: external API errors use optional httpx hierarchy
             latency_ms = (time.perf_counter() - start) * 1000
             error_detail = f"{type(e).__name__}: {e}"
             return JudgeResult(
@@ -477,7 +477,7 @@ class OpenAIJudge(BaseJudge):
                     latency_ms=latency_ms,
                 )
 
-        except Exception as e:
+        except Exception as e:  # Broad catch: external API errors use optional httpx hierarchy
             latency_ms = (time.perf_counter() - start) * 1000
             error_detail = f"{type(e).__name__}: {e}"
             return JudgeResult(

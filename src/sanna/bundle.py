@@ -511,7 +511,7 @@ def verify_bundle(
 
                 try:
                     const_valid = verify_constitution_full(constitution, const_pub_key_path)
-                except Exception as e:
+                except (ValueError, TypeError, OSError) as e:
                     const_valid = False
 
                 if const_valid:
@@ -557,7 +557,7 @@ def verify_bundle(
         if sig_block and sig_block.get("signature"):
             try:
                 receipt_sig_valid = verify_receipt_signature(receipt, receipt_pub_key_path)
-            except Exception:
+            except (ValueError, TypeError, OSError):
                 receipt_sig_valid = False
 
             if receipt_sig_valid:
@@ -664,7 +664,7 @@ def _verify_approval_in_bundle(constitution, public_keys_dir: Path) -> BundleChe
                 if verify_signature(data, record.approval_signature, pub_key):
                     sig_verified = True
                     break
-            except Exception:
+            except (ValueError, TypeError, OSError):
                 continue
 
         if sig_verified:

@@ -1,0 +1,61 @@
+{
+  "_comment": "Cross-language fingerprint edge case test vectors. Copy to TypeScript repo for parity verification.",
+  "_hashing_note": "hash_text/hashContent = SHA-256 of NFC-normalized UTF-8 bytes. hash_obj/hashObj = SHA-256 of RFC 8785 canonical JSON bytes. EMPTY_HASH = SHA-256 of empty bytes.",
+  "EMPTY_HASH": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "vectors": {
+    "checks_hash": {
+      "empty_array": {
+        "input": [],
+        "expected_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "note": "Empty checks array returns EMPTY_HASH, NOT hash of canonical '[]'"
+      },
+      "null_checks": {
+        "input": null,
+        "expected_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "note": "Null/None checks returns EMPTY_HASH"
+      },
+      "non_empty_4_fields": {
+        "input": [{"check_id": "C1", "passed": true, "severity": "info", "evidence": null}],
+        "expected_hash": "eefc9bc1ee924de243b52a83fb9a7815fffe8d497ae686c3e2844ae2ced13af1",
+        "note": "Non-empty checks without enforcement fields: hash 4-field objects"
+      }
+    },
+    "workflow_id_hash": {
+      "null_value": {
+        "input": null,
+        "expected_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "note": "None/null/undefined workflow_id returns EMPTY_HASH"
+      },
+      "empty_string": {
+        "input": "",
+        "expected_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "note": "Empty string is hashed as a value (hash_text('')), which happens to equal EMPTY_HASH since sha256(b'') is the same. The semantic distinction is: None = absent, '' = explicitly empty."
+      },
+      "non_empty": {
+        "input": "wf-12345",
+        "expected_hash": "8559555ffad88dfca72f2c64f641bdef7146a3bf47779ae173e2daf0b9724a02",
+        "note": "Non-empty workflow_id: hash_text of the string value"
+      }
+    },
+    "check_enforcement_fields": {
+      "without_enforcement": {
+        "input": [{"check_id": "C1", "passed": true, "severity": "info", "evidence": null}],
+        "expected_hash": "eefc9bc1ee924de243b52a83fb9a7815fffe8d497ae686c3e2844ae2ced13af1",
+        "note": "No check has triggered_by → hash only 4 fields per check"
+      },
+      "with_enforcement": {
+        "input": [{"check_id": "C1", "passed": true, "severity": "info", "evidence": null, "triggered_by": "INV_NO_FABRICATION", "enforcement_level": "warn", "check_impl": "sanna.context_contradiction", "replayable": true}],
+        "expected_hash": "2b1e46a788699f1e298b5ddf702853fdb454499dc6131a4da0728d36ba5cf097",
+        "note": "Any check has triggered_by → hash 8 fields per check (enforcement fields included)"
+      },
+      "mixed_enforcement": {
+        "input": [
+          {"check_id": "C1", "passed": true, "severity": "info", "evidence": null, "triggered_by": "INV_NO_FABRICATION", "enforcement_level": "warn", "check_impl": "sanna.context_contradiction", "replayable": true},
+          {"check_id": "C2", "passed": true, "severity": "info", "evidence": null}
+        ],
+        "expected_hash": "6c26ad487ff229a8c31ffc75b505756c4ced8966582a0e402ca3fdfe958b6584",
+        "note": "One check has triggered_by → ALL checks use 8-field mode. Missing fields default to null."
+      }
+    }
+  }
+}

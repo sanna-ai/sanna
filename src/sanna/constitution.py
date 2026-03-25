@@ -441,6 +441,7 @@ class CliPermissions:
     justification_required: bool = True
     commands: list[CliCommand] = field(default_factory=list)
     invariants: list[CliInvariant] = field(default_factory=list)
+    inspect_scripts: bool = False
 
 
 @dataclass
@@ -1151,6 +1152,7 @@ def parse_constitution(data: dict) -> Constitution:
             justification_required=cli_perms_data.get("justification_required", True),
             commands=commands,
             invariants=invariants_list,
+            inspect_scripts=bool(cli_perms_data.get("inspect_scripts", False)),
         )
 
     # API permissions (optional, v1.2+)
@@ -1684,7 +1686,7 @@ def verify_identity_claims(
                     status="failed",
                     detail="Signature verification failed",
                 ))
-        except Exception as exc:
+        except (ValueError, TypeError, OSError) as exc:
             results.append(IdentityVerificationResult(
                 claim=claim,
                 status="failed",

@@ -159,7 +159,7 @@ class DownstreamConnection:
         except DownstreamError:
             await _safe_close_stack(stack)
             raise
-        except Exception as e:
+        except Exception as e:  # Broad catch: MCP protocol/library errors are varied
             await _safe_close_stack(stack)
             raise DownstreamConnectionError(
                 f"Failed to connect to '{self._command}': {e}"
@@ -218,7 +218,7 @@ class DownstreamConnection:
                 raise DownstreamTimeoutError(
                     f"list_tools timed out after {self._timeout}s"
                 )
-            except Exception as e:
+            except Exception as e:  # Broad catch: MCP protocol/library errors are varied
                 raise DownstreamConnectionError(
                     f"list_tools failed: {type(e).__name__}: {e}"
                 ) from e
@@ -265,7 +265,7 @@ class DownstreamConnection:
                 return _error_result(
                     f"Tool call '{name}' timed out after {effective_timeout}s"
                 )
-            except Exception as e:
+            except Exception as e:  # Broad catch: downstream call errors must not crash gateway
                 self._last_call_was_connection_error = True
                 self._connected = False
                 return _error_result(

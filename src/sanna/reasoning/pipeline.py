@@ -116,7 +116,7 @@ class ReasoningPipeline:
                 error_policy=error_policy,
                 cross_provider=cross_provider,
             )
-        except Exception as e:
+        except (ImportError, ValueError, TypeError) as e:
             logger.warning("JudgeFactory.create() failed: %s", e)
             return None
 
@@ -208,7 +208,7 @@ class ReasoningPipeline:
 
             try:
                 result = await check.execute(justification, context)
-            except Exception as exc:
+            except Exception as exc:  # Broad catch: individual check failures must not halt pipeline
                 latency_ms = int((time.perf_counter() * 1000) - start_ms)
                 logger.warning(
                     "Check %s raised %s", check.check_id(), type(exc).__name__,
@@ -311,7 +311,7 @@ class ReasoningPipeline:
                     latency_ms=int(judge_result.latency_ms),
                     details=details,
                 )
-            except Exception as exc:
+            except Exception as exc:  # Broad catch: judge failures must not halt pipeline
                 latency_ms = int((time.perf_counter() * 1000) - start_ms)
                 logger.warning("Judge raised %s", type(exc).__name__)
                 return GatewayCheckResult(
@@ -331,7 +331,7 @@ class ReasoningPipeline:
             start_ms = time.perf_counter() * 1000
             try:
                 return await self.llm_check.execute(justification, context)
-            except Exception as exc:
+            except Exception as exc:  # Broad catch: LLM check failures must not halt pipeline
                 latency_ms = int((time.perf_counter() * 1000) - start_ms)
                 logger.warning("LLM check raised %s", type(exc).__name__)
                 return GatewayCheckResult(

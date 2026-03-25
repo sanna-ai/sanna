@@ -150,7 +150,7 @@ def sanna_verify_receipt(receipt_json: str) -> str:
             "computed_status": result.computed_status,
             "expected_status": result.expected_status,
         })
-    except Exception as e:
+    except Exception as e:  # Broad catch: MCP tool must return JSON, never raise
         logger.exception("sanna_verify_receipt failed")
         return json.dumps({
             "valid": False,
@@ -257,7 +257,7 @@ def sanna_generate_receipt(
                         _const_sig = constitution.provenance.signature if constitution.provenance else None
                         if _const_sig and getattr(_const_sig, 'key_id', None) == _env_key_id:
                             _effective_pub_key = _env_key
-                    except Exception:
+                    except Exception:  # Broad catch: env var key auto-detection is best-effort
                         pass
 
             if not constitution.policy_hash:
@@ -357,7 +357,7 @@ def sanna_generate_receipt(
             )
 
         return json.dumps(receipt, indent=2)
-    except Exception as e:
+    except Exception as e:  # Broad catch: MCP tool must return JSON, never raise
         logger.exception("sanna_generate_receipt failed")
         return json.dumps({
             "error": f"Internal error: {e}",
@@ -389,7 +389,7 @@ def sanna_list_checks() -> str:
     """
     try:
         return _list_checks_impl()
-    except Exception as e:
+    except Exception as e:  # Broad catch: MCP tool must return JSON, never raise
         logger.exception("sanna_list_checks failed")
         return json.dumps({"error": f"Internal error: {e}"})
 
@@ -545,7 +545,7 @@ def sanna_evaluate_action(
             result["escalation_target"] = None
 
         return json.dumps(result)
-    except Exception as e:
+    except Exception as e:  # Broad catch: MCP tool must return JSON, never raise
         logger.exception("sanna_evaluate_action failed")
         return json.dumps({
             "error": f"Internal error: {e}",
@@ -625,7 +625,7 @@ def sanna_query_receipts(
         finally:
             store.close()
 
-    except Exception as e:
+    except Exception as e:  # Broad catch: MCP tool must return JSON, never raise
         logger.exception("sanna_query_receipts failed")
         return json.dumps({
             "error": f"Internal error: {e}",
@@ -769,7 +769,7 @@ def sanna_check_constitution_approval(
                 author_sig_verified = verify_constitution_full(
                     constitution, author_public_key_path
                 )
-            except Exception:
+            except Exception:  # Broad catch: crypto verification failure → not verified
                 author_sig_verified = False
 
         # Check approval
@@ -856,7 +856,7 @@ def sanna_check_constitution_approval(
                 approval_sig_verified = verify_signature(
                     data, record.approval_signature, pub_key
                 )
-            except Exception:
+            except Exception:  # Broad catch: crypto verification failure → not verified
                 approval_sig_verified = False
 
         # If keys provided and verification failed, report not approved
@@ -910,7 +910,7 @@ def sanna_check_constitution_approval(
             },
         })
 
-    except Exception as e:
+    except Exception as e:  # Broad catch: MCP tool must return JSON, never raise
         logger.exception("sanna_check_constitution_approval failed")
         return json.dumps({
             "approved": False,
@@ -990,7 +990,7 @@ def sanna_verify_identity_claims(
             ],
         }, indent=2)
 
-    except Exception as e:
+    except Exception as e:  # Broad catch: MCP tool must return JSON, never raise
         logger.exception("sanna_verify_identity_claims failed")
         return json.dumps({
             "error": f"Internal error: {e}",
