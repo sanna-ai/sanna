@@ -4,7 +4,13 @@
 
 Sanna checks reasoning during execution, halts when constraints are violated, and generates portable cryptographic receipts proving governance was enforced. Constitution-as-code: your governance rules live in version-controlled YAML, not in a vendor dashboard.
 
-## What's New in v1.0.0
+## What's New in v1.1.0
+
+- **Subprocess interceptor hardening** — Shell metacharacter bypass fix (SAN-35), `os.exec*/spawn*/popen` patching (SAN-42), TOCTOU race mitigation on binary path resolution (SAN-44), wrapper script bypass detection (SAN-45), thread-safe restore (SAN-46), env var manipulation bypass prevention (SAN-47).
+- **Fingerprint edge-case alignment** — Python edge cases aligned with TypeScript SDK and spec (SAN-27).
+- **Narrowed exception handling** — Broad `except Exception` replaced with specific exception types across the codebase (SAN-1).
+
+### Previous: v1.0.0
 
 - **Receipt Sinks** — Pluggable receipt persistence via `ReceiptSink` ABC. Ship with `NullSink`, `LocalSQLiteSink`, `CloudHTTPSink`, and `CompositeSink` for fan-out to multiple destinations. Configure sinks in gateway YAML or pass directly to `@sanna_observe`.
 - **Multi-Step Workflow Chaining** — `parent_receipts` and `workflow_id` fields link receipts across multi-step agent workflows. The fingerprint formula is now 14 fields (was 12).
@@ -217,7 +223,7 @@ Minimal example receipt (abbreviated -- production receipts typically contain 3-
 ```json
 {
   "spec_version": "1.1",
-  "tool_version": "1.0.0",
+  "tool_version": "1.1.0",
   "checks_version": "6",
   "receipt_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
   "receipt_fingerprint": "7b4d06e836514eef",

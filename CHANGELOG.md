@@ -2,6 +2,31 @@
 
 **Note:** v0.13.x is the first public release series. Earlier version entries document internal pre-release development.
 
+## [1.1.0] - 2026-03-24
+
+Security hardening release for the subprocess interceptor and cross-SDK fingerprint alignment.
+
+### Security
+- Shell metacharacter bypass fix in subprocess interceptor (SAN-35)
+- `os.exec*/os.spawn*/os.popen` patching in subprocess interceptor (SAN-42)
+- TOCTOU race mitigation with binary path resolution (SAN-44)
+- Wrapper script bypass detection in subprocess interceptor (SAN-45)
+- Thread-safe restore for subprocess interceptor (SAN-46)
+- Env var manipulation bypass prevention in subprocess interceptor (SAN-47)
+
+### Fixed
+- Fingerprint edge cases aligned with TypeScript SDK and spec (SAN-27)
+
+### Improved
+- Broad `except Exception` replaced with specific exception types across the codebase (SAN-1)
+
+### Tests
+- 2834 passed, 10 xfailed
+
+## [1.0.0] - 2026-03-05
+
+See README for full v1.0.0 feature list.
+
 ## [0.13.7] - 2026-02-25
 
 Gateway constitution template standardization. No library code changes.
