@@ -4,19 +4,17 @@
 
 Sanna checks reasoning during execution, halts when constraints are violated, and generates portable cryptographic receipts proving governance was enforced. Constitution-as-code: your governance rules live in version-controlled YAML, not in a vendor dashboard.
 
-## What's New in v1.1.0
+## What's New in v1.1.1
+
+- **`UnsupportedAlgorithm` exception handling** — Crypto exception handling now catches `UnsupportedAlgorithm` from the `cryptography` library (SAN-49).
+- **`CHECKS_VERSION` bump to `"7"`** — Fingerprint versioning updated for the empty-checks normalization fix from v1.1.0 (SAN-48).
+- **`unpatch_subprocess()` documented** — Design limitation documented as intentional (SAN-43).
+
+### Previous: v1.1.0
 
 - **Subprocess interceptor hardening** — Shell metacharacter bypass fix (SAN-35), `os.exec*/spawn*/popen` patching (SAN-42), TOCTOU race mitigation on binary path resolution (SAN-44), wrapper script bypass detection (SAN-45), thread-safe restore (SAN-46), env var manipulation bypass prevention (SAN-47).
 - **Fingerprint edge-case alignment** — Python edge cases aligned with TypeScript SDK and spec (SAN-27).
 - **Narrowed exception handling** — Broad `except Exception` replaced with specific exception types across the codebase (SAN-1).
-
-### Previous: v1.0.0
-
-- **Receipt Sinks** — Pluggable receipt persistence via `ReceiptSink` ABC. Ship with `NullSink`, `LocalSQLiteSink`, `CloudHTTPSink`, and `CompositeSink` for fan-out to multiple destinations. Configure sinks in gateway YAML or pass directly to `@sanna_observe`.
-- **Multi-Step Workflow Chaining** — `parent_receipts` and `workflow_id` fields link receipts across multi-step agent workflows. The fingerprint formula is now 14 fields (was 12).
-- **Content Mode** — `content_mode: "hash_only"` stores only hashes of inputs/outputs (no plaintext), enabling governance without data exposure. Configurable per-constitution or per-call.
-- **Spec v1.1** — `spec_version` bumped to `"1.1"`, `checks_version` bumped to `"6"`. Backward-compatible verifier auto-detects 12 vs 14 field fingerprints.
-- **17 top-level exports** — 7 new sink-related types added to `sanna.__all__`.
 
 ## Quick Start — Library Mode
 
@@ -152,7 +150,7 @@ Every governed action produces a reasoning receipt — a JSON artifact that cryp
 |-------|------|-------------|
 | `spec_version` | string | Schema version, `"1.1"` |
 | `tool_version` | string | Package version, e.g. `"1.0.0"` |
-| `checks_version` | string | Check algorithm version, e.g. `"6"` |
+| `checks_version` | string | Check algorithm version, e.g. `"7"` |
 | `receipt_id` | string | UUID v4 unique identifier |
 | `correlation_id` | string | Path-prefixed identifier for grouping related receipts |
 
@@ -223,8 +221,8 @@ Minimal example receipt (abbreviated -- production receipts typically contain 3-
 ```json
 {
   "spec_version": "1.1",
-  "tool_version": "1.1.0",
-  "checks_version": "6",
+  "tool_version": "1.1.1",
+  "checks_version": "7",
   "receipt_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
   "receipt_fingerprint": "7b4d06e836514eef",
   "full_fingerprint": "7b4d06e836514eef26ab96f5c62b193d036c92b45d966ef7025d75539ff93aca",
