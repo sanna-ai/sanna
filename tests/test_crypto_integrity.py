@@ -343,3 +343,63 @@ class TestVerifyReceiptSignatureCrashGuard:
         # Should return False, not crash
         result = verify_receipt_signature(receipt, str(pub_path))
         assert result is False
+
+
+# ---------------------------------------------------------------------------
+# UnsupportedAlgorithm handling (SAN-49)
+# ---------------------------------------------------------------------------
+
+
+class TestUnsupportedAlgorithmHandling:
+    """UnsupportedAlgorithm from cryptography must produce clean errors."""
+
+    def test_load_private_key_unsupported_algorithm(self, tmp_path):
+        """load_private_key raises ValueError for non-Ed25519 private key."""
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import serialization
+        from sanna.crypto import load_private_key
+
+        # Generate an EC key (not Ed25519)
+        ec_key = ec.generate_private_key(ec.SECP256R1())
+        pem = ec_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        key_file = tmp_path / "ec_key.key"
+        key_file.write_bytes(pem)
+
+        with pytest.raises(ValueError, match="Expected Ed25519 private key"):
+            load_private_key(key_file)
+
+    def test_load_public_key_unsupported_algorithm(self, tmp_path):
+        """load_public_key raises ValueError for non-Ed25519 public key."""
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import serialization
+        from sanna.crypto import load_public_key
+
+        ec_key = ec.generate_private_key(ec.SECP256R1())
+        pem = ec_key.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        key_file = tmp_path / "ec_key.pub"
+        key_file.write_bytes(pem)
+
+        with pytest.raises(ValueError, match="Expected Ed25519 public key"):
+            load_public_key(key_file)
+
+    def test_verify_signature_unsupported_algorithm_returns_false(self):
+        """verify_signature returns False (not unhandled exception) for UnsupportedAlgorithm."""
+        from unittest.mock import MagicMock, patch
+        from cryptography.exceptions import UnsupportedAlgorithm
+        from sanna.crypto import verify_signature
+
+        mock_key = MagicMock()
+        mock_key.verify.side_effect = UnsupportedAlgorithm("unsupported")
+
+        # Should return False, not raise
+        import base64
+        fake_sig = base64.b64encode(b"\x00" * 64).decode()
+        result = verify_signature(b"data", fake_sig, mock_key)
+        assert result is False
