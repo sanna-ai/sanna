@@ -71,10 +71,10 @@ def make_trace(correlation_id="test-001", query="q", context="c", response="r"):
 
 class TestVersionBump:
     def test_version_string(self):
-        assert __version__ == "1.1.0"
+        assert __version__ == "1.1.1"
 
     def test_tool_version(self):
-        assert TOOL_VERSION == "1.1.0"
+        assert TOOL_VERSION == "1.1.1"
 
     def test_spec_version(self):
         assert SPEC_VERSION == "1.1"
@@ -393,7 +393,7 @@ class TestCloudHTTPSink:
             api_url=mock_server, api_key="k",
             max_retries=0,
         )
-        assert "sanna-python/1.1.0" in sink._user_agent
+        assert "sanna-python/1.1.1" in sink._user_agent
 
 
 # ============================================================================
