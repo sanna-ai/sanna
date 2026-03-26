@@ -327,3 +327,19 @@ Moving between tiers is additive — each tier builds on the previous one.
 | None | Tier 1 | Install sanna, create constitution, configure gateway |
 
 You can run Tier 1 (gateway) and Tier 3 (library) simultaneously — the gateway governs MCP tool calls while the library governs your Python agent's internal reasoning.
+
+## Security Considerations: In-Process vs Out-of-Process Enforcement
+
+Tier 3 (Full Library Embedding) includes in-process interceptors (`patch_subprocess`, `patch_http`) that monkeypatch Python's `subprocess` and `urllib` modules to enforce governance on CLI and HTTP calls. These interceptors are **defense-in-depth for trusted code only** — they are not a security boundary.
+
+Because they operate via monkeypatching in the same Python process, any code running in that process can reverse the patches by calling `unpatch_subprocess()` or `unpatch_http()`, or by accessing the original functions directly. This is a fundamental limitation of in-process enforcement in Python, not a bug.
+
+**Choose the right tier for your threat model:**
+
+| Threat Model | Recommended Tier |
+|-------------|-----------------|
+| Trusted agent code, defense-in-depth governance | Tier 3 (library interceptors) |
+| Untrusted or third-party agent code | Tier 1 or Tier 2 (gateway — out-of-process) |
+| Adversarial code that may attempt to bypass governance | Tier 1 or Tier 2 (gateway — out-of-process) |
+
+The gateway architecture (Tiers 1 and 2) provides process-level isolation: the governed code runs in a separate process and communicates via MCP stdio transport. It cannot access or modify the gateway's enforcement logic.

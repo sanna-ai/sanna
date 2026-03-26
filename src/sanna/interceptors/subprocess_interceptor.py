@@ -13,12 +13,37 @@ Each intercepted call:
 6. Passes resolved absolute path to the actual subprocess call
 7. Either allows, halts (FileNotFoundError), or escalates (PermissionError)
 
-SECURITY NOTE: Binary path resolution mitigates PATH-based TOCTOU attacks by
-resolving the binary to an absolute path before authority evaluation and passing
-the resolved path to the actual subprocess call. However, filesystem-level
-attacks (replacing the binary file at the resolved path between check and exec)
-cannot be prevented in userspace. For untrusted code, use the SannaGateway
-architecture instead of the subprocess interceptor.
+SECURITY MODEL — DEFENSE-IN-DEPTH FOR TRUSTED CODE ONLY:
+
+This interceptor provides defense-in-depth governance for cooperative,
+trusted code running in the same Python process. It is NOT a security
+boundary against adversarial or untrusted code.
+
+Because the interceptor works via Python monkeypatching (replacing
+subprocess.run, os.system, etc. with governed wrappers), any code running
+in the same process can reverse the patches:
+
+    from sanna.interceptors import unpatch_subprocess
+    unpatch_subprocess()  # All governance removed
+
+    # Or access originals directly:
+    from sanna.interceptors.subprocess_interceptor import _originals
+    _originals["subprocess.run"](["cmd"])  # Bypass governance
+
+This is a fundamental limitation of in-process monkeypatching in Python,
+not a bug. The unpatch_subprocess() function exists intentionally — it is
+required for clean teardown, testing, and legitimate operational use.
+
+For untrusted or adversarial code, the correct architecture is the
+SannaGateway (out-of-process MCP enforcement proxy), which provides
+process-level isolation that cannot be bypassed by the governed code.
+See docs/deployment-tiers.md for guidance on choosing the right tier.
+
+BINARY PATH RESOLUTION NOTE: Binary path resolution mitigates PATH-based
+TOCTOU attacks by resolving the binary to an absolute path before authority
+evaluation and passing the resolved path to the actual subprocess call.
+However, filesystem-level attacks (replacing the binary file at the resolved
+path between check and exec) cannot be prevented in userspace.
 """
 
 from __future__ import annotations
@@ -211,7 +236,23 @@ def patch_subprocess(
 
 
 def unpatch_subprocess() -> None:
-    """Restore all original subprocess, os.system, os.exec*, os.spawn*, and os.popen functions."""
+    """Restore all original subprocess, os.system, os.exec*, os.spawn*, and os.popen functions.
+
+    This function intentionally removes all governance patches, restoring the
+    original unpatched functions. This is a design limitation of in-process
+    monkeypatching, not a bug — any code in the same Python process can call
+    this function to remove governance.
+
+    Intended use cases:
+    - Clean teardown in test fixtures
+    - Operational scenarios where governance must be temporarily disabled
+    - Application shutdown
+
+    This function is NOT a security concern in the intended threat model:
+    the subprocess interceptor is defense-in-depth for trusted code only.
+    For untrusted code isolation, use the SannaGateway architecture
+    (out-of-process MCP enforcement proxy) instead.
+    """
     global _patched
 
     if not _patched:

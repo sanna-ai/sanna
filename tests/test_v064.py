@@ -421,14 +421,14 @@ class TestPrivateKeyPermissions:
 
 class TestV064Versions:
     def test_tool_version(self):
-        assert TOOL_VERSION == "1.1.0"
+        assert TOOL_VERSION == "1.1.1"
 
     def test_checks_version(self):
-        assert CHECKS_VERSION == "6"
+        assert CHECKS_VERSION == "7"
 
     def test_init_version(self):
         import sanna
-        assert sanna.__version__ == "1.1.0"
+        assert sanna.__version__ == "1.1.1"
 
     def test_sanitize_for_signing_exported(self):
         """sanitize_for_signing should be importable from sanna.crypto."""

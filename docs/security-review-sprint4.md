@@ -46,9 +46,15 @@ The interceptor patches 6 entry points but the following allow unrestricted exec
 
 **Recommendation:** Future sprint should either (a) patch `os.exec*`, `os.spawn*`, and `os.popen`, or (b) document this explicitly in the interceptor's threat model as a known boundary. Option (b) is acceptable if the threat model assumes the governed agent does not have arbitrary code execution — the interceptor protects against tool-use agents, not full code execution.
 
-### CRITICAL-3: Trivial unpatch by governed code (DOCUMENTED — not fixed)
+### CRITICAL-3: Trivial unpatch by governed code (DOCUMENTED — SAN-43)
 
-**Severity:** CRITICAL (design limitation)
+**Severity:** CRITICAL (design limitation — documented, not a bug)
+
+**Status:** Resolved via documentation (SAN-43). The module-level docstring and
+`unpatch_subprocess()` docstring now explicitly document the security model:
+the subprocess interceptor is defense-in-depth for trusted code only, not a
+security boundary against adversarial code. The gateway architecture is
+documented as the correct solution for untrusted code isolation.
 
 `unpatch_subprocess()` is a public API in `__init__.py`. Governed code can:
 ```python
@@ -62,7 +68,9 @@ from sanna.interceptors.subprocess_interceptor import _originals
 _originals["subprocess.run"](["rm", "-rf", "/"])
 ```
 
-**Recommendation:** This is a fundamental Python limitation (monkeypatching is always reversible). Document in threat model. If stronger isolation is needed, the gateway architecture (separate process) is the correct approach.
+This is a fundamental Python limitation (monkeypatching is always reversible).
+For untrusted code, use the SannaGateway architecture (out-of-process MCP
+enforcement proxy) which provides process-level isolation.
 
 ### HIGH-1: TOCTOU between authority check and execution
 
