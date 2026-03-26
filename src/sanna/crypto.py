@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from cryptography.exceptions import InvalidSignature
+from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
@@ -160,7 +160,10 @@ def load_key_metadata(key_path: str | Path) -> dict | None:
 def load_private_key(path: str | Path) -> Ed25519PrivateKey:
     """Load an Ed25519 private key from a PEM file."""
     path = Path(path)
-    key = serialization.load_pem_private_key(path.read_bytes(), password=None)
+    try:
+        key = serialization.load_pem_private_key(path.read_bytes(), password=None)
+    except UnsupportedAlgorithm as e:
+        raise ValueError(f"Unsupported key algorithm in {path}: {e}") from e
     if not isinstance(key, Ed25519PrivateKey):
         raise ValueError(f"Expected Ed25519 private key, got {type(key).__name__}")
     return key
@@ -169,7 +172,10 @@ def load_private_key(path: str | Path) -> Ed25519PrivateKey:
 def load_public_key(path: str | Path) -> Ed25519PublicKey:
     """Load an Ed25519 public key from a PEM file."""
     path = Path(path)
-    key = serialization.load_pem_public_key(path.read_bytes())
+    try:
+        key = serialization.load_pem_public_key(path.read_bytes())
+    except UnsupportedAlgorithm as e:
+        raise ValueError(f"Unsupported key algorithm in {path}: {e}") from e
     if not isinstance(key, Ed25519PublicKey):
         raise ValueError(f"Expected Ed25519 public key, got {type(key).__name__}")
     return key
@@ -205,7 +211,7 @@ def verify_signature(data: bytes, signature_b64: str, public_key: Ed25519PublicK
         signature = base64.b64decode(sig_clean, validate=True)
         public_key.verify(signature, data)
         return True
-    except (binascii.Error, ValueError, InvalidSignature):
+    except (binascii.Error, ValueError, InvalidSignature, UnsupportedAlgorithm):
         return False
 
 
