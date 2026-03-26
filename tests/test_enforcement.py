@@ -782,4 +782,4 @@ class TestVersionConstants:
         assert TOOL_VERSION == __version__
 
     def test_checks_version(self):
-        assert CHECKS_VERSION == "6"
+        assert CHECKS_VERSION == "7"

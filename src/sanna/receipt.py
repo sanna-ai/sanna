@@ -18,7 +18,7 @@ from .hashing import hash_text, hash_obj, EMPTY_HASH
 
 from .version import __version__ as TOOL_VERSION  # single source of truth
 SPEC_VERSION = "1.1"
-CHECKS_VERSION = "6"  # v1.0.0: 14-field fingerprint (parent_receipts, workflow_id)
+CHECKS_VERSION = "7"  # SAN-27/SAN-48: empty-checks fingerprint normalization (hash('[]') -> EMPTY_HASH)
 
 
 # =============================================================================

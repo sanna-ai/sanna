@@ -80,7 +80,7 @@ class TestVersionBump:
         assert SPEC_VERSION == "1.1"
 
     def test_checks_version(self):
-        assert CHECKS_VERSION == "6"
+        assert CHECKS_VERSION == "7"
 
     def test_all_exports(self):
         import sanna

@@ -569,7 +569,7 @@ class TestV063Versions:
         assert TOOL_VERSION == "1.1.0"
 
     def test_checks_version(self):
-        assert CHECKS_VERSION == "6"
+        assert CHECKS_VERSION == "7"
 
     def test_init_version(self):
         import sanna
