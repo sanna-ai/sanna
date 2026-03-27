@@ -757,6 +757,7 @@ def _run_reasoning_gate(
     justification: str,
     kwargs: dict,
     func_name: str = "",
+    on_check_error: str = "block",
 ) -> dict | None:
     """Run reasoning pipeline synchronously before function execution.
 
@@ -798,7 +799,17 @@ def _run_reasoning_gate(
             "overall_score": evaluation.overall_score,
             "assurance": evaluation.assurance,
         }
-    except Exception as e:  # Broad catch: reasoning gate must not block function execution
+    except Exception as e:
+        if on_check_error == "block":
+            logger.error(
+                "Pre-execution reasoning gate error (fail-closed): %s", e,
+            )
+            return {
+                "passed": False,
+                "failure_reason": f"Reasoning evaluation error (fail-closed): {e}",
+                "overall_score": 0.0,
+                "assurance": "none",
+            }
         logger.warning("Pre-execution reasoning gate failed: %s", e)
         return None
 
@@ -808,6 +819,7 @@ async def _run_reasoning_gate_async(
     justification: str,
     kwargs: dict,
     func_name: str = "",
+    on_check_error: str = "block",
 ) -> dict | None:
     """Run reasoning pipeline asynchronously — no thread pool, no blocking.
 
@@ -836,7 +848,17 @@ async def _run_reasoning_gate_async(
             "overall_score": evaluation.overall_score,
             "assurance": evaluation.assurance,
         }
-    except Exception as e:  # Broad catch: reasoning gate must not block function execution
+    except Exception as e:
+        if on_check_error == "block":
+            logger.error(
+                "Pre-execution reasoning gate error (fail-closed): %s", e,
+            )
+            return {
+                "passed": False,
+                "failure_reason": f"Reasoning evaluation error (fail-closed): {e}",
+                "overall_score": 0.0,
+                "assurance": "none",
+            }
         logger.warning("Pre-execution reasoning gate failed: %s", e)
         return None
 
@@ -1029,6 +1051,7 @@ def sanna_observe(
                     reasoning_pre_result = _run_reasoning_gate(
                         loaded_constitution, justification, kwargs,
                         func_name=func.__name__,
+                        on_check_error=loaded_constitution.reasoning.on_check_error,
                     )
                     if reasoning_pre_result and not reasoning_pre_result.get("passed", True):
                         enforcement = loaded_constitution.reasoning.on_missing_justification
@@ -1049,6 +1072,7 @@ def sanna_observe(
                     reasoning_pre_result = await _run_reasoning_gate_async(
                         loaded_constitution, justification, kwargs,
                         func_name=func.__name__,
+                        on_check_error=loaded_constitution.reasoning.on_check_error,
                     )
                     if reasoning_pre_result and not reasoning_pre_result.get("passed", True):
                         enforcement = loaded_constitution.reasoning.on_missing_justification
