@@ -11,7 +11,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .receipt import generate_receipt, SannaReceipt, TOOL_VERSION
-from .utils.safe_json import safe_json_load
+from .utils.safe_json import safe_json_load, safe_json_loads
 from .verify import verify_receipt, load_schema, VerificationResult
 
 
@@ -340,7 +340,7 @@ def main_verify():
         output = format_verify_json(result, receipt)
         # Add signature status to JSON output
         import json as _json
-        parsed = _json.loads(output)
+        parsed = safe_json_loads(output)
         parsed["signature_present"] = has_signature
         parsed["signature_verified"] = sig_verified
         parsed["strict_mode"] = args.strict

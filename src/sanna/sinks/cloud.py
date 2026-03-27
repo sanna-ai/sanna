@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from sanna.utils.safe_json import safe_json_loads
 import os
 import random
 import threading
@@ -252,8 +253,8 @@ class CloudHTTPSink(ReceiptSink):
                 if not line:
                     continue
                 try:
-                    receipt = json.loads(line)
-                except json.JSONDecodeError:
+                    receipt = safe_json_loads(line)
+                except (json.JSONDecodeError, ValueError):
                     logger.warning("CloudHTTPSink: skipping malformed buffer line")
                     continue
 
