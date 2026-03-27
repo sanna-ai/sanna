@@ -197,6 +197,13 @@ def _make_llm_judge(
             provider,
         )
         return _make_heuristic()
+    except Exception:
+        # Broad catch to prevent api_key from leaking in exception messages/tracebacks.
+        logger.error(
+            "Failed to initialize '%s' judge. Falling back to heuristic.",
+            provider,
+        )
+        return _make_heuristic()
 
     raise ValueError(f"Unsupported judge provider: {provider}")
 
