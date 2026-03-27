@@ -847,10 +847,9 @@ def format_plan(plan: MigrationPlan, result: MigrationResult | None = None) -> s
             "(replaced with ${VAR} in gateway.yaml):"
         )
         for var_name, value in plan.detected_secrets.items():
-            # Truncate long values for display
-            display = value if len(value) <= 20 else value[:12] + "..."
+            # Never display secret values — show only the env var name
             lines.append(
-                f'  {var_name} -> export {var_name}="{display}"'
+                f'  {var_name} -> export {var_name}="[REDACTED]"'
             )
 
     # Warnings from execution
