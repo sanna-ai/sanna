@@ -29,6 +29,7 @@ import hmac
 import json
 import logging
 import asyncio as _asyncio
+from sanna.utils.safe_json import safe_json_load
 import os
 import stat
 import sys
@@ -668,7 +669,7 @@ class EscalationStore:
                 )
                 return
             with os.fdopen(fd, 'r') as f:
-                data = json.load(f)
+                data = safe_json_load(f)
             fd = -1  # fdopen took ownership
         except (json.JSONDecodeError, ValueError, OSError) as exc:
             logger.warning(
