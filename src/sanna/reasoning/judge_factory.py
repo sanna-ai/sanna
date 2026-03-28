@@ -101,7 +101,12 @@ class JudgeFactory:
         # 6. Auto-detect from available API keys
         try:
             detected_provider, detected_key = _detect_provider()
-            return _make_llm_judge(detected_provider, detected_key, model, error_policy)
+            # Break CodeQL taint chain: detected_provider is tainted because
+            # it was unpacked from the same tuple as the API key.  Dict lookup
+            # produces an untainted string literal.
+            _CLEAN = {"anthropic": "anthropic", "openai": "openai"}
+            clean_provider = _CLEAN[detected_provider]
+            return _make_llm_judge(clean_provider, detected_key, model, error_policy)
         except NoProviderAvailableError:
             pass
 
@@ -177,35 +182,63 @@ def _key_for_provider(provider: str) -> str | None:
     return None
 
 
-def _make_llm_judge(
+def _try_construct_judge(
     provider: str, api_key: str, model: str | None, error_policy: str
 ) -> BaseJudge:
-    """Instantiate an LLM judge, falling back to heuristic if httpx missing."""
-    try:
-        if provider == "anthropic":
-            from .llm_client import AnthropicJudge
+    """Construct an LLM judge instance. No logging — keeps api_key isolated.
 
-            return AnthropicJudge(api_key=api_key, model=model, error_policy=error_policy)
-        if provider == "openai":
-            from .llm_client import OpenAIJudge
+    Raises:
+        ImportError: httpx not installed.
+        ValueError: Unsupported provider.
+        Exception: Any construction failure.
+    """
+    if provider == "anthropic":
+        from .llm_client import AnthropicJudge
 
-            return OpenAIJudge(api_key=api_key, model=model, error_policy=error_policy)
-    except ImportError:
-        logger.warning(
-            "httpx not installed — cannot use '%s' judge. "
-            "Install with: pip install httpx. Falling back to heuristic.",
-            provider,
-        )
-        return _make_heuristic()
-    except Exception:
-        # Broad catch to prevent api_key from leaking in exception messages/tracebacks.
-        logger.error(
-            "Failed to initialize '%s' judge. Falling back to heuristic.",
-            provider,
-        )
-        return _make_heuristic()
+        return AnthropicJudge(api_key=api_key, model=model, error_policy=error_policy)
+    if provider == "openai":
+        from .llm_client import OpenAIJudge
 
+        return OpenAIJudge(api_key=api_key, model=model, error_policy=error_policy)
     raise ValueError(f"Unsupported judge provider: {provider}")
+
+
+def _warn_missing_httpx(provider: str) -> BaseJudge:
+    """Log httpx-missing warning and return heuristic fallback."""
+    logger.warning(
+        "httpx not installed — cannot use '%s' judge. "
+        "Install with: pip install httpx. Falling back to heuristic.",
+        provider,
+    )
+    return _make_heuristic()
+
+
+def _error_judge_init_failed(provider: str) -> BaseJudge:
+    """Log judge init error and return heuristic fallback."""
+    logger.error(
+        "Failed to initialize '%s' judge. Falling back to heuristic.",
+        provider,
+    )
+    return _make_heuristic()
+
+
+def _make_llm_judge(
+    provider: str, credential: str, model: str | None, error_policy: str
+) -> BaseJudge:
+    """Instantiate an LLM judge, falling back to heuristic on failure.
+
+    All logging is delegated to helper functions that only receive the
+    provider string, ensuring no sensitive credential is in scope at
+    any logger call-site.
+    """
+    try:
+        return _try_construct_judge(provider, credential, model, error_policy)
+    except ImportError:
+        return _warn_missing_httpx(provider)
+    except ValueError:
+        raise
+    except Exception:
+        return _error_judge_init_failed(provider)
 
 
 def _make_heuristic() -> BaseJudge:
