@@ -1,6 +1,7 @@
 # Sanna — Trust Infrastructure for AI Agents
 
 [![PyPI version](https://img.shields.io/pypi/v/sanna)](https://pypi.org/project/sanna/)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12284/badge)](https://www.bestpractices.dev/projects/12284)
 
 Sanna checks reasoning during execution, halts when constraints are violated, and generates portable cryptographic receipts proving governance was enforced. Constitution-as-code: your governance rules live in version-controlled YAML, not in a vendor dashboard.
 
