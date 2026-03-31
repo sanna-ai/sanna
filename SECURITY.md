@@ -2,59 +2,56 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-|---------|--------------------|
-| 1.0.x   | Yes                |
-| < 1.0   | No                 |
+Only the latest release on the default branch (`main`) is supported with security updates.
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Sanna, please report it responsibly.
+If you discover a security vulnerability, please report it responsibly:
 
-**Do not open a public GitHub issue for security vulnerabilities.**
+**Email:** [security@sanna.dev](mailto:security@sanna.dev)
 
-Instead, please email **security@sanna.dev** with:
-
+Please include:
 - A description of the vulnerability
-- Steps to reproduce or a proof-of-concept
-- The affected version(s)
-- Any potential impact assessment
+- Steps to reproduce
+- Potential impact
+- Any suggested fixes (optional)
 
-You can expect:
+**Do not** open a public GitHub issue for security vulnerabilities.
 
-- **Acknowledgement** within 48 hours
-- **Initial assessment** within 5 business days
-- **Resolution timeline** communicated after assessment
+## Response Timeline
 
-We will coordinate disclosure with you and credit reporters in the release notes (unless you prefer to remain anonymous).
+| Stage | Timeline |
+|-------|----------|
+| Acknowledgement | Within 48 hours |
+| Triage | Within 7 days |
+| Fix timeline communicated | Within 14 days |
+
+## Safe Harbor
+
+Good-faith security researchers acting within this policy will not face legal action from Sanna AI. We consider security research conducted consistent with this policy to be authorized and will not pursue civil or criminal action.
 
 ## Scope
 
-The following are in scope for security reports:
+The following repositories are in scope:
 
-- **Cryptographic receipt integrity** — fingerprint computation, signing, verification
-- **Constitution enforcement** — policy bypass, authority boundary evasion
-- **Gateway proxy** — SSRF, tool namespace injection, escalation bypass, PII redaction leaks
-- **SQLite store** — injection, path traversal, permission issues
-- **Key management** — private key exposure, signature forgery
-- **Input validation** — JSON/YAML parsing exploits, prompt injection via audit tags
+- [sanna](https://github.com/sanna-ai/sanna)
+- [sanna-ts](https://github.com/sanna-ai/sanna-ts)
+- [sanna-openclaw](https://github.com/sanna-ai/sanna-openclaw)
+- [sanna-protocol](https://github.com/sanna-ai/sanna-protocol)
 
-The following are out of scope:
+The Sanna Cloud service ([api.sanna.cloud](https://api.sanna.cloud)) is also in scope.
 
-- Vulnerabilities in downstream MCP servers (Notion, GitHub, etc.)
-- Denial of service against local CLI tools
-- Issues requiring physical access to the machine running Sanna
+## Out of Scope
 
-## Security Design
+- Social engineering (e.g., phishing)
+- Denial of service (DoS/DDoS) attacks
+- Third-party services and dependencies
 
-Sanna is built with defense-in-depth:
+## security.txt
 
-- **Ed25519 signatures** on constitutions, receipts, and approval records
-- **RFC 8785 canonical JSON** for deterministic hashing
-- **SSRF protection** on all webhook endpoints (DNS rebinding, IP blocklists, HTTPS enforcement)
-- **Symlink-safe atomic writes** via `O_NOFOLLOW` and `os.replace()`
-- **SQLite hardening** — ownership checks, permission enforcement, WAL sidecar validation
-- **Prompt injection isolation** — XML entity escaping in `<audit>` tags for LLM evaluator inputs
-- **NaN/Infinity/duplicate-key rejection** in security-sensitive JSON and YAML parsing
+Our `security.txt` file is available at:
+[https://sanna.dev/.well-known/security.txt](https://sanna.dev/.well-known/security.txt)
 
-For more details, see the [specification](spec/sanna-specification-v1.0.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
+## Credit
+
+Researchers who report valid vulnerabilities will be credited (with their permission) in release notes.
