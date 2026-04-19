@@ -171,6 +171,46 @@ def format_verify_summary(result: VerificationResult, receipt: dict, signature_s
         for warn in result.warnings[:3]:
             lines.append(f"  • {warn}")
 
+    # Legacy receipt walkthrough (SAN-214 Change C).
+    cv_str = receipt.get("checks_version", "")
+    try:
+        cv_int = int(cv_str)
+    except (ValueError, TypeError):
+        cv_int = 0
+
+    enforcement = receipt.get("enforcement") or {}
+    enforcement_action = (
+        enforcement.get("action")
+        if isinstance(enforcement, dict)
+        else None
+    )
+
+    has_status_mismatch = bool(
+        result.computed_status
+        and result.expected_status
+        and result.computed_status != result.expected_status
+    )
+
+    if has_status_mismatch and enforcement_action and cv_int < 8:
+        lines.extend([
+            "",
+            "-" * 50,
+            "LEGACY RECEIPT NOTE",
+            "-" * 50,
+            "",
+            "This receipt predates the Sprint 15 integrity fix "
+            "(v1.3 / checks_version 8).",
+            "",
+            f"The contradiction — enforcement.action='{enforcement_action}' "
+            f"with status='{result.expected_status}' — indicates that the "
+            f"interceptor surface reported halt or escalate but the receipt "
+            f"claims full checks passed. This is the defect that SAN-213 "
+            f"fixed at emission time and SAN-214 fixed at verification time.",
+            "",
+            "Re-generate this receipt with SDK >=1.3 to produce a v1.3 "
+            "receipt with consistent status and enforcement.action.",
+        ])
+
     # Receipt Triad section (Block I — v2 gateway receipts)
     extensions = receipt.get("extensions") or {}
     gw_v2 = extensions.get("com.sanna.gateway") or {}
