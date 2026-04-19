@@ -41,3 +41,5 @@ sanna_ed25519*
 *.signed.json
 sanna-audit-report.md
 security-audit-sanna-repo-2026-03-26.md
+security-audit-*.md
+security-review-*.md
