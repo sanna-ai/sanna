@@ -103,6 +103,7 @@ def _generate_gateway_receipt(
         result_text=result_text,
         decision=decision,
         authority_decisions=authority_decisions,
+        invariants_scope="full",
     )
     return receipt
 

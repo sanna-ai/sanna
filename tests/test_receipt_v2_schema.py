@@ -760,7 +760,7 @@ class TestBackwardCompatibility:
                 receipt = gw.last_receipt
 
                 # v0.13.0 field names
-                assert receipt["spec_version"] == "1.1"
+                assert receipt["spec_version"] == "1.3"
                 assert "receipt_id" in receipt
                 assert "receipt_fingerprint" in receipt
                 assert "full_fingerprint" in receipt

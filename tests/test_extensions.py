@@ -137,6 +137,8 @@ def _make_receipt(extensions=None) -> dict:
         "checks_passed": 1,
         "checks_failed": 0,
         "status": "PASS",
+        "enforcement_surface": "middleware",
+        "invariants_scope": "full",
         "constitution_ref": None,
         "enforcement": None,
         "extensions": extensions if extensions else {},

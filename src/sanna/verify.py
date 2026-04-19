@@ -329,12 +329,28 @@ def _verify_fingerprint_v013(receipt: dict) -> tuple:
     workflow_id = receipt.get("workflow_id")
     workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
 
-    # Detect field count: CHECKS_VERSION "6"+ uses 14 fields, "5" uses 12
+    # Fields 15-16: enforcement_surface and invariants_scope (v1.3, CHECKS_VERSION >= 8)
+    enforcement_surface = receipt.get("enforcement_surface")
+    invariants_scope = receipt.get("invariants_scope")
+
+    # Detect field count:
+    #   CHECKS_VERSION >= 8 → 16 fields (v1.3+, SAN-213)
+    #   CHECKS_VERSION 6-7  → 14 fields (v1.0.0–v1.1)
+    #   CHECKS_VERSION <= 5 → 12 fields (legacy)
     try:
         cv_int = int(checks_version)
     except (ValueError, TypeError):
         cv_int = 5
-    if cv_int >= 6:
+    if cv_int >= 8:
+        # v1.3+: require enforcement_surface and invariants_scope
+        if not enforcement_surface:
+            return (False, "", "")
+        if not invariants_scope:
+            return (False, "", "")
+        enforcement_surface_hash = hash_text(enforcement_surface)
+        invariants_scope_hash = hash_text(invariants_scope)
+        fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}|{enforcement_surface_hash}|{invariants_scope_hash}"
+    elif cv_int >= 6:
         fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
     else:
         fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}"
@@ -459,6 +475,16 @@ def verify_status_consistency(receipt: dict) -> tuple:
         computed = "PARTIAL"
     else:
         computed = "PASS"
+
+    # Enforcement override (parity with receipt.py generate_receipt):
+    # halted → FAIL, warned → WARN (only when computed is PASS).
+    enforcement = receipt.get("enforcement")
+    if enforcement and isinstance(enforcement, dict):
+        _action = enforcement.get("action")
+        if _action == "halted" and computed == "PASS":
+            computed = "FAIL"
+        elif _action == "warned" and computed == "PASS":
+            computed = "WARN"
 
     expected = receipt.get("status", "")
     return (computed == expected, computed, expected)
@@ -866,6 +892,27 @@ def verify_receipt(
     # 2c. Constitution hash format check
     constitution_errors = verify_constitution_hash(receipt)
     errors.extend(constitution_errors)
+
+    # 3a. v1.3+ minimum-required-fields assertion (SAN-213)
+    _cv_str = receipt.get("checks_version", "")
+    try:
+        _cv_int = int(_cv_str)
+    except (ValueError, TypeError):
+        _cv_int = 0
+    if _cv_int >= 8:
+        if not receipt.get("enforcement_surface"):
+            errors.append(
+                "v1.3+ receipt (checks_version >= 8) is missing required field: enforcement_surface"
+            )
+        if not receipt.get("invariants_scope"):
+            errors.append(
+                "v1.3+ receipt (checks_version >= 8) is missing required field: invariants_scope"
+            )
+        if errors:
+            return VerificationResult(
+                valid=False, exit_code=5,
+                errors=errors, warnings=warnings,
+            )
 
     # 3. Fingerprint verification
     try:

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://sanna.dev/schemas/receipt/v1.0.json",
+  "$id": "https://sanna.dev/schemas/receipt/v1.3.json",
   "title": "Sanna Reasoning Receipt",
-  "description": "Schema for Sanna reasoning receipts v1.0 — artifacts that capture AI reasoning provenance, constitution enforcement, and consistency check results",
+  "description": "Schema for Sanna reasoning receipts v1.3 — artifacts that capture AI reasoning provenance, constitution enforcement, and consistency check results",
   "type": "object",
   "required": [
     "spec_version",
@@ -20,14 +20,16 @@
     "checks",
     "checks_passed",
     "checks_failed",
-    "status"
+    "status",
+    "enforcement_surface",
+    "invariants_scope"
   ],
   "properties": {
     "spec_version": {
       "type": "string",
-      "description": "Specification version. See spec/sanna-specification-v1.0.md",
+      "description": "Specification version. See spec/sanna-specification-v1.3.md",
       "pattern": "^[0-9]+\\.[0-9]+$",
-      "examples": ["1.0"]
+      "examples": ["1.3"]
     },
     "tool_version": {
       "type": "string",
@@ -39,7 +41,7 @@
       "type": "string",
       "description": "Version of check evaluation schema (increment when check semantics change)",
       "pattern": "^[0-9]+$",
-      "examples": ["5"]
+      "examples": ["8"]
     },
     "receipt_id": {
       "type": "string",
@@ -132,6 +134,16 @@
       "type": "string",
       "description": "Overall status derived from check results",
       "enum": ["PASS", "WARN", "FAIL", "PARTIAL"]
+    },
+    "enforcement_surface": {
+      "type": "string",
+      "description": "Governance surface that produced this receipt. REQUIRED at v1.3+. Participates in fingerprint computation (field 15). See spec/sanna-specification-v1.3.md Section 2.16.1.",
+      "enum": ["middleware", "gateway", "cli_interceptor", "http_interceptor"]
+    },
+    "invariants_scope": {
+      "type": "string",
+      "description": "Scope of invariants that ran during receipt generation. REQUIRED at v1.3+. Participates in fingerprint computation (field 16). See spec/sanna-specification-v1.3.md Section 2.16.2.",
+      "enum": ["full", "authority_only", "limited", "none"]
     },
     "evaluation_coverage": {
       "type": ["object", "null"],
@@ -318,6 +330,63 @@
       "description": "Receipt Triad assurance level. MUST be present when any triad hash is present.",
       "enum": ["full", "partial", null]
     },
+    "parent_receipts": {
+      "description": "Array of full_fingerprint strings from parent receipts for receipt chaining. Participates in fingerprint computation (field 13).",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Full 64-hex SHA-256 fingerprint of a parent receipt"
+          }
+        },
+        {"type": "null"}
+      ]
+    },
+    "workflow_id": {
+      "description": "Opaque string grouping related receipts into a workflow. Participates in fingerprint computation (field 14).",
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "content_mode": {
+      "description": "Content handling mode for Cloud. Metadata only — does NOT participate in fingerprint computation.",
+      "type": ["string", "null"],
+      "enum": ["full", "redacted", "hashes_only", null]
+    },
+    "content_mode_source": {
+      "description": "Origin of the content_mode value. Metadata only — does NOT participate in fingerprint computation. MUST be absent when content_mode is absent.",
+      "type": ["string", "null"],
+      "enum": ["local_config", "cloud_tenant", "override", null]
+    },
+    "event_type": {
+      "type": ["string", "null"],
+      "description": "Governance event type. Identifies the execution surface and enforcement outcome. Aligned with GCD Layer 4 (Enforcement) event schema.",
+      "enum": [
+        "invocation_allowed",
+        "invocation_halted",
+        "invocation_escalated",
+        "cli_invocation_allowed",
+        "cli_invocation_halted",
+        "cli_invocation_escalated",
+        "api_invocation_allowed",
+        "api_invocation_halted",
+        "api_invocation_escalated",
+        null
+      ]
+    },
+    "context_limitation": {
+      "type": ["string", "null"],
+      "description": "Documents what the governance boundary can observe. Determines how input_hash and action_hash should be interpreted during verification.",
+      "enum": [
+        "gateway_boundary",
+        "cli_execution",
+        "cli_no_justification",
+        "api_execution",
+        "api_no_justification",
+        null
+      ]
+    },
     "redacted_fields": {
       "type": ["array", "null"],
       "description": "JSON paths of fields replaced with redaction markers (SEC-1). Present only when PII redaction is enabled.",
@@ -330,38 +399,6 @@
       "type": "object",
       "description": "Reverse-domain-namespaced vendor metadata. Verifiers MUST ignore unknown extensions.",
       "additionalProperties": true
-    },
-    "parent_receipts": {
-      "type": ["array", "null"],
-      "description": "Receipt fingerprints of parent receipts in a chained workflow (e.g., escalation approval chain)",
-      "items": {
-        "type": "string",
-        "minLength": 1
-      }
-    },
-    "workflow_id": {
-      "type": ["string", "null"],
-      "description": "Workflow identifier linking related receipts across a multi-step process",
-      "minLength": 1
-    },
-    "content_mode": {
-      "type": ["string", "null"],
-      "description": "Content mode attestation metadata (e.g., 'cloud', 'local'). NOT included in fingerprint.",
-      "enum": ["cloud", "local", "hybrid", null]
-    },
-    "content_mode_source": {
-      "type": ["string", "null"],
-      "description": "Source of content mode determination. NOT included in fingerprint."
-    },
-    "event_type": {
-      "type": ["string", "null"],
-      "description": "Event type for execution surface receipts (e.g., 'cli_invocation_allowed'). NOT included in fingerprint.",
-      "examples": ["cli_invocation_allowed", "cli_invocation_halted", "cli_invocation_escalated"]
-    },
-    "context_limitation": {
-      "type": ["string", "null"],
-      "description": "Context limitation of the execution surface (e.g., 'cli_execution'). NOT included in fingerprint.",
-      "examples": ["cli_execution", "cli_no_justification", "gateway_boundary"]
     },
     "identity_verification": {
       "description": "Identity claim verification results. Present only when constitution has identity_claims.",
@@ -395,6 +432,72 @@
     }
   },
   "additionalProperties": false,
+  "allOf": [
+    {
+      "$comment": "Cross-field consistency (v1.3+): enforcement.action=halted requires status=FAIL. Spec Section 4.6.",
+      "if": {
+        "properties": {
+          "enforcement": {
+            "type": "object",
+            "properties": { "action": { "const": "halted" } },
+            "required": ["action"]
+          }
+        },
+        "required": ["enforcement"]
+      },
+      "then": {
+        "properties": { "status": { "const": "FAIL" } }
+      }
+    },
+    {
+      "$comment": "Cross-field consistency (v1.3+): enforcement.action=warned requires status=WARN. Spec Section 4.6.",
+      "if": {
+        "properties": {
+          "enforcement": {
+            "type": "object",
+            "properties": { "action": { "const": "warned" } },
+            "required": ["action"]
+          }
+        },
+        "required": ["enforcement"]
+      },
+      "then": {
+        "properties": { "status": { "const": "WARN" } }
+      }
+    },
+    {
+      "$comment": "Cross-field consistency (v1.3+): enforcement.action=allowed requires status=PASS. Spec Section 4.6.",
+      "if": {
+        "properties": {
+          "enforcement": {
+            "type": "object",
+            "properties": { "action": { "const": "allowed" } },
+            "required": ["action"]
+          }
+        },
+        "required": ["enforcement"]
+      },
+      "then": {
+        "properties": { "status": { "const": "PASS" } }
+      }
+    },
+    {
+      "$comment": "Cross-field consistency (v1.3+): enforcement.action=escalated requires status=WARN. Spec Section 4.6.",
+      "if": {
+        "properties": {
+          "enforcement": {
+            "type": "object",
+            "properties": { "action": { "const": "escalated" } },
+            "required": ["action"]
+          }
+        },
+        "required": ["enforcement"]
+      },
+      "then": {
+        "properties": { "status": { "const": "WARN" } }
+      }
+    }
+  ],
   "$defs": {
     "CheckResult": {
       "type": "object",

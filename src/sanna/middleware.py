@@ -386,6 +386,8 @@ def _generate_constitution_receipt(
     workflow_id: Optional[str] = None,
     content_mode: Optional[str] = None,
     content_mode_source: Optional[str] = None,
+    enforcement_surface: str = "middleware",
+    invariants_scope: str = "full",
 ) -> dict:
     """Generate a receipt using constitution-driven check configs.
 
@@ -502,6 +504,15 @@ def _generate_constitution_receipt(
     else:
         status = "PASS"
 
+    # Enforcement override (AC #9 / SAN-213): if enforcement is provided and
+    # action=halted, status MUST be FAIL regardless of check results.
+    if enforcement is not None:
+        _enforcement_action = "halted" if enforcement.halted else "allowed"
+        if _enforcement_action == "halted" and status == "PASS":
+            status = "FAIL"
+        elif _enforcement_action == "warned" and status == "PASS":
+            status = "WARN"
+
     # Build evaluation_coverage
     total_invariants = len(check_results)
     evaluated_count = len(standard_checks)
@@ -586,7 +597,11 @@ def _generate_constitution_receipt(
     parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
     workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
 
-    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{enforcement_hash_val}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
+    # Fields 15-16: enforcement_surface and invariants_scope (v1.3, SAN-213)
+    enforcement_surface_hash = hash_text(enforcement_surface)
+    invariants_scope_hash = hash_text(invariants_scope)
+
+    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{enforcement_hash_val}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}|{enforcement_surface_hash}|{invariants_scope_hash}"
 
     full_fp = hash_text(fingerprint_input)
     receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
@@ -608,6 +623,8 @@ def _generate_constitution_receipt(
         "checks_passed": passed,
         "checks_failed": failed,
         "status": status,
+        "enforcement_surface": enforcement_surface,
+        "invariants_scope": invariants_scope,
         "evaluation_coverage": evaluation_coverage,
         "constitution_ref": constitution_ref,
     }
@@ -647,11 +664,13 @@ def _generate_no_invariants_receipt(
     workflow_id: Optional[str] = None,
     content_mode: Optional[str] = None,
     content_mode_source: Optional[str] = None,
+    enforcement_surface: str = "middleware",
+    invariants_scope: str = "full",
 ) -> dict:
     """Generate a receipt for a constitution with no invariants.
 
     No checks run. The receipt documents that no invariants were defined.
-    Uses the unified fingerprint formula (v1.0.0, 14 fields).
+    Uses the unified fingerprint formula (v1.3, 16 fields).
     """
     final_answer, _answer_provenance = select_final_answer(trace_data)
     context = extract_context(trace_data)
@@ -670,7 +689,7 @@ def _generate_no_invariants_receipt(
     else:
         constitution_hash_val = EMPTY_HASH
 
-    # Unified fingerprint formula — always 14 pipe-delimited fields
+    # Unified fingerprint formula — always 16 pipe-delimited fields (v1.3)
     correlation_id = trace_data.get("correlation_id", "")
     checks_hash = EMPTY_HASH  # Empty checks array → EMPTY_HASH (spec parity)
 
@@ -682,7 +701,11 @@ def _generate_no_invariants_receipt(
     parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
     workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
 
-    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
+    # Fields 15-16: enforcement_surface and invariants_scope (v1.3, SAN-213)
+    enforcement_surface_hash = hash_text(enforcement_surface)
+    invariants_scope_hash = hash_text(invariants_scope)
+
+    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}|{enforcement_surface_hash}|{invariants_scope_hash}"
 
     full_fp = hash_text(fingerprint_input)
     receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
@@ -704,6 +727,8 @@ def _generate_no_invariants_receipt(
         "checks_passed": 0,
         "checks_failed": 0,
         "status": "PASS",
+        "enforcement_surface": enforcement_surface,
+        "invariants_scope": invariants_scope,
         "constitution_ref": constitution_ref,
     }
 

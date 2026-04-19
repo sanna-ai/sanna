@@ -1,10 +1,10 @@
 {
-  "spec_version": "1.1",
-  "tool_version": "1.0.0",
-  "checks_version": "6",
+  "spec_version": "1.3",
+  "tool_version": "1.1.1",
+  "checks_version": "8",
   "receipt_id": "a0000004-0000-4000-8000-000000000004",
-  "receipt_fingerprint": "f34fda09809be7a9",
-  "full_fingerprint": "f34fda09809be7a986cf4fd8994936023b623d98f8b338fe6dcdbb0bf6c035b1",
+  "receipt_fingerprint": "0966749b6474d432",
+  "full_fingerprint": "0966749b6474d432f1b262c72f7e27cbe7bf974e86aed6f759f0ed748bcdcd7a",
   "correlation_id": "golden-004-pass-policy-conditional",
   "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
@@ -61,10 +61,14 @@
   "checks_passed": 5,
   "checks_failed": 0,
   "status": "PASS",
+  "enforcement_surface": "middleware",
+  "invariants_scope": "full",
   "constitution_ref": null,
   "enforcement": null,
   "parent_receipts": null,
   "workflow_id": null,
   "content_mode": null,
-  "content_mode_source": null
+  "content_mode_source": null,
+  "event_type": null,
+  "context_limitation": null
 }
