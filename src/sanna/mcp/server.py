@@ -341,6 +341,8 @@ def sanna_generate_receipt(
                 receipt = _generate_no_invariants_receipt(
                     trace_data,
                     constitution_ref=constitution_ref,
+                    enforcement_surface="middleware",
+                    invariants_scope="full",
                 )
             else:
                 receipt = _generate_constitution_receipt(
@@ -349,11 +351,15 @@ def sanna_generate_receipt(
                     custom_records=custom_records,
                     constitution_ref=constitution_ref,
                     constitution_version=constitution_version,
+                    enforcement_surface="middleware",
+                    invariants_scope="full",
                 )
         else:
             receipt = _generate_no_invariants_receipt(
                 trace_data,
                 constitution_ref=None,
+                enforcement_surface="middleware",
+                invariants_scope="full",
             )
 
         return json.dumps(receipt, indent=2)

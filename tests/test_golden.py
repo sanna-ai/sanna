@@ -588,7 +588,7 @@ class TestGoldenReceipts:
         """All golden receipts have v0.13.0 required fields."""
         for filename in all_golden_receipts():
             receipt = load_golden(filename)
-            assert receipt["spec_version"] == "1.1", f"{filename}: missing spec_version"
+            assert receipt["spec_version"] == "1.3", f"{filename}: missing spec_version"
             assert "correlation_id" in receipt, f"{filename}: missing correlation_id"
             assert "status" in receipt, f"{filename}: missing status"
             assert "full_fingerprint" in receipt, f"{filename}: missing full_fingerprint"

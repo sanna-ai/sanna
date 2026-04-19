@@ -2,6 +2,27 @@
 
 **Note:** v0.13.x is the first public release series. Earlier version entries document internal pre-release development.
 
+## [1.3.0] - 2026-04-18
+
+Receipt format v1.3: enforcement surface attestation and invariants scope fields (SAN-213, SAN-216).
+
+### Added
+- `enforcement_surface` field on `SannaReceipt` — records the SDK component that generated the receipt (`middleware`, `gateway`, `cli_interceptor`, `http_interceptor`).
+- `invariants_scope` field on `SannaReceipt` — records which invariants were evaluated (`full`, `authority_only`, `limited`, `none`).
+- `skip_default_checks` parameter on `generate_receipt()` — interceptor path derives status from `enforcement.action` without running C1-C5 checks.
+- 16-field fingerprint formula (`CHECKS_VERSION` bumped to `"8"`, `SPEC_VERSION` bumped to `"1.3"`): fields 15-16 are `enforcement_surface_hash` and `invariants_scope_hash`.
+- Schema `allOf` cross-field consistency rules: `enforcement.action=halted` requires `status=FAIL`, `warned` requires `status=WARN`, `allowed` requires `status=PASS`.
+
+### Changed
+- `verify_status_consistency` applies enforcement-action override (parity with emit-time logic) so halted receipts with all-pass checks verify correctly.
+- `_apply_redaction_markers` in gateway updated to 16-field fingerprint recomputation.
+- All emit paths (`middleware.py`, `receipt.py`, `gateway/server.py`, `interceptors/`) updated to supply the two new fields.
+- `receipt.schema.json` synced from sanna-protocol v1.3 (both `src/sanna/spec/` and root `spec/`).
+- Golden receipts regenerated at `CHECKS_VERSION="8"`, previous goldens archived to `golden/receipts/archive/pre-v1.3/`.
+
+### Tests
+- 2862 passed, 1 skipped, 10 xfailed
+
 ## [1.1.0] - 2026-03-24
 
 Security hardening release for the subprocess interceptor and cross-SDK fingerprint alignment.

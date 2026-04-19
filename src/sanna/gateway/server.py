@@ -278,13 +278,41 @@ def _apply_redaction_markers(receipt: dict, redaction_fields: list[str]) -> tupl
     workflow_id = receipt.get("workflow_id")
     workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
 
-    fingerprint_input = (
-        f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}"
-        f"|{checks_hash}|{constitution_hash}|{enforcement_hash}"
-        f"|{coverage_hash}|{authority_hash}|{escalation_hash}"
-        f"|{trust_hash}|{extensions_hash}"
-        f"|{parent_receipts_hash}|{workflow_id_hash}"
-    )
+    # Detect field count by checks_version (parity with _verify_fingerprint_v013)
+    try:
+        cv_int = int(checks_version)
+    except (ValueError, TypeError):
+        cv_int = 5
+
+    if cv_int >= 8:
+        # Fields 15-16 (v1.3+, SAN-213)
+        enforcement_surface = receipt.get("enforcement_surface", "")
+        invariants_scope = receipt.get("invariants_scope", "")
+        enforcement_surface_hash = hash_text(enforcement_surface)
+        invariants_scope_hash = hash_text(invariants_scope)
+        fingerprint_input = (
+            f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}"
+            f"|{checks_hash}|{constitution_hash}|{enforcement_hash}"
+            f"|{coverage_hash}|{authority_hash}|{escalation_hash}"
+            f"|{trust_hash}|{extensions_hash}"
+            f"|{parent_receipts_hash}|{workflow_id_hash}"
+            f"|{enforcement_surface_hash}|{invariants_scope_hash}"
+        )
+    elif cv_int >= 6:
+        fingerprint_input = (
+            f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}"
+            f"|{checks_hash}|{constitution_hash}|{enforcement_hash}"
+            f"|{coverage_hash}|{authority_hash}|{escalation_hash}"
+            f"|{trust_hash}|{extensions_hash}"
+            f"|{parent_receipts_hash}|{workflow_id_hash}"
+        )
+    else:
+        fingerprint_input = (
+            f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}"
+            f"|{checks_hash}|{constitution_hash}|{enforcement_hash}"
+            f"|{coverage_hash}|{authority_hash}|{escalation_hash}"
+            f"|{trust_hash}|{extensions_hash}"
+        )
 
     receipt["full_fingerprint"] = hash_text(fingerprint_input)
     receipt["receipt_fingerprint"] = hash_text(fingerprint_input, truncate=16)
@@ -2699,6 +2727,7 @@ class SannaGateway:
             result_text=result_text,
             decision=decision,
             authority_decisions=authority_decisions,
+            invariants_scope="full",
             enforcement=enforcement_obj,
             server_name=server_name,
             downstream_is_error=downstream_is_error,
@@ -2800,6 +2829,7 @@ class SannaGateway:
             result_text=result_text,
             decision=decision,
             authority_decisions=authority_decisions,
+            invariants_scope="full",
             escalation_id=entry.escalation_id,
             server_name=server_name,
             reasoning_evaluation=reasoning_evaluation,
@@ -3073,6 +3103,7 @@ class SannaGateway:
                                     timezone.utc,
                                 ).isoformat(),
                             }],
+                            invariants_scope="full",
                             escalation_id=escalation_id,
                             escalation_receipt_id=entry.escalation_receipt_id,
                             escalation_resolution="denied_by_reasoning",
@@ -3151,6 +3182,7 @@ class SannaGateway:
             result_text=result_text,
             decision=decision,
             authority_decisions=authority_decisions,
+            invariants_scope="full",
             escalation_id=escalation_id,
             escalation_receipt_id=entry.escalation_receipt_id,
             escalation_resolution="approved",
@@ -3271,6 +3303,7 @@ class SannaGateway:
             result_text=result_text,
             decision=decision,
             authority_decisions=authority_decisions,
+            invariants_scope="full",
             enforcement=enforcement_obj,
             escalation_id=escalation_id,
             escalation_receipt_id=entry.escalation_receipt_id,
@@ -3349,6 +3382,7 @@ class SannaGateway:
             result_text=error_text,
             decision=decision,
             authority_decisions=authority_decisions,
+            invariants_scope="full",
             enforcement=enforcement_obj,
             server_name=server_name,
             reasoning_evaluation=reasoning_evaluation,
@@ -3365,6 +3399,7 @@ class SannaGateway:
         result_text: str,
         decision: Any,
         authority_decisions: list,
+        invariants_scope: str,
         enforcement: Any = None,
         escalation_id: str | None = None,
         escalation_receipt_id: str | None = None,
@@ -3537,6 +3572,8 @@ class SannaGateway:
             workflow_id=self._workflow_id,
             content_mode=self._content_mode or None,
             content_mode_source=getattr(self, '_content_mode_source', None),
+            enforcement_surface="gateway",
+            invariants_scope=invariants_scope,
         )
 
         # SEC-1: Apply redaction markers BEFORE signing so that the

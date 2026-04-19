@@ -86,7 +86,14 @@ def add_extensions(receipt_dict, extensions):
 
     parent_receipts_hash = EMPTY_HASH
     workflow_id_hash = EMPTY_HASH
-    fp_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
+
+    # Fields 15-16: enforcement_surface and invariants_scope (v1.3, SAN-213)
+    enforcement_surface = receipt_dict.get("enforcement_surface", "middleware")
+    invariants_scope = receipt_dict.get("invariants_scope", "full")
+    enforcement_surface_hash = hash_text(enforcement_surface)
+    invariants_scope_hash = hash_text(invariants_scope)
+
+    fp_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}|{enforcement_surface_hash}|{invariants_scope_hash}"
     receipt_dict["full_fingerprint"] = hash_text(fp_input)
     receipt_dict["receipt_fingerprint"] = hash_text(fp_input, truncate=16)
     return receipt_dict

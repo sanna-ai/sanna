@@ -89,7 +89,11 @@ def main_generate():
         return 1
 
     # Generate receipt
-    receipt = generate_receipt(trace_data)
+    receipt = generate_receipt(
+        trace_data,
+        enforcement_surface="middleware",
+        invariants_scope="full",
+    )
 
     # Format output
     if args.format == "json":

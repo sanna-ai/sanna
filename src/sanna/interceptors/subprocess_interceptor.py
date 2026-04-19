@@ -679,6 +679,10 @@ def _emit_receipt(
         content_mode=_state.get("content_mode"),
         event_type=event_type,
         context_limitation=context_limitation,
+        skip_default_checks=True,
+        enforcement=enforcement_dict,
+        enforcement_surface="cli_interceptor",
+        invariants_scope="authority_only",
     )
 
     # Convert to dict for sink

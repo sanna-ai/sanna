@@ -17,8 +17,8 @@ from .hashing import hash_text, hash_obj, EMPTY_HASH
 # =============================================================================
 
 from .version import __version__ as TOOL_VERSION  # single source of truth
-SPEC_VERSION = "1.1"
-CHECKS_VERSION = "7"  # SAN-27/SAN-48: empty-checks fingerprint normalization (hash('[]') -> EMPTY_HASH)
+SPEC_VERSION = "1.3"
+CHECKS_VERSION = "8"  # SAN-213/SAN-216 v1.3: enforcement_surface + invariants_scope fields (positions 15-16)
 
 
 # =============================================================================
@@ -87,7 +87,7 @@ class Enforcement:
 
 @dataclass
 class SannaReceipt:
-    """The reasoning receipt artifact (v1.0.0 format)."""
+    """The reasoning receipt artifact (v1.3 format)."""
     spec_version: str
     tool_version: str
     checks_version: str
@@ -104,6 +104,8 @@ class SannaReceipt:
     checks_passed: int
     checks_failed: int
     status: str  # "PASS", "WARN", "FAIL", "PARTIAL"
+    enforcement_surface: str  # "middleware", "gateway", "cli_interceptor", "http_interceptor"
+    invariants_scope: str  # "full", "authority_only", "limited", "none"
     constitution_ref: Optional[dict] = None
     enforcement: Optional[dict] = None
     parent_receipts: Optional[List[str]] = None
@@ -583,6 +585,9 @@ def generate_receipt(
     content_mode_source: Optional[str] = None,
     event_type: Optional[str] = None,
     context_limitation: Optional[str] = None,
+    skip_default_checks: bool = False,
+    enforcement_surface: str = "middleware",
+    invariants_scope: str = "full",
 ) -> SannaReceipt:
     """Generate a Sanna receipt from trace data.
 
@@ -595,6 +600,15 @@ def generate_receipt(
             precedence over the ``constitution`` parameter (the legacy
             ConstitutionProvenance dataclass). This ensures the fingerprint is
             computed over the exact same dict that ends up in the receipt.
+        skip_default_checks: When True, skips C1-C5 checks and derives status
+            from enforcement.action instead. Requires enforcement to be present.
+            Canonical mapping: halted→FAIL, warned→WARN, allowed→PASS,
+            escalated→WARN. Raises ValueError if enforcement is None.
+        enforcement_surface: Identifies the enforcement surface emitting this
+            receipt. One of: "middleware", "gateway", "cli_interceptor",
+            "http_interceptor". Required for v1.3+ receipts.
+        invariants_scope: Declares which invariants were evaluated. One of:
+            "full", "authority_only", "limited", "none". Required for v1.3+.
     """
     # Select final answer
     final_answer, _answer_provenance = select_final_answer(trace_data)
@@ -602,31 +616,75 @@ def generate_receipt(
     # Extract context once for all checks
     context = extract_context(trace_data)
 
-    # Run all checks with shared context and output
-    checks = [
-        check_c1_context_contradiction(context, final_answer),
-        check_c2_unmarked_inference(context, final_answer),
-        check_c3_false_certainty(context, final_answer),
-        check_c4_conflict_collapse(context, final_answer),
-        check_c5_premature_compression(context, final_answer),
-    ]
-
-    passed = sum(1 for c in checks if c.passed)
-    failed = len(checks) - passed
-
-    # Determine overall status
-    # Severity hierarchy: critical/high → FAIL, warning/medium/low → WARN
-    _FAIL_SEVERITIES = {"critical", "high"}
-    _WARN_SEVERITIES = {"warning", "medium", "low"}
-    critical_fails = sum(1 for c in checks if not c.passed and c.severity in _FAIL_SEVERITIES)
-    warning_fails = sum(1 for c in checks if not c.passed and c.severity in _WARN_SEVERITIES)
-
-    if critical_fails > 0:
-        status = "FAIL"
-    elif warning_fails > 0:
-        status = "WARN"
+    if skip_default_checks:
+        # Derive status from enforcement.action (canonical mapping)
+        if enforcement is None:
+            raise ValueError(
+                "enforcement must be provided when skip_default_checks=True; "
+                "a receipt without enforcement cannot self-describe its outcome"
+            )
+        _action_to_status = {
+            "halted": "FAIL",
+            "warned": "WARN",
+            "allowed": "PASS",
+            "escalated": "WARN",
+        }
+        # enforcement may be HaltEvent (legacy) or dict-like
+        if isinstance(enforcement, dict):
+            _action = enforcement.get("action", "allowed")
+        elif hasattr(enforcement, "action"):
+            _action = enforcement.action
+        elif hasattr(enforcement, "halted"):
+            # HaltEvent legacy
+            _action = "halted" if enforcement.halted else "allowed"
+        else:
+            _action = "allowed"
+        status = _action_to_status.get(_action, "PASS")
+        checks = []
+        passed = 0
+        failed = 0
     else:
-        status = "PASS"
+        # Run all checks with shared context and output
+        checks = [
+            check_c1_context_contradiction(context, final_answer),
+            check_c2_unmarked_inference(context, final_answer),
+            check_c3_false_certainty(context, final_answer),
+            check_c4_conflict_collapse(context, final_answer),
+            check_c5_premature_compression(context, final_answer),
+        ]
+
+        passed = sum(1 for c in checks if c.passed)
+        failed = len(checks) - passed
+
+        # Determine overall status
+        # Severity hierarchy: critical/high → FAIL, warning/medium/low → WARN
+        _FAIL_SEVERITIES = {"critical", "high"}
+        _WARN_SEVERITIES = {"warning", "medium", "low"}
+        critical_fails = sum(1 for c in checks if not c.passed and c.severity in _FAIL_SEVERITIES)
+        warning_fails = sum(1 for c in checks if not c.passed and c.severity in _WARN_SEVERITIES)
+
+        if critical_fails > 0:
+            status = "FAIL"
+        elif warning_fails > 0:
+            status = "WARN"
+        else:
+            status = "PASS"
+
+        # Enforcement override (AC #9 / SAN-213): if enforcement is provided and
+        # action=halted, status MUST be FAIL regardless of check results.
+        # A halted receipt claiming PASS would misrepresent reality.
+        if enforcement is not None:
+            _enforcement_action = None
+            if isinstance(enforcement, dict):
+                _enforcement_action = enforcement.get("action")
+            elif hasattr(enforcement, "action"):
+                _enforcement_action = enforcement.action
+            elif hasattr(enforcement, "halted") and enforcement.halted:
+                _enforcement_action = "halted"
+            if _enforcement_action == "halted" and status == "PASS":
+                status = "FAIL"
+            elif _enforcement_action == "warned" and status == "PASS":
+                status = "WARN"
 
     # Build input/output summaries
     query = extract_query(trace_data)
@@ -646,14 +704,19 @@ def generate_receipt(
     # Build enforcement object if provided
     enforcement_dict = None
     if enforcement is not None:
-        enforcement_obj_dict = asdict(enforcement)
-        enforcement_dict = {
-            "action": "halted" if enforcement.halted else "allowed",
-            "reason": enforcement.reason,
-            "failed_checks": enforcement.failed_checks,
-            "enforcement_mode": enforcement.enforcement_mode,
-            "timestamp": enforcement.timestamp,
-        }
+        if isinstance(enforcement, dict):
+            # Plain dict enforcement (e.g. from interceptors with skip_default_checks=True)
+            enforcement_dict = enforcement
+            enforcement_obj_dict = enforcement
+        else:
+            enforcement_obj_dict = asdict(enforcement)
+            enforcement_dict = {
+                "action": "halted" if enforcement.halted else "allowed",
+                "reason": enforcement.reason,
+                "failed_checks": enforcement.failed_checks,
+                "enforcement_mode": enforcement.enforcement_mode,
+                "timestamp": enforcement.timestamp,
+            }
     else:
         enforcement_obj_dict = None
 
@@ -682,7 +745,11 @@ def generate_receipt(
     parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
     workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
 
-    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
+    # Fields 15-16: enforcement_surface and invariants_scope (v1.3, SAN-213)
+    enforcement_surface_hash = hash_text(enforcement_surface)
+    invariants_scope_hash = hash_text(invariants_scope)
+
+    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}|{enforcement_surface_hash}|{invariants_scope_hash}"
     full_fp = hash_text(fingerprint_input)
     receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
 
@@ -703,6 +770,8 @@ def generate_receipt(
         checks_passed=passed,
         checks_failed=failed,
         status=status,
+        enforcement_surface=enforcement_surface,
+        invariants_scope=invariants_scope,
         constitution_ref=constitution_dict,
         enforcement=enforcement_dict,
         parent_receipts=parent_receipts,

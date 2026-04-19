@@ -369,6 +369,10 @@ def _emit_http_receipt(
         content_mode=_http_state.get("content_mode"),
         event_type=event_type,
         context_limitation=context_limitation,
+        skip_default_checks=True,
+        enforcement=enforcement_dict,
+        enforcement_surface="http_interceptor",
+        invariants_scope="authority_only",
     )
 
     receipt_dict = asdict(receipt)
