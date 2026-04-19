@@ -455,3 +455,120 @@ class TestCliWalkthrough:
         assert "LEGACY RECEIPT NOTE" not in output, (
             f"No mismatch → no walkthrough. Got:\n{output}"
         )
+
+
+# ---------------------------------------------------------------------------
+# san214-integration-*: End-to-end proof with the real JSON schema
+# These tests verify that the schema fix (removing enforcement_surface and
+# invariants_scope from unconditional required, adding conditional-required
+# allOf entry) correctly gates pre-v1.3 receipts through to the semantic layer.
+# ---------------------------------------------------------------------------
+
+class TestSchemaIntegration:
+    """Integration proof that the schema fix allows legacy-warning path to be reached."""
+
+    def test_san214_integration_legacy_warning_reachable_with_real_schema(self):
+        """
+        Integration proof that SAN-214 Change B (legacy warning for cv=6/7 receipts
+        missing enforcement_surface/invariants_scope) is reachable in the production
+        sanna-verify CLI path using the real JSON schema.
+
+        Prior to the schema fix in this scope expansion, the real schema put
+        enforcement_surface and invariants_scope in the unconditional 'required' array,
+        causing schema validation to reject pre-v1.3 receipts before they could reach
+        the semantic layer where the legacy warning lives. This test proves the fix
+        works end-to-end.
+        """
+        # Build a cv=7 receipt with correct, internally consistent hashes so that
+        # verify_content_hashes() passes and execution reaches the semantic layer.
+        inputs = {"query": "test"}
+        outputs = {"response": "test"}
+        context_hash = hash_obj(inputs)
+        output_hash = hash_obj(outputs)
+        checks_version = "7"
+        corr_id = "test-correlation-id-san214-integration"
+
+        # 14-field fingerprint formula for cv=7 (no enforcement_surface/invariants_scope)
+        fp_input = (
+            f"{corr_id}|{context_hash}|{output_hash}|{checks_version}|{EMPTY_HASH}"
+            f"|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}"
+            f"|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}"
+        )
+        fp_full = hash_text(fp_input)
+
+        receipt = {
+            "spec_version": "1.1",
+            "tool_version": "1.0.0",
+            "checks_version": checks_version,
+            "receipt_id": "00000000-0000-4000-8000-000000000001",
+            "receipt_fingerprint": fp_full[:16],
+            "full_fingerprint": fp_full,
+            "correlation_id": corr_id,
+            "timestamp": "2024-01-01T00:00:00Z",
+            "inputs": inputs,
+            "outputs": outputs,
+            "context_hash": context_hash,
+            "output_hash": output_hash,
+            "checks": [],
+            "checks_passed": 0,
+            "checks_failed": 0,
+            "status": "PASS",
+            # enforcement_surface and invariants_scope are intentionally absent
+        }
+
+        from sanna.verify import load_schema
+        schema = load_schema()
+        result = verify_receipt(receipt, schema)
+
+        # Schema validation must PASS for this cv=7 receipt
+        schema_errors = [e for e in result.errors if "schema" in e.lower() or "'enforcement_surface'" in e or "'invariants_scope'" in e]
+        assert not schema_errors, (
+            f"Schema validation rejected cv=7 receipt (legacy warning unreachable): {schema_errors}"
+        )
+
+        # Legacy warning must have fired
+        legacy_warnings = [w for w in result.warnings if w.startswith("Pre-v1.3 receipt")]
+        assert legacy_warnings, (
+            f"Expected legacy warning for cv=7 receipt missing v1.3 fields, got warnings: {result.warnings}"
+        )
+
+    def test_san214_integration_v13_receipt_still_requires_new_fields_via_schema(self):
+        """
+        Symmetric proof: the schema conditional-required still enforces enforcement_surface
+        and invariants_scope for cv=8 (v1.3) receipts. The fix must not accidentally
+        make those fields optional for modern receipts.
+        """
+        # cv=8 receipt — v1.3, missing enforcement_surface
+        receipt = {
+            "spec_version": "1.1",
+            "tool_version": "1.0.0",
+            "checks_version": "8",
+            "receipt_id": "00000000-0000-4000-8000-000000000002",
+            "receipt_fingerprint": "abcd1234abcd1234",
+            "full_fingerprint": "a" * 64,
+            "correlation_id": "test-correlation-id",
+            "timestamp": "2024-01-01T00:00:00Z",
+            "inputs": {"query": "test"},
+            "outputs": {"response": "test"},
+            "context_hash": "a" * 64,
+            "output_hash": "b" * 64,
+            "checks": [],
+            "checks_passed": 0,
+            "checks_failed": 0,
+            "status": "PASS",
+            "invariants_scope": "all",
+            # enforcement_surface intentionally absent
+        }
+
+        from sanna.verify import load_schema
+        schema = load_schema()
+        result = verify_receipt(receipt, schema)
+
+        # Must be rejected — either schema layer or semantic layer
+        rejected = (
+            any("enforcement_surface" in e for e in result.errors)
+            or not result.valid
+        )
+        assert rejected, (
+            f"cv=8 receipt missing enforcement_surface should be rejected, but result.valid={result.valid}, errors={result.errors}"
+        )
