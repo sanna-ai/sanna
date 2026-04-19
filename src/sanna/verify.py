@@ -236,8 +236,15 @@ def load_schema(schema_path: Optional[str] = None) -> dict:
 # VERIFICATION LOGIC
 # =============================================================================
 
-def verify_schema(receipt: dict, schema: dict) -> list:
-    """Validate receipt against JSON schema. Returns list of errors."""
+def verify_schema(receipt: dict, schema: dict | None) -> list:
+    """Validate receipt against JSON schema. Returns list of errors.
+
+    If ``schema`` is ``None``, schema validation is skipped and an empty list
+    is returned. This is useful for isolated verifier testing where a caller
+    wants to exercise the semantic checks without schema constraints.
+    """
+    if schema is None:
+        return []
     errors = []
     try:
         validate(receipt, schema)
@@ -917,6 +924,20 @@ def verify_receipt(
                 valid=False, exit_code=5,
                 errors=errors, warnings=warnings,
             )
+    elif _cv_int in (6, 7):
+        if not receipt.get("enforcement_surface"):
+            warnings.append(
+                f"Pre-v1.3 receipt (checks_version={_cv_int}): 'enforcement_surface' field "
+                f"not present. This field was added in v1.3 (checks_version 8) and is not "
+                f"required at this protocol version. Re-generate with SDK >=1.3 for v1.3 "
+                f"integrity claims."
+            )
+        if not receipt.get("invariants_scope"):
+            warnings.append(
+                f"Pre-v1.3 receipt (checks_version={_cv_int}): 'invariants_scope' field "
+                f"not present. This field was added in v1.3 (checks_version 8) and is not "
+                f"required at this protocol version."
+            )
 
     # 3. Fingerprint verification
     try:
@@ -998,7 +1019,22 @@ def verify_receipt(
 
     if not status_match or count_errors:
         if not status_match:
-            errors.insert(0, f"Status mismatch: computed {status_computed}, expected {status_expected}")
+            enforcement = receipt.get("enforcement")
+            enforcement_action = (
+                enforcement.get("action")
+                if isinstance(enforcement, dict) and enforcement.get("action")
+                else None
+            )
+            if enforcement_action:
+                msg = (
+                    f"Status mismatch: receipt has enforcement.action='{enforcement_action}' "
+                    f"with status='{status_expected}' but v1.3 spec §10 requires status='{status_computed}'. "
+                    f"Receipt is cryptographically valid but semantically defective: "
+                    f"the audit trail misrepresents what governance actually did."
+                )
+            else:
+                msg = f"Status mismatch: computed {status_computed}, expected {status_expected}"
+            errors.insert(0, msg)
         return VerificationResult(
             valid=False, exit_code=4,
             errors=errors, warnings=warnings,
