@@ -477,13 +477,17 @@ def verify_status_consistency(receipt: dict) -> tuple:
         computed = "PASS"
 
     # Enforcement override (parity with receipt.py generate_receipt):
-    # halted → FAIL, warned → WARN (only when computed is PASS).
+    # Covers all 4 enforcement.action values per Spec v1.3 Section 4.6.
+    # halted → FAIL, warned → WARN, escalated → WARN (only when computed is PASS).
+    # allowed → PASS is the default (no override).
     enforcement = receipt.get("enforcement")
     if enforcement and isinstance(enforcement, dict):
         _action = enforcement.get("action")
         if _action == "halted" and computed == "PASS":
             computed = "FAIL"
         elif _action == "warned" and computed == "PASS":
+            computed = "WARN"
+        elif _action == "escalated" and computed == "PASS":
             computed = "WARN"
 
     expected = receipt.get("status", "")

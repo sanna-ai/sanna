@@ -670,9 +670,11 @@ def generate_receipt(
         else:
             status = "PASS"
 
-        # Enforcement override (AC #9 / SAN-213): if enforcement is provided and
-        # action=halted, status MUST be FAIL regardless of check results.
-        # A halted receipt claiming PASS would misrepresent reality.
+        # Enforcement override (SAN-213 v1.3 cross-field consistency):
+        # When enforcement is provided, status must match enforcement.action per
+        # the canonical mapping (Spec v1.3 Section 4.6). A receipt whose status
+        # contradicts enforcement.action would misrepresent reality.
+        # Covers all 4 enforcement.action values: halted, warned, allowed, escalated.
         if enforcement is not None:
             _enforcement_action = None
             if isinstance(enforcement, dict):
@@ -685,6 +687,9 @@ def generate_receipt(
                 status = "FAIL"
             elif _enforcement_action == "warned" and status == "PASS":
                 status = "WARN"
+            elif _enforcement_action == "escalated" and status == "PASS":
+                status = "WARN"
+            # allowed → PASS is the default (no override needed when status already PASS)
 
     # Build input/output summaries
     query = extract_query(trace_data)
