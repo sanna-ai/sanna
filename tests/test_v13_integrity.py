@@ -123,6 +123,80 @@ class TestStatusDerivationMapping:
 
 
 # ---------------------------------------------------------------------------
+# Enforcement override on non-skip path (SAN-213 Branch 2C): when enforcement
+# is provided and skip_default_checks=False, the canonical mapping still
+# applies as a cross-field consistency guarantee. Covers all 4 action values.
+# ---------------------------------------------------------------------------
+
+class TestEnforcementOverrideNonSkipPath:
+    """When enforcement is provided with skip_default_checks=False, status must
+    still match enforcement.action per the canonical mapping (Spec v1.3 Section 4.6).
+
+    Without this override the non-skip path could emit inconsistent receipts:
+    e.g., C1-C5 all pass (status=PASS) with enforcement.action=escalated (should
+    force status=WARN per canonical mapping).
+    """
+
+    def test_halted_override_elevates_pass_to_fail(self):
+        """halted + PASS-from-checks → FAIL per canonical mapping."""
+        trace = make_trace("override-halted")
+        receipt = generate_receipt(
+            trace,
+            enforcement=make_enforcement_dict("halted"),
+            enforcement_surface="middleware",
+            invariants_scope="full",
+        )
+        assert receipt.status == "FAIL", (
+            f"halted should force FAIL on non-skip path, got {receipt.status}"
+        )
+
+    def test_warned_override_elevates_pass_to_warn(self):
+        """warned + PASS-from-checks → WARN per canonical mapping."""
+        trace = make_trace("override-warned")
+        receipt = generate_receipt(
+            trace,
+            enforcement=make_enforcement_dict("warned"),
+            enforcement_surface="middleware",
+            invariants_scope="full",
+        )
+        assert receipt.status == "WARN", (
+            f"warned should force WARN on non-skip path, got {receipt.status}"
+        )
+
+    def test_escalated_override_elevates_pass_to_warn(self):
+        """escalated + PASS-from-checks → WARN per canonical mapping.
+
+        This is the bug surfaced during Branch 2B (sanna-protocol fixture regen):
+        the original Branch 2 enforcement override covered halted and warned but
+        missed escalated, allowing an inconsistent PASS+escalated receipt to
+        emit on the non-skip path.
+        """
+        trace = make_trace("override-escalated")
+        receipt = generate_receipt(
+            trace,
+            enforcement=make_enforcement_dict("escalated"),
+            enforcement_surface="gateway",
+            invariants_scope="full",
+        )
+        assert receipt.status == "WARN", (
+            f"escalated should force WARN on non-skip path, got {receipt.status}"
+        )
+
+    def test_allowed_leaves_pass_unchanged(self):
+        """allowed + PASS-from-checks → PASS (no override needed)."""
+        trace = make_trace("override-allowed")
+        receipt = generate_receipt(
+            trace,
+            enforcement=make_enforcement_dict("allowed"),
+            enforcement_surface="middleware",
+            invariants_scope="full",
+        )
+        assert receipt.status == "PASS", (
+            f"allowed should keep PASS on non-skip path, got {receipt.status}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # AC #9: Cross-SDK integrity — no path produces PASS with halted enforcement
 # ---------------------------------------------------------------------------
 
