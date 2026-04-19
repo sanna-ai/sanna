@@ -20,9 +20,7 @@
     "checks",
     "checks_passed",
     "checks_failed",
-    "status",
-    "enforcement_surface",
-    "invariants_scope"
+    "status"
   ],
   "properties": {
     "spec_version": {
@@ -495,6 +493,21 @@
       },
       "then": {
         "properties": { "status": { "const": "WARN" } }
+      }
+    },
+    {
+      "$comment": "Conditional-required: enforcement_surface and invariants_scope are required only for checks_version >= 8 (v1.3+). Earlier versions emit a legacy warning instead of a hard error. SAN-214.",
+      "if": {
+        "properties": {
+          "checks_version": {
+            "type": "string",
+            "pattern": "^([89]|[1-9][0-9]+)$"
+          }
+        },
+        "required": ["checks_version"]
+      },
+      "then": {
+        "required": ["enforcement_surface", "invariants_scope"]
       }
     }
   ],
