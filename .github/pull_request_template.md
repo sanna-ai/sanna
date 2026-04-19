@@ -18,7 +18,7 @@ Prevents reviewers from asking. -->
 
 ## Tickets
 
-- SAN-XXX — <!-- Notion URL -->
+- SAN-XXX
 
 ## Breaking changes
 
