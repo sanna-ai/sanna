@@ -141,7 +141,7 @@ sanna-repo/
 ├── spec/                         # Root schema copies (must sync with src/sanna/spec/)
 │   ├── constitution.schema.json
 │   ├── receipt.schema.json
-│   └── sanna-specification-v1.0.md
+│   └── sanna-specification-v1.3.md
 ├── docs/                         # User/developer documentation (9 .md files)
 ├── examples/                     # Demo scripts, constitutions, gateway configs
 │   ├── *.py                      # 5 demo Python scripts
@@ -332,9 +332,9 @@ Internal: `_reject_floats(obj, path)` raises on NaN/Infinity.
 | `extract_query(trace_data)` | function | Extract query string from trace |
 | `extract_trace_data(trace)` | function | Generic context extraction (replaces Langfuse adapter) |
 | `find_snippet(text, keywords, max_len)` | function | Extract relevant text snippet |
-| `TOOL_VERSION` | constant | `"0.13.4"` |
-| `SPEC_VERSION` | constant | `"1.0"` |
-| `CHECKS_VERSION` | constant | `"5"` |
+| `TOOL_VERSION` | constant | `"1.3.0"` |
+| `SPEC_VERSION` | constant | `"1.3"` |
+| `CHECKS_VERSION` | constant | `"8"` |
 
 Check functions (private, with public aliases at module bottom):
 - `_check_c1_context_contradiction(context, output, enforcement, structured_context)`
@@ -1324,9 +1324,9 @@ Source: `src/sanna/spec/receipt.schema.json`
 
 ```json
 {
-  "spec_version": "1.0",                     // REQUIRED
-  "tool_version": "0.13.4",                  // REQUIRED
-  "checks_version": "5",                     // REQUIRED
+  "spec_version": "1.3",                     // REQUIRED
+  "tool_version": "1.3.0",                   // REQUIRED
+  "checks_version": "8",                     // REQUIRED
   "receipt_id": "uuid-v4",                   // REQUIRED
   "receipt_fingerprint": "hex16",            // REQUIRED — 16-char human-readable
   "full_fingerprint": "hex64",               // REQUIRED — 64-char programmatic
@@ -1466,9 +1466,9 @@ Policy cascade: per-tool override > server `default_policy` > constitution autho
 
 | Constant | Location | Value | Purpose |
 |----------|----------|-------|---------|
-| `TOOL_VERSION` | `receipt.py` | `"0.13.4"` | Package version in receipts |
-| `SPEC_VERSION` | `receipt.py` | `"1.0"` | Receipt spec version |
-| `CHECKS_VERSION` | `receipt.py` | `"5"` | Check algorithm version (part of fingerprint) |
+| `TOOL_VERSION` | `receipt.py` | `"1.3.0"` | Package version in receipts |
+| `SPEC_VERSION` | `receipt.py` | `"1.3"` | Receipt spec version |
+| `CHECKS_VERSION` | `receipt.py` | `"8"` | Check algorithm version (part of fingerprint); 16-field formula at cv=8 |
 | `_SCHEMA_VERSION` | `store.py` | `1` | SQLite schema version |
 | `BUNDLE_FORMAT_VERSION` | `bundle.py` | `"1.0.0"` | Evidence bundle format |
 | `RECEIPT_VERSION_2` | `gateway/receipt_v2.py` | `"2.0"` | Receipt v2 identifier |
