@@ -163,6 +163,7 @@ def _apply_redaction_markers(receipt: dict, redaction_fields: list[str]) -> tupl
         for fields that were actually redacted.
     """
     from sanna.hashing import hash_obj, hash_text, EMPTY_HASH
+    from sanna.receipt import TOOL_NAME
 
     redacted_paths: list[str] = []
 
@@ -284,7 +285,30 @@ def _apply_redaction_markers(receipt: dict, redaction_fields: list[str]) -> tupl
     except (ValueError, TypeError):
         cv_int = 5
 
-    if cv_int >= 8:
+    if cv_int >= 9:
+        # Fields 15-20 (v1.4+, SAN-222)
+        enforcement_surface = receipt.get("enforcement_surface", "")
+        invariants_scope = receipt.get("invariants_scope", "")
+        enforcement_surface_hash = hash_text(enforcement_surface)
+        invariants_scope_hash = hash_text(invariants_scope)
+        tool_name_hash = hash_text(TOOL_NAME)
+        agent_model = receipt.get("agent_model")
+        agent_model_hash = hash_text(agent_model) if agent_model else EMPTY_HASH
+        agent_model_provider = receipt.get("agent_model_provider")
+        agent_model_provider_hash = hash_text(agent_model_provider) if agent_model_provider else EMPTY_HASH
+        agent_model_version = receipt.get("agent_model_version")
+        agent_model_version_hash = hash_text(agent_model_version) if agent_model_version else EMPTY_HASH
+        fingerprint_input = (
+            f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}"
+            f"|{checks_hash}|{constitution_hash}|{enforcement_hash}"
+            f"|{coverage_hash}|{authority_hash}|{escalation_hash}"
+            f"|{trust_hash}|{extensions_hash}"
+            f"|{parent_receipts_hash}|{workflow_id_hash}"
+            f"|{enforcement_surface_hash}|{invariants_scope_hash}"
+            f"|{tool_name_hash}|{agent_model_hash}"
+            f"|{agent_model_provider_hash}|{agent_model_version_hash}"
+        )
+    elif cv_int >= 8:
         # Fields 15-16 (v1.3+, SAN-213)
         enforcement_surface = receipt.get("enforcement_surface", "")
         invariants_scope = receipt.get("invariants_scope", "")
