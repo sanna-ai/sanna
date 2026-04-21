@@ -365,10 +365,11 @@ class TestRequiredFieldsPresence:
 # ---------------------------------------------------------------------------
 
 class TestFingerprintParity:
-    """Verify the 16-field formula produces identical digests across all sites."""
+    """Verify the 20-field formula produces identical digests across all sites."""
 
     def _compute_expected_fp(self, receipt_dict):
-        """Recompute the fingerprint from first principles using the v1.3 16-field formula."""
+        """Recompute the fingerprint from first principles using the v1.4 20-field formula."""
+        from sanna.receipt import TOOL_NAME
         correlation_id = receipt_dict.get("correlation_id", "")
         context_hash = receipt_dict.get("context_hash", "")
         output_hash = receipt_dict.get("output_hash", "")
@@ -410,12 +411,23 @@ class TestFingerprintParity:
         enforcement_surface_hash = hash_text(enforcement_surface)
         invariants_scope_hash = hash_text(invariants_scope)
 
+        # Fields 17-20: v1.4+ tool_name and agent_model*
+        tool_name_hash = hash_text(TOOL_NAME)
+        agent_model = receipt_dict.get("agent_model")
+        agent_model_hash = hash_text(agent_model) if agent_model else EMPTY_HASH
+        agent_model_provider = receipt_dict.get("agent_model_provider")
+        agent_model_provider_hash = hash_text(agent_model_provider) if agent_model_provider else EMPTY_HASH
+        agent_model_version = receipt_dict.get("agent_model_version")
+        agent_model_version_hash = hash_text(agent_model_version) if agent_model_version else EMPTY_HASH
+
         fp_input = (
             f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|"
             f"{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|"
             f"{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|"
             f"{parent_receipts_hash}|{workflow_id_hash}|"
-            f"{enforcement_surface_hash}|{invariants_scope_hash}"
+            f"{enforcement_surface_hash}|{invariants_scope_hash}|"
+            f"{tool_name_hash}|{agent_model_hash}|"
+            f"{agent_model_provider_hash}|{agent_model_version_hash}"
         )
         return hash_text(fp_input), hash_text(fp_input, truncate=16)
 
