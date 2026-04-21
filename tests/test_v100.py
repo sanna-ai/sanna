@@ -74,13 +74,13 @@ class TestVersionBump:
         assert __version__ == "1.3.0"
 
     def test_tool_version(self):
-        assert TOOL_VERSION == "1.3.0"
+        assert TOOL_VERSION == "1.4.0"
 
     def test_spec_version(self):
-        assert SPEC_VERSION == "1.3"
+        assert SPEC_VERSION == "1.4"
 
     def test_checks_version(self):
-        assert CHECKS_VERSION == "8"
+        assert CHECKS_VERSION == "9"
 
     def test_all_exports(self):
         import sanna
@@ -625,7 +625,7 @@ class TestDeprecationCleanup:
         receipt = generate_receipt(trace)
         d = asdict(receipt)
         assert "spec_version" in d
-        assert d["spec_version"] == "1.3"
+        assert d["spec_version"] == "1.4"
 
     def test_receipt_uses_correlation_id(self):
         trace = make_trace(correlation_id="corr-001")
