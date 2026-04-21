@@ -17,8 +17,9 @@ from .hashing import hash_text, hash_obj, EMPTY_HASH
 # =============================================================================
 
 from .version import __version__ as TOOL_VERSION  # single source of truth
-SPEC_VERSION = "1.3"
-CHECKS_VERSION = "8"  # SAN-213/SAN-216 v1.3: enforcement_surface + invariants_scope fields (positions 15-16)
+SPEC_VERSION = "1.4"
+CHECKS_VERSION = "9"  # SAN-222 v1.4: tool_name + agent_model fields (positions 17-20)
+TOOL_NAME = "sanna"
 
 
 # =============================================================================
@@ -106,6 +107,10 @@ class SannaReceipt:
     status: str  # "PASS", "WARN", "FAIL", "PARTIAL"
     enforcement_surface: str  # "middleware", "gateway", "cli_interceptor", "http_interceptor"
     invariants_scope: str  # "full", "authority_only", "limited", "none"
+    tool_name: str = TOOL_NAME  # v1.4+: required, defaults to TOOL_NAME
+    agent_model: Optional[str] = None  # v1.4+: LLM model identifier, null for opt-out
+    agent_model_provider: Optional[str] = None  # v1.4+: model provider, null for opt-out
+    agent_model_version: Optional[str] = None  # v1.4+: model revision, null for opt-out
     constitution_ref: Optional[dict] = None
     enforcement: Optional[dict] = None
     parent_receipts: Optional[List[str]] = None
@@ -588,6 +593,9 @@ def generate_receipt(
     skip_default_checks: bool = False,
     enforcement_surface: str = "middleware",
     invariants_scope: str = "full",
+    agent_model: Optional[str] = None,
+    agent_model_provider: Optional[str] = None,
+    agent_model_version: Optional[str] = None,
 ) -> SannaReceipt:
     """Generate a Sanna receipt from trace data.
 
@@ -754,7 +762,21 @@ def generate_receipt(
     enforcement_surface_hash = hash_text(enforcement_surface)
     invariants_scope_hash = hash_text(invariants_scope)
 
-    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}|{enforcement_surface_hash}|{invariants_scope_hash}"
+    # Fields 17-20: tool_name and agent_model* (v1.4+, SAN-222)
+    tool_name_hash = hash_text(TOOL_NAME)
+    agent_model_hash = hash_text(agent_model) if agent_model else EMPTY_HASH
+    agent_model_provider_hash = hash_text(agent_model_provider) if agent_model_provider else EMPTY_HASH
+    agent_model_version_hash = hash_text(agent_model_version) if agent_model_version else EMPTY_HASH
+
+    fingerprint_input = (
+        f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|"
+        f"{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|"
+        f"{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|"
+        f"{parent_receipts_hash}|{workflow_id_hash}|"
+        f"{enforcement_surface_hash}|{invariants_scope_hash}|"
+        f"{tool_name_hash}|{agent_model_hash}|"
+        f"{agent_model_provider_hash}|{agent_model_version_hash}"
+    )
     full_fp = hash_text(fingerprint_input)
     receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
 
@@ -777,6 +799,10 @@ def generate_receipt(
         status=status,
         enforcement_surface=enforcement_surface,
         invariants_scope=invariants_scope,
+        tool_name=TOOL_NAME,
+        agent_model=agent_model,
+        agent_model_provider=agent_model_provider,
+        agent_model_version=agent_model_version,
         constitution_ref=constitution_dict,
         enforcement=enforcement_dict,
         parent_receipts=parent_receipts,
