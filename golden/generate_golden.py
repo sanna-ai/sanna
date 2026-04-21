@@ -18,7 +18,7 @@ from pathlib import Path
 # Ensure the source tree is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from sanna.receipt import generate_receipt, SPEC_VERSION, CHECKS_VERSION, TOOL_VERSION
+from sanna.receipt import generate_receipt, SPEC_VERSION, CHECKS_VERSION, TOOL_VERSION, TOOL_NAME
 from sanna.hashing import hash_text, hash_obj, EMPTY_HASH
 
 OUT = Path(__file__).resolve().parent / "receipts"
@@ -93,7 +93,24 @@ def add_extensions(receipt_dict, extensions):
     enforcement_surface_hash = hash_text(enforcement_surface)
     invariants_scope_hash = hash_text(invariants_scope)
 
-    fp_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}|{enforcement_surface_hash}|{invariants_scope_hash}"
+    # Fields 17-20: tool_name and agent_model* (v1.4+, SAN-222)
+    tool_name_hash = hash_text(TOOL_NAME)
+    agent_model = receipt_dict.get("agent_model")
+    agent_model_hash = hash_text(agent_model) if agent_model else EMPTY_HASH
+    agent_model_provider = receipt_dict.get("agent_model_provider")
+    agent_model_provider_hash = hash_text(agent_model_provider) if agent_model_provider else EMPTY_HASH
+    agent_model_version = receipt_dict.get("agent_model_version")
+    agent_model_version_hash = hash_text(agent_model_version) if agent_model_version else EMPTY_HASH
+
+    fp_input = (
+        f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|"
+        f"{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|"
+        f"{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|"
+        f"{parent_receipts_hash}|{workflow_id_hash}|"
+        f"{enforcement_surface_hash}|{invariants_scope_hash}|"
+        f"{tool_name_hash}|{agent_model_hash}|"
+        f"{agent_model_provider_hash}|{agent_model_version_hash}"
+    )
     receipt_dict["full_fingerprint"] = hash_text(fp_input)
     receipt_dict["receipt_fingerprint"] = hash_text(fp_input, truncate=16)
     return receipt_dict
@@ -247,6 +264,25 @@ def main():
     }
     d = add_extensions(d, extensions)
     write("011_pass_with_extensions.json", d)
+
+    # --- 012: PASS with agent_model captured ---
+    trace = make_trace(
+        "golden-012-pass-agent-model",
+        "What is the boiling point of water?",
+        "Water boils at 100 degrees Celsius (212 degrees Fahrenheit) at standard atmospheric pressure.",
+        "The boiling point of water is 100°C (212°F) at standard pressure.",
+    )
+    receipt = generate_receipt(
+        trace,
+        enforcement_surface="middleware",
+        invariants_scope="full",
+        agent_model="claude-opus-4-7",
+        agent_model_provider="anthropic",
+        agent_model_version="20250514",
+    )
+    d = stabilise(receipt, "a0000012-0000-4000-8000-000000000012")
+    assert d["status"] == "PASS", f"012: expected PASS, got {d['status']}"
+    write("012_pass_agent_model.json", d)
 
     # --- 999: Tampered receipt ---
     trace = make_trace(

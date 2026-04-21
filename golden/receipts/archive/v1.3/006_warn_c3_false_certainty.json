@@ -1,21 +1,21 @@
 {
-  "spec_version": "1.4",
-  "tool_version": "1.4.0",
-  "checks_version": "9",
-  "receipt_id": "a0000007-0000-4000-8000-000000000007",
-  "receipt_fingerprint": "7dd507d47485af3a",
-  "full_fingerprint": "7dd507d47485af3a030e538bed08514ae1467eae6dfaae9935fe1104949e7f5b",
-  "correlation_id": "golden-007-warn-c5-compression",
+  "spec_version": "1.3",
+  "tool_version": "1.1.1",
+  "checks_version": "8",
+  "receipt_id": "a0000006-0000-4000-8000-000000000006",
+  "receipt_fingerprint": "eb5f47afa204062e",
+  "full_fingerprint": "eb5f47afa204062e1e7450df4b2c887ea7a4679b89270f56f273ba03df1a0d6c",
+  "correlation_id": "golden-006-warn-c3-certainty",
   "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
-    "query": "Deployment options?",
-    "context": "Deployment options include:\n- AWS with auto-scaling\n- GCP with managed Kubernetes\n- Azure with serverless functions\n- On-premise with Docker\nEach has different cost and performance implications."
+    "query": "Can I use the API?",
+    "context": "Available if usage is under 1000 requests. Requires registration. Rate limits apply during peak hours."
   },
   "outputs": {
-    "response": "Deploy to cloud."
+    "response": "You can use the API. Go ahead and start making requests."
   },
-  "context_hash": "84e22839c23e478cc32925e4dc17bca8d9169a2ccd193a94fb49ba82c3fea0d8",
-  "output_hash": "260194464445f7e3167ef9ccda4b9858902ee953dd94c32d580d22ff6b5738d4",
+  "context_hash": "27783a2783b243159d0fb4883c27a82ef6c611fe282e5e91a33a1639bdf4e41b",
+  "output_hash": "a0b047ba5583d366ea7614aa1c3438b45f8645aa815799750a8a818e4b1bc1c4",
   "checks": [
     {
       "check_id": "C1",
@@ -36,10 +36,10 @@
     {
       "check_id": "C3",
       "name": "No False Certainty",
-      "passed": true,
-      "severity": "info",
-      "evidence": null,
-      "details": "Certainty level appears appropriate (heuristic check)"
+      "passed": false,
+      "severity": "warning",
+      "evidence": "Confident claim without acknowledging conditions: \"you can\"",
+      "details": "Output confidence may exceed evidence support"
     },
     {
       "check_id": "C4",
@@ -52,10 +52,10 @@
     {
       "check_id": "C5",
       "name": "No Premature Compression",
-      "passed": false,
-      "severity": "warning",
-      "evidence": "Context has ~4 points, output has 1 sentences",
-      "details": "Output may over-compress multi-faceted context"
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Compression level appears appropriate (heuristic check)"
     }
   ],
   "checks_passed": 4,
@@ -63,10 +63,6 @@
   "status": "WARN",
   "enforcement_surface": "middleware",
   "invariants_scope": "full",
-  "tool_name": "sanna",
-  "agent_model": null,
-  "agent_model_provider": null,
-  "agent_model_version": null,
   "constitution_ref": null,
   "enforcement": null,
   "parent_receipts": null,

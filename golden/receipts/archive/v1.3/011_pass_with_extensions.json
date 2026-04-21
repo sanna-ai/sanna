@@ -1,21 +1,21 @@
 {
-  "spec_version": "1.4",
-  "tool_version": "1.4.0",
-  "checks_version": "9",
-  "receipt_id": "a0000007-0000-4000-8000-000000000007",
-  "receipt_fingerprint": "7dd507d47485af3a",
-  "full_fingerprint": "7dd507d47485af3a030e538bed08514ae1467eae6dfaae9935fe1104949e7f5b",
-  "correlation_id": "golden-007-warn-c5-compression",
+  "spec_version": "1.3",
+  "tool_version": "1.1.1",
+  "checks_version": "8",
+  "receipt_id": "a0000011-0000-4000-8000-000000000011",
+  "receipt_fingerprint": "aaba736fb6837881",
+  "full_fingerprint": "aaba736fb6837881a2fad64cef809b29499d8f5d8df756359247e2d3e4b20ae8",
+  "correlation_id": "golden-011-pass-extensions",
   "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
-    "query": "Deployment options?",
-    "context": "Deployment options include:\n- AWS with auto-scaling\n- GCP with managed Kubernetes\n- Azure with serverless functions\n- On-premise with Docker\nEach has different cost and performance implications."
+    "query": "store hours",
+    "context": "Store hours: Monday-Friday 9 AM to 9 PM. Saturday-Sunday 10 AM to 6 PM. Holiday hours may vary."
   },
   "outputs": {
-    "response": "Deploy to cloud."
+    "response": "The store is open weekdays 9 AM to 9 PM and weekends 10 AM to 6 PM. Note that holiday hours may differ."
   },
-  "context_hash": "84e22839c23e478cc32925e4dc17bca8d9169a2ccd193a94fb49ba82c3fea0d8",
-  "output_hash": "260194464445f7e3167ef9ccda4b9858902ee953dd94c32d580d22ff6b5738d4",
+  "context_hash": "c27f092c74a8a59dd79c9349a074065ac4ad035145104339de3d1ee4b9392540",
+  "output_hash": "6f2d4872206cf18c7426461625d37841d2cc7f88859b31cae83c42dc990dc993",
   "checks": [
     {
       "check_id": "C1",
@@ -52,21 +52,17 @@
     {
       "check_id": "C5",
       "name": "No Premature Compression",
-      "passed": false,
-      "severity": "warning",
-      "evidence": "Context has ~4 points, output has 1 sentences",
-      "details": "Output may over-compress multi-faceted context"
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Compression level appears appropriate (heuristic check)"
     }
   ],
-  "checks_passed": 4,
-  "checks_failed": 1,
-  "status": "WARN",
+  "checks_passed": 5,
+  "checks_failed": 0,
+  "status": "PASS",
   "enforcement_surface": "middleware",
   "invariants_scope": "full",
-  "tool_name": "sanna",
-  "agent_model": null,
-  "agent_model_provider": null,
-  "agent_model_version": null,
   "constitution_ref": null,
   "enforcement": null,
   "parent_receipts": null,
@@ -74,5 +70,15 @@
   "content_mode": null,
   "content_mode_source": null,
   "event_type": null,
-  "context_limitation": null
+  "context_limitation": null,
+  "extensions": {
+    "vendor": "test-vendor",
+    "pipeline_id": "pipe-123",
+    "environment": "staging",
+    "custom_score": 95,
+    "tags": [
+      "golden",
+      "test"
+    ]
+  }
 }
