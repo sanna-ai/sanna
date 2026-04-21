@@ -2,6 +2,29 @@
 
 **Note:** v0.13.x is the first public release series. Earlier version entries document internal pre-release development.
 
+## [1.4.0] - 2026-04-20
+
+### Added
+- New required top-level field `tool_name` (v1.4+, required at cv>=9).
+  Canonical SDK identity constant `"sanna"` in Python reference.
+  Participates in fingerprint as position 17.
+- New optional nullable fields `agent_model`, `agent_model_provider`,
+  `agent_model_version`. Capture LLM model identity at receipt
+  generation. Null = opt-out; absent = not captured. Fingerprint
+  positions 18-20.
+- Verifier v1.4 required-field check: rejects cv>=9 receipts
+  missing `tool_name`. Error text: "v1.4+ receipt (checks_version >= 9) is missing required field: tool_name".
+- Verifier 20-field fingerprint dispatch for cv>=9.
+
+### Changed
+- `SPEC_VERSION` bumped to `"1.4"`.
+- `CHECKS_VERSION` bumped to `"9"`.
+- Package version `1.3.0` → `1.4.0`.
+- Fingerprint algorithm extended from 16 to 20 fields at cv=9.
+  Legacy receipts (cv=8, cv=6/7, cv=5) unchanged.
+- Goldens regenerated for v1.4; v1.3 goldens archived under
+  `golden/receipts/archive/v1.3/`.
+
 ## [1.3.0] - 2026-04-18
 
 Receipt format v1.3: enforcement surface attestation and invariants scope fields (SAN-213, SAN-216).
