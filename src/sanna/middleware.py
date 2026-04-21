@@ -36,6 +36,7 @@ from .receipt import (
     TOOL_VERSION,
     SPEC_VERSION,
     CHECKS_VERSION,
+    TOOL_NAME,
     select_final_answer,
     extract_context,
     extract_query,
@@ -601,7 +602,16 @@ def _generate_constitution_receipt(
     enforcement_surface_hash = hash_text(enforcement_surface)
     invariants_scope_hash = hash_text(invariants_scope)
 
-    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{enforcement_hash_val}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}|{enforcement_surface_hash}|{invariants_scope_hash}"
+    # Fields 17-20: tool_name and agent_model* (v1.4+, SAN-222)
+    tool_name_hash = hash_text(TOOL_NAME)
+    fingerprint_input = (
+        f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|"
+        f"{checks_hash}|{constitution_hash_val}|{enforcement_hash_val}|{coverage_hash}|"
+        f"{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|"
+        f"{parent_receipts_hash}|{workflow_id_hash}|"
+        f"{enforcement_surface_hash}|{invariants_scope_hash}|"
+        f"{tool_name_hash}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}"
+    )
 
     full_fp = hash_text(fingerprint_input)
     receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
@@ -705,7 +715,16 @@ def _generate_no_invariants_receipt(
     enforcement_surface_hash = hash_text(enforcement_surface)
     invariants_scope_hash = hash_text(invariants_scope)
 
-    fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|{checks_hash}|{constitution_hash_val}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}|{enforcement_surface_hash}|{invariants_scope_hash}"
+    # Fields 17-20: tool_name and agent_model* (v1.4+, SAN-222)
+    tool_name_hash = hash_text(TOOL_NAME)
+    fingerprint_input = (
+        f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|"
+        f"{checks_hash}|{constitution_hash_val}|{EMPTY_HASH}|{EMPTY_HASH}|"
+        f"{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{extensions_hash}|"
+        f"{parent_receipts_hash}|{workflow_id_hash}|"
+        f"{enforcement_surface_hash}|{invariants_scope_hash}|"
+        f"{tool_name_hash}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}"
+    )
 
     full_fp = hash_text(fingerprint_input)
     receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
