@@ -308,6 +308,7 @@ class TestVerifyFingerprint:
             "full_fingerprint": receipt.full_fingerprint,
             "enforcement_surface": receipt.enforcement_surface,
             "invariants_scope": receipt.invariants_scope,
+            "tool_name": receipt.tool_name,
         }
         from sanna.verify import _verify_fingerprint_v013
         matches, computed, _ = _verify_fingerprint_v013(receipt_dict)
@@ -337,6 +338,7 @@ class TestVerifyFingerprint:
             "workflow_id": receipt.workflow_id,
             "enforcement_surface": receipt.enforcement_surface,
             "invariants_scope": receipt.invariants_scope,
+            "tool_name": receipt.tool_name,
         }
         from sanna.verify import _verify_fingerprint_v013
         matches, computed, _ = _verify_fingerprint_v013(receipt_dict)

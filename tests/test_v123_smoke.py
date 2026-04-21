@@ -29,10 +29,10 @@ from sanna.crypto import generate_keypair
 class TestVersion:
     def test_version_is_0_12_3(self):
         import sanna
-        assert sanna.__version__ == "1.3.0"
+        assert sanna.__version__ == "1.4.0"
 
     def test_tool_version_is_0_12_3(self):
-        assert TOOL_VERSION == "1.3.0"
+        assert TOOL_VERSION == "1.4.0"
 
 
 # =============================================================================
@@ -167,7 +167,7 @@ class TestUnifiedCLISmoke:
         with patch("sys.argv", ["sanna", "--version"]):
             rc = main_sanna()
         assert rc == 0
-        assert "1.3.0" in capsys.readouterr().out
+        assert "1.4.0" in capsys.readouterr().out
 
 
 # =============================================================================
