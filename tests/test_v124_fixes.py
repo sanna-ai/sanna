@@ -412,7 +412,7 @@ class TestMCPEndpointSignatureCheck:
         result = json.loads(result_json)
         # Successful receipts are returned directly (not wrapped in {"receipt": ...})
         assert "error" not in result, f"Unexpected error: {result.get('error')}"
-        assert result.get("spec_version") == "1.3"
+        assert result.get("spec_version") == "1.4"
         assert result.get("status") in ("PASS", "WARN", "FAIL", "PARTIAL")
 
 

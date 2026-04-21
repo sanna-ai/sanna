@@ -533,10 +533,10 @@ class TestVerifierDispatch:
 
     def test_v13_receipt_verifies_with_16_field_formula(self):
         d = self._make_v13_receipt()
-        assert d["checks_version"] == "8"
-        assert d["spec_version"] == "1.3"
+        assert d["checks_version"] == "9"
+        assert d["spec_version"] == "1.4"
         matches, _, _ = _verify_fingerprint_v013(d)
-        assert matches, "v1.3 receipt should verify with 16-field formula"
+        assert matches, "v1.4 receipt should verify with 20-field formula"
 
     def test_v11_receipt_verifies_with_14_field_formula(self):
         d = self._make_v11_receipt()
@@ -573,7 +573,7 @@ class TestVerifierDispatch:
 
 class TestVersionConstants:
     def test_spec_version(self):
-        assert SPEC_VERSION == "1.3"
+        assert SPEC_VERSION == "1.4"
 
     def test_checks_version(self):
-        assert CHECKS_VERSION == "8"
+        assert CHECKS_VERSION == "9"
