@@ -635,6 +635,7 @@ def _generate_constitution_receipt(
         "status": status,
         "enforcement_surface": enforcement_surface,
         "invariants_scope": invariants_scope,
+        "tool_name": TOOL_NAME,
         "evaluation_coverage": evaluation_coverage,
         "constitution_ref": constitution_ref,
     }
@@ -748,6 +749,7 @@ def _generate_no_invariants_receipt(
         "status": "PASS",
         "enforcement_surface": enforcement_surface,
         "invariants_scope": invariants_scope,
+        "tool_name": TOOL_NAME,
         "constitution_ref": constitution_ref,
     }
 
