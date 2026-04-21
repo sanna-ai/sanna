@@ -1,21 +1,21 @@
 {
-  "spec_version": "1.4",
-  "tool_version": "1.4.0",
-  "checks_version": "9",
-  "receipt_id": "a0000007-0000-4000-8000-000000000007",
-  "receipt_fingerprint": "7dd507d47485af3a",
-  "full_fingerprint": "7dd507d47485af3a030e538bed08514ae1467eae6dfaae9935fe1104949e7f5b",
-  "correlation_id": "golden-007-warn-c5-compression",
+  "spec_version": "1.3",
+  "tool_version": "1.1.1",
+  "checks_version": "8",
+  "receipt_id": "a0000004-0000-4000-8000-000000000004",
+  "receipt_fingerprint": "0966749b6474d432",
+  "full_fingerprint": "0966749b6474d432f1b262c72f7e27cbe7bf974e86aed6f759f0ed748bcdcd7a",
+  "correlation_id": "golden-004-pass-policy-conditional",
   "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
-    "query": "Deployment options?",
-    "context": "Deployment options include:\n- AWS with auto-scaling\n- GCP with managed Kubernetes\n- Azure with serverless functions\n- On-premise with Docker\nEach has different cost and performance implications."
+    "query": "Can I upgrade my subscription?",
+    "context": "Upgrades are available for annual subscribers. Monthly subscribers must wait until renewal. Enterprise plans have custom upgrade paths."
   },
   "outputs": {
-    "response": "Deploy to cloud."
+    "response": "You may be able to upgrade, depending on your plan type. Annual subscribers can upgrade immediately, while monthly subscribers typically need to wait until renewal. Enterprise plans have separate upgrade paths."
   },
-  "context_hash": "84e22839c23e478cc32925e4dc17bca8d9169a2ccd193a94fb49ba82c3fea0d8",
-  "output_hash": "260194464445f7e3167ef9ccda4b9858902ee953dd94c32d580d22ff6b5738d4",
+  "context_hash": "3290514259965d17c85538502bc769965e1cae3a07c4288f88e4694a2aeb1159",
+  "output_hash": "c5b26adf2f25f9c9ef9d4050743dceefabfa49b04aa68f5b570606e36aaf5786",
   "checks": [
     {
       "check_id": "C1",
@@ -52,21 +52,17 @@
     {
       "check_id": "C5",
       "name": "No Premature Compression",
-      "passed": false,
-      "severity": "warning",
-      "evidence": "Context has ~4 points, output has 1 sentences",
-      "details": "Output may over-compress multi-faceted context"
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Compression level appears appropriate (heuristic check)"
     }
   ],
-  "checks_passed": 4,
-  "checks_failed": 1,
-  "status": "WARN",
+  "checks_passed": 5,
+  "checks_failed": 0,
+  "status": "PASS",
   "enforcement_surface": "middleware",
   "invariants_scope": "full",
-  "tool_name": "sanna",
-  "agent_model": null,
-  "agent_model_provider": null,
-  "agent_model_version": null,
   "constitution_ref": null,
   "enforcement": null,
   "parent_receipts": null,

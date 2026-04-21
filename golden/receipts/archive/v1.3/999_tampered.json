@@ -1,10 +1,10 @@
 {
-  "spec_version": "1.4",
-  "tool_version": "1.4.0",
-  "checks_version": "9",
-  "receipt_id": "a0000001-0000-4000-8000-000000000001",
-  "receipt_fingerprint": "f45fc94d614fd9ec",
-  "full_fingerprint": "f45fc94d614fd9ec2c30c694d8d16df6acc84ecb3884e4c48dddce8d134bbe09",
+  "spec_version": "1.3",
+  "tool_version": "1.1.1",
+  "checks_version": "8",
+  "receipt_id": "a0000999-0000-4000-8000-000000000999",
+  "receipt_fingerprint": "5408a9c233b1006e",
+  "full_fingerprint": "5408a9c233b1006e1c83142b4c2cee2f6c0c09f41901193ba8749734fe902b6c",
   "correlation_id": "golden-001-fail-c1-refund",
   "timestamp": "2026-01-01T00:00:00+00:00",
   "inputs": {
@@ -12,7 +12,7 @@
     "context": "Our refund policy: Physical products can be returned within 30 days. Digital products are non-refundable once downloaded. Subscriptions can be cancelled anytime."
   },
   "outputs": {
-    "response": "Based on your purchase history, you are eligible to request a refund. However, since the software was downloaded, processing may take 5-7 business days."
+    "response": "TAMPERED: This was changed after generation"
   },
   "context_hash": "8f215f8ed9b85078d6d28645bacd5b42356f21029a987310148a855a8bc0d50d",
   "output_hash": "42b19b29a5ef758bf85742d9d8639abf73a948a6c9e6cea98a54e675bf7e4a4f",
@@ -63,10 +63,6 @@
   "status": "FAIL",
   "enforcement_surface": "middleware",
   "invariants_scope": "full",
-  "tool_name": "sanna",
-  "agent_model": null,
-  "agent_model_provider": null,
-  "agent_model_version": null,
   "constitution_ref": null,
   "enforcement": null,
   "parent_receipts": null,
