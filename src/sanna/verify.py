@@ -348,7 +348,36 @@ def _verify_fingerprint_v013(receipt: dict) -> tuple:
         cv_int = int(checks_version)
     except (ValueError, TypeError):
         cv_int = 5
-    if cv_int >= 8:
+    if cv_int >= 9:
+        # v1.4+: tool_name required (agent_model* optional)
+        tool_name = receipt.get("tool_name")
+        if not tool_name:
+            return (False, "", "")
+        tool_name_hash = hash_text(tool_name)
+
+        agent_model = receipt.get("agent_model")
+        agent_model_hash = hash_text(agent_model) if agent_model else EMPTY_HASH
+        agent_model_provider = receipt.get("agent_model_provider")
+        agent_model_provider_hash = hash_text(agent_model_provider) if agent_model_provider else EMPTY_HASH
+        agent_model_version = receipt.get("agent_model_version")
+        agent_model_version_hash = hash_text(agent_model_version) if agent_model_version else EMPTY_HASH
+
+        # v1.3 required fields still required at cv>=9
+        if not enforcement_surface or not invariants_scope:
+            return (False, "", "")
+        enforcement_surface_hash = hash_text(enforcement_surface)
+        invariants_scope_hash = hash_text(invariants_scope)
+
+        fingerprint_input = (
+            f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|"
+            f"{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|"
+            f"{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|"
+            f"{parent_receipts_hash}|{workflow_id_hash}|"
+            f"{enforcement_surface_hash}|{invariants_scope_hash}|"
+            f"{tool_name_hash}|{agent_model_hash}|"
+            f"{agent_model_provider_hash}|{agent_model_version_hash}"
+        )
+    elif cv_int >= 8:
         # v1.3+: require enforcement_surface and invariants_scope
         if not enforcement_surface:
             return (False, "", "")
@@ -910,6 +939,13 @@ def verify_receipt(
         _cv_int = int(_cv_str)
     except (ValueError, TypeError):
         _cv_int = 0
+    if _cv_int >= 9:
+        # v1.4+: tool_name is required
+        if not receipt.get("tool_name"):
+            errors.append(
+                "v1.4+ receipt (checks_version >= 9) is missing required field: tool_name"
+            )
+
     if _cv_int >= 8:
         if not receipt.get("enforcement_surface"):
             errors.append(
