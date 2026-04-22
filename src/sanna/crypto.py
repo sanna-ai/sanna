@@ -29,6 +29,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 from .hashing import canonical_json_bytes
 
@@ -169,6 +170,21 @@ def load_private_key(path: str | Path) -> Ed25519PrivateKey:
     return key
 
 
+def load_private_key_from_pem(pem: bytes | str) -> Ed25519PrivateKey:
+    """Load an Ed25519 private key from PEM bytes or string."""
+    if isinstance(pem, str):
+        pem = pem.encode("utf-8")
+    try:
+        key = load_pem_private_key(pem, password=None)
+    except (ValueError, UnsupportedAlgorithm, TypeError) as e:
+        raise ValueError(f"Invalid PEM private key: {e}") from e
+    if not isinstance(key, Ed25519PrivateKey):
+        raise ValueError(
+            f"Expected Ed25519 private key, got {type(key).__name__}"
+        )
+    return key
+
+
 def load_public_key(path: str | Path) -> Ed25519PublicKey:
     """Load an Ed25519 public key from a PEM file."""
     path = Path(path)
@@ -178,6 +194,21 @@ def load_public_key(path: str | Path) -> Ed25519PublicKey:
         raise ValueError(f"Unsupported key algorithm in {path}: {e}") from e
     if not isinstance(key, Ed25519PublicKey):
         raise ValueError(f"Expected Ed25519 public key, got {type(key).__name__}")
+    return key
+
+
+def load_public_key_from_pem(pem: bytes | str) -> Ed25519PublicKey:
+    """Load an Ed25519 public key from PEM bytes or string."""
+    if isinstance(pem, str):
+        pem = pem.encode("utf-8")
+    try:
+        key = serialization.load_pem_public_key(pem)
+    except (ValueError, UnsupportedAlgorithm) as e:
+        raise ValueError(f"Invalid PEM public key: {e}") from e
+    if not isinstance(key, Ed25519PublicKey):
+        raise ValueError(
+            f"Expected Ed25519 public key, got {type(key).__name__}"
+        )
     return key
 
 
@@ -321,6 +352,37 @@ def verify_constitution_full(
 # RECEIPT SIGNING (v0.6.3: metadata-binding)
 # =============================================================================
 
+def _sign_receipt_with_key(
+    receipt_dict: dict,
+    private_key: Ed25519PrivateKey,
+    signed_by: Optional[str] = None,
+) -> dict:
+    """Core receipt signing with a loaded private key object."""
+    import copy
+
+    public_key = private_key.public_key()
+    key_id = compute_key_id(public_key)
+
+    sig_block = {
+        "signature": "",
+        "key_id": key_id,
+        "signed_by": signed_by or "",
+        "signed_at": datetime.now(timezone.utc).isoformat(),
+        "scheme": "receipt_sig_v1",
+    }
+
+    signable = copy.deepcopy(receipt_dict)
+    signable["receipt_signature"] = sig_block
+    signable = sanitize_for_signing(signable)
+    data = canonical_json_bytes(signable)
+
+    signature_b64 = sign_bytes(data, private_key)
+    sig_block["signature"] = signature_b64
+
+    receipt_dict["receipt_signature"] = sig_block
+    return receipt_dict
+
+
 def sign_receipt(
     receipt_dict: dict,
     private_key_path: str | Path,
@@ -332,52 +394,38 @@ def sign_receipt(
     with ``signature`` set to ``""`` (placeholder).  This binds the signer
     metadata (key_id, signed_by, signed_at) into the signature.
     """
-    import copy
-
     private_key = load_private_key(private_key_path)
-    public_key = private_key.public_key()
-    key_id = compute_key_id(public_key)
-
-    # Build the receipt_signature block with placeholder
-    sig_block = {
-        "signature": "",  # placeholder — excluded from signing
-        "key_id": key_id,
-        "signed_by": signed_by or "",
-        "signed_at": datetime.now(timezone.utc).isoformat(),
-        "scheme": "receipt_sig_v1",
-    }
-
-    # Create signable copy with placeholder signature
-    signable = copy.deepcopy(receipt_dict)
-    signable["receipt_signature"] = sig_block
-    signable = sanitize_for_signing(signable)
-    data = canonical_json_bytes(signable)
-
-    # Sign and replace placeholder
-    signature_b64 = sign_bytes(data, private_key)
-    sig_block["signature"] = signature_b64
-
-    receipt_dict["receipt_signature"] = sig_block
-    return receipt_dict
+    return _sign_receipt_with_key(receipt_dict, private_key, signed_by)
 
 
-def verify_receipt_signature(
+def sign_receipt_from_pem(
     receipt_dict: dict,
-    public_key_path: str | Path,
-) -> bool:
-    """Verify a receipt's Ed25519 signature.
+    private_key_pem: bytes | str,
+    signed_by: Optional[str] = None,
+) -> dict:
+    """Sign a receipt using an in-memory PEM private key.
 
-    Reconstructs the signed material by setting
-    ``receipt_signature.signature`` to ``""`` (the placeholder used during
-    signing), then verifies the Ed25519 signature against the provided
-    public key.  Also checks that ``receipt_signature.key_id`` matches.
+    Equivalent to sign_receipt but accepts PEM bytes or string instead of
+    a file path. Intended for server-side callers that generate or store
+    keys outside the filesystem.
+
+    Args:
+        receipt_dict: The receipt dict to sign (modified in place).
+        private_key_pem: Ed25519 private key in PEM format (bytes or UTF-8 str).
+        signed_by: Optional signer identifier embedded in the signature block.
 
     Returns:
-        ``True`` if the signature is valid.  ``False`` on any failure,
-        including: missing or empty signature block, key-id mismatch,
-        non-canonicalizable data (e.g. non-integer floats), or
-        cryptographic verification failure.
+        The receipt dict with ``receipt_signature`` added.
+
+    Raises:
+        ValueError: If the PEM is invalid or not an Ed25519 key.
     """
+    private_key = load_private_key_from_pem(private_key_pem)
+    return _sign_receipt_with_key(receipt_dict, private_key, signed_by)
+
+
+def _verify_receipt_with_key(receipt_dict: dict, public_key: Ed25519PublicKey) -> bool:
+    """Core Ed25519 receipt verification against a loaded key object."""
     import copy
 
     sig_block = receipt_dict.get("receipt_signature")
@@ -387,8 +435,6 @@ def verify_receipt_signature(
     signature_b64 = sig_block.get("signature", "")
     if not signature_b64:
         return False
-
-    public_key = load_public_key(public_key_path)
 
     # Check key_id matches
     expected_key_id = compute_key_id(public_key)
@@ -409,3 +455,44 @@ def verify_receipt_signature(
         return False
 
     return verify_signature(data, signature_b64, public_key)
+
+
+def verify_receipt_signature(
+    receipt_dict: dict,
+    public_key_path: str | Path,
+) -> bool:
+    """Verify a receipt's Ed25519 signature.
+
+    Reconstructs the signed material by setting
+    ``receipt_signature.signature`` to ``""`` (the placeholder used during
+    signing), then verifies the Ed25519 signature against the provided
+    public key.  Also checks that ``receipt_signature.key_id`` matches.
+
+    Returns:
+        ``True`` if the signature is valid.  ``False`` on any failure,
+        including: missing or empty signature block, key-id mismatch,
+        non-canonicalizable data (e.g. non-integer floats), or
+        cryptographic verification failure.
+    """
+    public_key = load_public_key(public_key_path)
+    return _verify_receipt_with_key(receipt_dict, public_key)
+
+
+def verify_receipt_signature_from_pem(
+    receipt_dict: dict,
+    public_key_pem: bytes | str,
+) -> bool:
+    """Verify a receipt's Ed25519 signature using an in-memory PEM public key.
+
+    Equivalent to verify_receipt_signature but accepts PEM bytes or string
+    instead of a file path. Intended for server-side callers (e.g., Sanna Cloud)
+    that retrieve the public key from a database column rather than a file.
+
+    Returns:
+        ``True`` if the signature is valid. ``False`` on any failure.
+
+    Raises:
+        ValueError: If the PEM is invalid or not an Ed25519 key.
+    """
+    public_key = load_public_key_from_pem(public_key_pem)
+    return _verify_receipt_with_key(receipt_dict, public_key)
