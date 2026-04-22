@@ -1,0 +1,153 @@
+{
+  "version": "1.4",
+  "description": "Cross-SDK authority matching test vectors (SAN-224). Both Python and TS SDKs must return the same decision for every vector.",
+  "vectors": [
+    {
+      "id": "E-001",
+      "pattern": "delete",
+      "action": "delete",
+      "expected": true,
+      "rationale": "exact match: normalized forms are identical"
+    },
+    {
+      "id": "E-002",
+      "pattern": "delete_file",
+      "action": "deleteFile",
+      "expected": true,
+      "rationale": "exact match after normalization: both normalize to delete.file"
+    },
+    {
+      "id": "E-003",
+      "pattern": "DELETE_FILE",
+      "action": "delete-file",
+      "expected": true,
+      "rationale": "exact match after normalization: case and separator differences collapse"
+    },
+    {
+      "id": "E-004",
+      "pattern": "sendEmail",
+      "action": "send_email",
+      "expected": true,
+      "rationale": "exact match after normalization: camelCase and snake_case normalize identically"
+    },
+    {
+      "id": "N-001",
+      "pattern": "delete",
+      "action": "delete_user",
+      "expected": false,
+      "rationale": "non-match: delete != delete.user; substring is not a valid match"
+    },
+    {
+      "id": "N-002",
+      "pattern": "read",
+      "action": "bread",
+      "expected": false,
+      "rationale": "F-005 repro: read is not a match for bread; exact only, no substring"
+    },
+    {
+      "id": "N-003",
+      "pattern": "patch",
+      "action": "API-patch-page",
+      "expected": false,
+      "rationale": "non-match: patch != api.patch.page; partial word is not a match without glob"
+    },
+    {
+      "id": "N-004",
+      "pattern": "createFile",
+      "action": "deleteFile",
+      "expected": false,
+      "rationale": "non-match: create.file != delete.file"
+    },
+    {
+      "id": "G-001",
+      "pattern": "read_*",
+      "action": "read_user_profile",
+      "expected": true,
+      "rationale": "glob prefix match: read.user.profile matches read.*"
+    },
+    {
+      "id": "G-002",
+      "pattern": "*_delete",
+      "action": "user_delete",
+      "expected": true,
+      "rationale": "glob suffix match: user.delete matches *.delete"
+    },
+    {
+      "id": "G-003",
+      "pattern": "*",
+      "action": "anything",
+      "expected": true,
+      "rationale": "glob wildcard: * matches any non-empty string"
+    },
+    {
+      "id": "G-004",
+      "pattern": "*delete*",
+      "action": "user_delete_file",
+      "expected": true,
+      "rationale": "glob contains match: user.delete.file matches *delete*"
+    },
+    {
+      "id": "G-005",
+      "pattern": "read_*",
+      "action": "read",
+      "expected": false,
+      "rationale": "glob non-match: read does not satisfy read.* (requires at least one char after read.)"
+    },
+    {
+      "id": "G-006",
+      "pattern": "read_*",
+      "action": "delete_user",
+      "expected": false,
+      "rationale": "glob non-match: delete.user does not start with read."
+    },
+    {
+      "id": "R-001",
+      "pattern": "send.email",
+      "action": "sendEmail",
+      "expected": true,
+      "rationale": "normalization robustness: send.email and sendEmail both normalize to send.email; exact match"
+    },
+    {
+      "id": "R-002",
+      "pattern": "deleteＦile",
+      "action": "delete_file",
+      "expected": true,
+      "rationale": "NFKC robustness: fullwidth F (U+FF26) normalizes to ASCII F before camelCase splitting; both normalize to delete.file"
+    },
+    {
+      "id": "S-001",
+      "pattern": "filedelete",
+      "action": "file_delete",
+      "expected": true,
+      "rationale": "separatorless fallback: file.delete and filedelete stripped to filedelete; exact stripped match"
+    },
+    {
+      "id": "S-002",
+      "pattern": "sendemail",
+      "action": "send-email",
+      "expected": true,
+      "rationale": "separatorless fallback: send.email and sendemail stripped to sendemail; exact stripped match"
+    },
+    {
+      "id": "D-001",
+      "pattern": "",
+      "action": "delete",
+      "expected": false,
+      "rationale": "degenerate: empty pattern never matches any action"
+    },
+    {
+      "id": "D-002",
+      "pattern": "delete",
+      "action": "",
+      "expected": false,
+      "rationale": "degenerate: empty action never matches any pattern"
+    },
+    {
+      "id": "D-003",
+      "pattern": "*",
+      "action": "",
+      "expected": false,
+      "rationale": "degenerate: even the wildcard * does not match an empty action"
+    }
+  ]
+}

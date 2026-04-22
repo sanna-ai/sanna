@@ -572,7 +572,7 @@ class TestAuthorityMatchingSeparatorNormalization:
         assert _matches_action("Delete_User", "delete-user") is True
 
     def test_matches_action_original_behavior_preserved(self):
-        """Existing substring matching still works."""
-        assert _matches_action("billing", "modify billing data") is True
+        """Exact matching: substring no longer matches; exact and no-match cases preserved (SAN-224)."""
+        assert _matches_action("billing", "modify billing data") is False
         assert _matches_action("send email", "send email") is True
         assert _matches_action("delete records", "query database") is False

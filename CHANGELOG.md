@@ -24,6 +24,11 @@
   Legacy receipts (cv=8, cv=6/7, cv=5) unchanged.
 - Goldens regenerated for v1.4; v1.3 goldens archived under
   `golden/receipts/archive/v1.3/`.
+- Authority name matching (`_matches_action`) changed from bidirectional substring
+  to exact-match + opt-in glob (SAN-224). ``"delete"`` no longer matches
+  ``"delete_user"``; use ``"delete_*"`` for prefix-glob. Aligns with
+  sanna-protocol Appendix D errata-A. Cross-SDK contract:
+  ``spec/fixtures/authority-matching-vectors.json`` (21 vectors).
 
 ## [1.3.0] - 2026-04-18
 
