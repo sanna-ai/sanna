@@ -8,8 +8,13 @@ escalation execution (log/webhook/callback), and callback registry.
 
 import importlib.util
 import json
+import json as _json
+import pathlib as _pathlib
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+_FIXTURE_FILE = _pathlib.Path(__file__).parent.parent / "spec" / "fixtures" / "authority-matching-vectors.json"
+_VECTORS = _json.loads(_FIXTURE_FILE.read_text())["vectors"] if _FIXTURE_FILE.exists() else []
 
 import pytest
 
@@ -97,22 +102,20 @@ class TestCannotExecute:
         assert decision.boundary_type == "cannot_execute"
 
     def test_substring_match_action_contains_pattern(self):
-        """Action is a longer string containing the forbidden pattern."""
+        """Action longer than pattern is NOT a match under exact semantics — use glob 'modify billing*' instead."""
         ab = _make_ab(cannot_execute=["modify billing"])
         const = _make_constitution(ab)
         decision = evaluate_authority("modify billing data for customer", {}, const)
 
-        assert decision.decision == "halt"
-        assert decision.boundary_type == "cannot_execute"
+        assert decision.decision != "halt"
 
     def test_substring_match_pattern_contains_action(self):
-        """Forbidden pattern is a longer string containing the action."""
+        """Pattern longer than action is NOT a match under exact semantics."""
         ab = _make_ab(cannot_execute=["send external communications to partners"])
         const = _make_constitution(ab)
         decision = evaluate_authority("send external communications", {}, const)
 
-        assert decision.decision == "halt"
-        assert decision.boundary_type == "cannot_execute"
+        assert decision.decision != "halt"
 
     def test_case_insensitive(self):
         ab = _make_ab(cannot_execute=["Delete User Accounts"])
@@ -148,19 +151,20 @@ class TestCannotExecute:
         assert decision.decision != "halt"
 
     def test_whitespace_tolerance(self):
+        # Leading/trailing whitespace in pattern IS stripped, but 'send external' != 'send external communications'
         ab = _make_ab(cannot_execute=["  send external  "])
         const = _make_constitution(ab)
         decision = evaluate_authority("send external communications", {}, const)
 
-        assert decision.decision == "halt"
+        assert decision.decision != "halt"
 
     def test_partial_word_substring(self):
-        """'billing' appears as substring in 'modify billing data'."""
+        """'billing' does NOT match 'modify billing data' — exact only; use '*billing*' for contains-glob."""
         ab = _make_ab(cannot_execute=["billing"])
         const = _make_constitution(ab)
         decision = evaluate_authority("modify billing data", {}, const)
 
-        assert decision.decision == "halt"
+        assert decision.decision != "halt"
 
 
 # =============================================================================
@@ -304,12 +308,13 @@ class TestCanExecute:
         assert decision.boundary_type == "can_execute"
 
     def test_substring_allow(self):
+        """Pattern shorter than action does NOT match — uncategorized, not can_execute."""
         ab = _make_ab(can_execute=["create support tickets"])
         const = _make_constitution(ab)
         decision = evaluate_authority("create support tickets for customer", {}, const)
 
         assert decision.decision == "allow"
-        assert decision.boundary_type == "can_execute"
+        assert decision.boundary_type == "uncategorized"
 
     def test_case_insensitive_allow(self):
         ab = _make_ab(can_execute=["Query Knowledge Base"])
@@ -635,10 +640,12 @@ class TestMatchingHelpers:
         assert _matches_action("send email", "send email") is True
 
     def test_matches_action_pattern_in_action(self):
-        assert _matches_action("billing", "modify billing data") is True
+        """Pattern shorter than action is NOT a match under exact semantics."""
+        assert _matches_action("billing", "modify billing data") is False
 
     def test_matches_action_action_in_pattern(self):
-        assert _matches_action("modify billing data records", "modify billing data") is True
+        """Action shorter than pattern is NOT a match under exact semantics."""
+        assert _matches_action("modify billing data records", "modify billing data") is False
 
     def test_matches_action_no_match(self):
         assert _matches_action("delete records", "query database") is False
@@ -963,16 +970,16 @@ class TestCamelCaseNormalization:
         assert _matches_action("file 2 delete", "file2delete") is True
 
     def test_namespace_separator_colon(self):
-        """github:delete_repo MUST match 'delete repo'."""
-        assert _matches_action("delete repo", "github:delete_repo") is True
+        """Namespaced tool 'github:delete_repo' does NOT match plain 'delete repo' — use '*delete*repo' glob."""
+        assert _matches_action("delete repo", "github:delete_repo") is False
 
     def test_namespace_separator_slash(self):
-        """tools/delete_repo MUST match 'delete repo'."""
-        assert _matches_action("delete repo", "tools/delete_repo") is True
+        """Namespaced tool 'tools/delete_repo' does NOT match plain 'delete repo' — use glob."""
+        assert _matches_action("delete repo", "tools/delete_repo") is False
 
     def test_namespace_separator_at(self):
-        """@scope:delete_repo MUST match 'delete repo'."""
-        assert _matches_action("delete repo", "@scope:delete_repo") is True
+        """Namespaced tool '@scope:delete_repo' does NOT match plain 'delete repo' — use glob."""
+        assert _matches_action("delete repo", "@scope:delete_repo") is False
 
     # --- Backward compatibility: existing separator tests ---
 
@@ -991,8 +998,9 @@ class TestCamelCaseNormalization:
     def test_no_match_still_works(self):
         assert _matches_action("delete_user", "send_email") is False
 
-    def test_substring_match_still_works(self):
-        assert _matches_action("billing", "modify billing data") is True
+    def test_substring_no_longer_matches(self):
+        """Substring is NOT a match under exact semantics (SAN-224)."""
+        assert _matches_action("billing", "modify billing data") is False
 
     # --- Full evaluate_authority integration tests for camelCase ---
 
@@ -1035,13 +1043,12 @@ class TestCamelCaseNormalization:
         assert decision.boundary_type == "can_execute"
 
     def test_namespace_tool_blocked(self):
-        """A namespaced tool (colon separator) MUST be matched."""
+        """Namespaced tool does NOT match plain pattern — exact only; use '*delete*repo' glob for namespace-aware blocking."""
         ab = _make_ab(cannot_execute=["delete repo"])
         const = _make_constitution(ab)
         decision = evaluate_authority("github:delete_repo", {}, const)
 
-        assert decision.decision == "halt"
-        assert decision.boundary_type == "cannot_execute"
+        assert decision.decision != "halt"
 
     def test_camel_no_false_positive_unrelated(self):
         """Unrelated camelCase tools must NOT be matched."""
@@ -1050,3 +1057,17 @@ class TestCamelCaseNormalization:
         decision = evaluate_authority("sendEmail", {}, const)
 
         assert decision.decision != "halt"
+
+
+# =============================================================================
+# Cross-SDK authority matching vectors (SAN-224)
+# =============================================================================
+
+@pytest.mark.parametrize("vector", _VECTORS, ids=[v["id"] for v in _VECTORS])
+def test_authority_vector(vector):
+    """Cross-SDK contract: must match sanna-protocol authority-matching-vectors.json."""
+    result = _matches_action(vector["pattern"], vector["action"])
+    assert result == vector["expected"], (
+        f"{vector['id']}: _matches_action({vector['pattern']!r}, {vector['action']!r}) "
+        f"returned {result} — {vector['rationale']}"
+    )

@@ -9,12 +9,13 @@ boundaries. The engine checks three tiers in strict priority order:
 3. **can_execute** — explicitly allowed actions → ``allow``
 4. **default** — unmatched actions → ``allow`` (uncategorized)
 
-Matching uses case-insensitive substring comparison for action names
+Matching uses exact-match (with optional ``*`` glob) for action names
 and keyword-based heuristic matching for escalation conditions.
 """
 
 from __future__ import annotations
 
+import fnmatch
 import logging
 import re
 import unicodedata
@@ -75,12 +76,12 @@ def evaluate_authority(
 
     Evaluation order (strict priority):
 
-    1. ``cannot_execute`` — case-insensitive substring match against action
+    1. ``cannot_execute`` — exact-match (or glob) against normalized action
        name. If any forbidden entry matches → ``decision="halt"``.
     2. ``must_escalate`` — keyword-based condition matching against
        action name + param keys + param values. If any condition matches
        → ``decision="escalate"`` with the rule's escalation target.
-    3. ``can_execute`` — case-insensitive substring match against action
+    3. ``can_execute`` — exact-match (or glob) against normalized action
        name. If explicitly listed → ``decision="allow"``.
     4. Default — ``decision="allow"`` with ``boundary_type="uncategorized"``.
 
@@ -216,45 +217,53 @@ def _normalize_separators(s: str) -> str:
 
 
 def _matches_action(pattern: str, action: str) -> bool:
-    """Case-insensitive bidirectional substring matching with separator normalization.
+    """Exact-match (with optional glob) authority name matching.
 
-    Normalizes ``_``, ``-``, ``.``, ``/``, ``:``, ``@`` and camelCase/PascalCase
-    boundaries to spaces before comparison so that ``"delete_user"`` matches
-    ``"delete-user"``, ``"delete user"``, and ``"deleteUser"``.
+    Normalizes both ``pattern`` and ``action`` — NFKC, camelCase split,
+    separator-to-space, casefold — then compares for **exact equality**.
+    If the normalized pattern contains ``*``, fnmatch-style glob matching
+    is used instead (e.g. ``"read_*"`` matches ``"read_user_profile"``).
 
-    If the normalized comparison fails, a separatorless fallback is attempted:
-    all non-alphanumeric characters are stripped from both strings and they are
-    compared as lowercased run-together tokens. This catches edge cases where
-    separator placement differs (e.g. ``"deletefi le"`` vs ``"delete file"``).
+    A separatorless fallback strips all non-alphanumeric characters from
+    both normalized forms and compares the result exactly, allowing
+    ``"sendemail"`` to match ``"send-email"``.
 
-    Returns True if the pattern is a substring of the action or the action
-    is a substring of the pattern. Returns False for empty or whitespace-only
-    action/pattern names.
+    Returns ``False`` for empty or whitespace-only action/pattern names.
 
-    .. versionchanged:: 0.13.2
-       Empty/whitespace names return False (FIX-41).
-       Uses NFKC normalization and casefold() for Unicode correctness (FIX-14).
+    See ``spec/fixtures/authority-matching-vectors.json`` for the
+    cross-SDK contract (21 vectors).
+
+    .. versionchanged:: 1.4.0
+       Changed from bidirectional substring matching to exact-match +
+       opt-in glob. ``"delete"`` no longer matches ``"delete_user"``.
+       Use ``"delete_*"`` for prefix matching. (SAN-224)
     """
-    # FIX-41: Empty tool name is never authorized
     if not action or not action.strip():
         return False
     if not pattern or not pattern.strip():
         return False
 
-    # FIX-14: NFKC normalize before any processing
+    # NFKC normalize before any processing
     pattern = unicodedata.normalize("NFKC", pattern)
     action = unicodedata.normalize("NFKC", action)
 
     p = _normalize_separators(pattern.strip()).casefold()
     a = _normalize_separators(action.strip()).casefold()
-    if p in a or a in p:
+
+    # Glob opt-in: if the normalized pattern contains '*', use fnmatch
+    if '*' in p:
+        return fnmatch.fnmatch(a, p)
+
+    # Exact match on normalized forms
+    if p == a:
         return True
 
-    # Separatorless fallback: strip everything non-alphanumeric and compare
+    # Separatorless fallback: strip all non-alphanumeric chars and compare exactly.
+    # Allows "sendemail" to match "send-email" (S-001, S-002 in fixture).
     p_stripped = re.sub(r'[^a-z0-9]', '', p)
     a_stripped = re.sub(r'[^a-z0-9]', '', a)
     if p_stripped and a_stripped:
-        return p_stripped in a_stripped or a_stripped in p_stripped
+        return p_stripped == a_stripped
 
     return False
 
