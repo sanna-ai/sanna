@@ -890,12 +890,26 @@ def verify_receipt(
     receipt: dict,
     schema: dict,
     public_key_path: str | None = None,
+    public_key_pem: bytes | str | None = None,
     constitution_path: str | None = None,
     constitution_public_key_path: str | None = None,
     approver_public_key_path: str | None = None,
 ) -> VerificationResult:
     """
     Full receipt verification.
+
+    Args:
+        receipt: The receipt dict to verify.
+        schema: The JSON schema dict for validation.
+        public_key_path: Path to an Ed25519 public key PEM file for signature
+            verification. Mutually exclusive with ``public_key_pem``.
+        public_key_pem: Ed25519 public key in PEM format (bytes or UTF-8 str)
+            for signature verification. Intended for server-side callers that
+            retrieve keys from a database. Mutually exclusive with
+            ``public_key_path``.
+        constitution_path: Path to the constitution YAML file.
+        constitution_public_key_path: Path to the constitution signing public key.
+        approver_public_key_path: Path to the approver public key.
 
     Exit codes:
       0 = valid
@@ -904,6 +918,9 @@ def verify_receipt(
       4 = internal consistency error
       5 = other error
     """
+    if public_key_path is not None and public_key_pem is not None:
+        raise ValueError("Cannot specify both public_key_path and public_key_pem")
+
     errors = []
     warnings = []
 
@@ -1001,13 +1018,16 @@ def verify_receipt(
         warnings.append("Receipt has FAIL status with critical check failure but no enforcement recorded")
 
     # 7. Receipt signature verification (if public key provided)
-    if public_key_path:
+    if public_key_path is not None or public_key_pem is not None:
         sig_block = receipt.get("receipt_signature")
         if not sig_block:
-            errors.append("Receipt has no signature but --public-key was provided")
+            errors.append("Receipt has no signature but a public key was provided")
         else:
-            from .crypto import verify_receipt_signature
-            sig_valid = verify_receipt_signature(receipt, public_key_path)
+            from .crypto import verify_receipt_signature, verify_receipt_signature_from_pem
+            if public_key_path is not None:
+                sig_valid = verify_receipt_signature(receipt, public_key_path)
+            else:
+                sig_valid = verify_receipt_signature_from_pem(receipt, public_key_pem)
             if not sig_valid:
                 errors.append("Receipt signature verification FAILED — receipt may have been tampered")
 
