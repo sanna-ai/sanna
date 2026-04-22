@@ -5,6 +5,18 @@
 ## [1.4.0] - 2026-04-20
 
 ### Added
+- `verify_receipt()` accepts `public_key_pem: bytes | str | None` for in-memory
+  key material, alongside the existing `public_key_path` parameter. Enables
+  server-side callers (e.g., Sanna Cloud ingestion verifier, SAN-223) to pass
+  keys retrieved from a database or other runtime source without writing to
+  disk. Mutually exclusive with `public_key_path`.
+- `sign_receipt_from_pem()` accepts `private_key_pem: bytes | str` for in-memory
+  private key material. Equivalent to `sign_receipt()` for server-side callers.
+- Internal: `sanna.crypto.load_public_key_from_pem(bytes | str)`,
+  `load_private_key_from_pem(bytes | str)`, `verify_receipt_signature_from_pem()`.
+
+  Additive, no breaking changes. No protocol / wire format / fingerprint changes.
+  Version stays at 1.4.0 pending publication.
 - New required top-level field `tool_name` (v1.4+, required at cv>=9).
   Canonical SDK identity constant `"sanna"` in Python reference.
   Participates in fingerprint as position 17.
