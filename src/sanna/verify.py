@@ -481,6 +481,31 @@ def _verify_fingerprint_legacy(receipt: dict) -> tuple:
     return (computed == expected, computed, expected)
 
 
+def _format_spec_section_10_mismatch_error(
+    enforcement_action: str,
+    status_expected: str,
+    status_computed: str,
+) -> str:
+    """Format the v1.3 spec §10 status-mismatch error (SAN-214, SAN-226).
+
+    Used when `enforcement.action` disagrees with the recorded `status`,
+    per the rules in Spec Section 4.6 / §10.
+
+    CROSS-SDK PARITY: This text is byte-equivalent to the TypeScript verifier's
+    equivalent error at sanna-ts/packages/core/src/verifier.ts:269-274. Any
+    change here MUST be mirrored in sanna-ts to preserve the cross-SDK error
+    text parity documented in sanna-ts/CLAUDE.md Cross-Language Compatibility.
+    Third-party tooling pattern-matches on this string.
+    """
+    return (
+        f"Status mismatch: receipt has enforcement.action='{enforcement_action}' "
+        f"with status='{status_expected}' but v1.3 spec §10 requires "
+        f"status='{status_computed}'. Receipt is cryptographically valid but "
+        f"semantically defective: the audit trail misrepresents what governance "
+        f"actually did."
+    )
+
+
 def verify_status_consistency(receipt: dict) -> tuple:
     """
     Verify status matches check outcomes.
@@ -924,6 +949,45 @@ def verify_receipt(
     errors = []
     warnings = []
 
+    # SAN-226: Run semantic status-consistency BEFORE schema validation so the
+    # v1.3 spec §10 reference text surfaces at the default CLI path. The v1.3
+    # schema has allOf cross-field rules (receipt.schema.json allOf) that catch
+    # the same status↔enforcement.action disagreement but produce the opaque
+    # "'FAIL' was expected (at status)" text and exit_code=2, masking the
+    # spec-referencing §10 language that SAN-214 established. This pre-empt
+    # only fires when there is a genuine enforcement.action + status pair to
+    # compare; any other structural issues fall through to schema validation
+    # below. See SAN-226 discovery notes and test_san214.py.
+    _enforcement_preempt = receipt.get("enforcement")
+    _status_preempt = receipt.get("status", "")
+    if (
+        isinstance(_enforcement_preempt, dict)
+        and _enforcement_preempt.get("action")
+        and _status_preempt
+    ):
+        try:
+            _sc_match, _sc_computed, _sc_expected = verify_status_consistency(receipt)
+            if not _sc_match:
+                _action = _enforcement_preempt.get("action")
+                _sem_msg = _format_spec_section_10_mismatch_error(
+                    enforcement_action=_action,
+                    status_expected=_sc_expected,
+                    status_computed=_sc_computed,
+                )
+                return VerificationResult(
+                    valid=False,
+                    exit_code=4,
+                    errors=[_sem_msg],
+                    warnings=[],
+                    computed_status=_sc_computed,
+                    expected_status=_sc_expected,
+                )
+        except Exception:
+            # If status consistency check raises (e.g. malformed receipt),
+            # fall through to schema validation which will surface the real
+            # structural problem.
+            pass
+
     # 1. Schema validation
     schema_errors = verify_schema(receipt, schema)
     if schema_errors:
@@ -1082,11 +1146,10 @@ def verify_receipt(
                 else None
             )
             if enforcement_action:
-                msg = (
-                    f"Status mismatch: receipt has enforcement.action='{enforcement_action}' "
-                    f"with status='{status_expected}' but v1.3 spec §10 requires status='{status_computed}'. "
-                    f"Receipt is cryptographically valid but semantically defective: "
-                    f"the audit trail misrepresents what governance actually did."
+                msg = _format_spec_section_10_mismatch_error(
+                    enforcement_action=enforcement_action,
+                    status_expected=status_expected,
+                    status_computed=status_computed,
                 )
             else:
                 msg = f"Status mismatch: computed {status_computed}, expected {status_expected}"

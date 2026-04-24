@@ -282,6 +282,97 @@ class TestStatusMismatchErrorText:
 
 
 # ---------------------------------------------------------------------------
+# san226-*: Schema-enabled path must produce §10 text (not schema artifact)
+# ---------------------------------------------------------------------------
+
+class TestStatusMismatchErrorTextSchemaEnabled:
+    """SAN-226: Error text via the DEFAULT schema-enabled path must match schema=None.
+
+    This mirrors TestStatusMismatchErrorText but exercises the real CLI code
+    path (sanna-verify always passes schema=load_schema()). Before SAN-226 the
+    v1.3 schema's allOf cross-field rules fired first and returned a schema-
+    validator artifact ("'FAIL' was expected (at status)") instead of the §10
+    reference text. SAN-226 reorders verify_receipt() so the semantic check
+    runs before schema validation and the §10 language reaches real users.
+    """
+
+    def _build_inconsistent_receipt(self, enforcement_action, bad_status, checks_version="8"):
+        """A receipt where enforcement.action disagrees with the recorded status."""
+        return _make_raw_receipt_dict(
+            enforcement_action=enforcement_action,
+            status_override=bad_status,
+            checks_version=checks_version,
+        )
+
+    def test_san226_schema_enabled_halted_with_pass_status(self):
+        """halted + PASS via schema-enabled path must produce §10 text."""
+        receipt = self._build_inconsistent_receipt("halted", "PASS")
+        result = verify_receipt(receipt, schema=RECEIPT_SCHEMA)
+        assert result.exit_code == 4, f"Expected exit_code=4, got {result.exit_code}. Errors: {result.errors}"
+        top_error = result.errors[0] if result.errors else ""
+        assert "cryptographically valid but semantically defective" in top_error, (
+            f"Schema-enabled path must surface §10 text. Got: {top_error!r}"
+        )
+        assert "v1.3 spec §10" in top_error
+        assert "enforcement.action='halted'" in top_error
+        assert "'FAIL'" in top_error  # computed
+
+    def test_san226_schema_enabled_warned_with_pass_status(self):
+        receipt = self._build_inconsistent_receipt("warned", "PASS")
+        result = verify_receipt(receipt, schema=RECEIPT_SCHEMA)
+        assert result.exit_code == 4
+        top_error = result.errors[0] if result.errors else ""
+        assert "cryptographically valid but semantically defective" in top_error
+        assert "v1.3 spec §10" in top_error
+        assert "enforcement.action='warned'" in top_error
+
+    def test_san226_schema_enabled_escalated_with_pass_status(self):
+        receipt = self._build_inconsistent_receipt("escalated", "PASS")
+        result = verify_receipt(receipt, schema=RECEIPT_SCHEMA)
+        assert result.exit_code == 4
+        top_error = result.errors[0] if result.errors else ""
+        assert "cryptographically valid but semantically defective" in top_error
+        assert "v1.3 spec §10" in top_error
+        assert "enforcement.action='escalated'" in top_error
+
+    def test_san226_schema_enabled_allowed_with_pass_status_passes(self):
+        """allowed + PASS is the consistent case — should NOT error.
+
+        Verifies the pre-empt does not false-positive on consistent receipts.
+        """
+        receipt = self._build_inconsistent_receipt("allowed", "PASS")
+        # Not a mismatch — receipt should validate through all downstream checks.
+        result = verify_receipt(receipt, schema=RECEIPT_SCHEMA)
+        # Must NOT fail with §10 text. May pass entirely, or fail on something
+        # unrelated — but the §10 text must not appear.
+        for err in result.errors:
+            assert "cryptographically valid but semantically defective" not in err, (
+                f"Consistent receipt must not produce §10 text. Got error: {err!r}"
+            )
+
+    def test_san226_schema_enabled_byte_equivalent_to_schema_none(self):
+        """The §10 error text produced with schema=RECEIPT_SCHEMA must be
+        byte-equivalent to the text produced with schema=None. This is the
+        core AC — SAN-226 guarantees the default CLI path produces the same
+        error as the isolated test path.
+        """
+        receipt = self._build_inconsistent_receipt("halted", "PASS")
+
+        result_schema_none = verify_receipt(receipt, schema=None)
+        result_schema_on = verify_receipt(receipt, schema=RECEIPT_SCHEMA)
+
+        assert result_schema_none.exit_code == result_schema_on.exit_code, (
+            f"exit_code diverged: schema=None={result_schema_none.exit_code} "
+            f"schema=RECEIPT_SCHEMA={result_schema_on.exit_code}"
+        )
+        top_none = result_schema_none.errors[0] if result_schema_none.errors else ""
+        top_on = result_schema_on.errors[0] if result_schema_on.errors else ""
+        assert top_none == top_on, (
+            f"Error text diverged:\n  schema=None: {top_none!r}\n  schema=RECEIPT_SCHEMA: {top_on!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # san214-warn-*: Legacy warnings for cv=6/7 receipts
 # All pass schema=None to bypass JSON-schema required-field checks.
 # ---------------------------------------------------------------------------
