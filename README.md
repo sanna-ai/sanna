@@ -145,7 +145,7 @@ This generates keys, creates a constitution, simulates a governed tool call, gen
 
 ## Receipt Format
 
-Every governed action produces a reasoning receipt — a JSON artifact that cryptographically binds inputs, outputs, check results, and constitution provenance. See [spec/sanna-specification-v1.0.md](https://github.com/sanna-ai/sanna/blob/main/spec/sanna-specification-v1.0.md) for the full specification.
+Every governed action produces a reasoning receipt — a JSON artifact that cryptographically binds inputs, outputs, check results, and constitution provenance. See [spec/sanna-specification-v1.0.md](https://github.com/sanna-ai/sanna/blob/main/spec/spec/sanna-specification-v1.0.md) for the full specification.
 
 **Identification**
 
@@ -217,7 +217,7 @@ Every governed action produces a reasoning receipt — a JSON artifact that cryp
 | `content_mode` | string or null | `"full"` or `"hash_only"` — whether inputs/outputs are stored or only hashed |
 | `content_mode_source` | string or null | Where the content_mode setting originated |
 
-This section provides a high-level overview. For a complete field reference and normative format details, see [spec/sanna-specification-v1.0.md](https://github.com/sanna-ai/sanna/blob/main/spec/sanna-specification-v1.0.md).
+This section provides a high-level overview. For a complete field reference and normative format details, see [spec/sanna-specification-v1.0.md](https://github.com/sanna-ai/sanna/blob/main/spec/spec/sanna-specification-v1.0.md).
 
 Minimal example receipt (abbreviated -- production receipts typically contain 3-7 checks):
 
@@ -522,7 +522,7 @@ No network. No API keys. No vendor dependency.
 - **Canonicalization**: Sorted keys, NFC Unicode normalization, integer-only numerics (no floats in signed content)
 - **Fingerprinting**: 14 pipe-delimited fields hashed with SHA-256; 16-hex truncation for display, 64-hex for full fingerprint
 
-See the [specification](https://github.com/sanna-ai/sanna/blob/main/spec/sanna-specification-v1.0.md) for full cryptographic construction details.
+See the [specification](https://github.com/sanna-ai/sanna/blob/main/spec/spec/sanna-specification-v1.0.md) for full cryptographic construction details.
 
 ## Threat Model
 
