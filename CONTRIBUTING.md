@@ -39,6 +39,20 @@ When additional engineers join, the process will introduce pull requests and cod
 
 Use descriptive branch names: `feature/gateway-mcp-client`, `fix/c3-false-positive`, `docs/quickstart-guide`.
 
+### Submodule setup
+
+This repository uses [sanna-protocol](https://github.com/sanna-ai/sanna-protocol) as a git submodule at `spec/`. When cloning for the first time:
+
+```bash
+git clone --recurse-submodules https://github.com/sanna-ai/sanna.git
+```
+
+If you've already cloned without `--recurse-submodules`:
+
+```bash
+git submodule update --init --recursive
+```
+
 ## Adding Deterministic Checks
 
 1. Each check must be deterministic — same input, same output, every time
