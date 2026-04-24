@@ -213,7 +213,7 @@ def get_schema_path() -> Path:
     candidates = [
         script_dir / "spec" / "receipt.schema.json",
         script_dir / "receipt.schema.json",
-        Path("spec/receipt.schema.json"),
+        Path("spec/schemas/receipt.schema.json"),
         Path("receipt.schema.json"),
     ]
     for path in candidates:
