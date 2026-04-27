@@ -4,7 +4,7 @@
 > constraints are violated, generates portable cryptographic receipts proving governance
 > was enforced.
 >
-> **Version:** 0.13.4 | **Python:** 3.10, 3.11, 3.12 | **Tests:** 2489 passed + 10 xfailed
+> **Version:** 1.4.0 | **Python:** 3.10, 3.11, 3.12 | See `docs/state.md` for current test counts.
 
 ---
 
@@ -26,7 +26,9 @@
   - [2.12 Evidence Bundles](#212-evidence-bundles)
   - [2.13 CLI](#213-cli)
   - [2.14 Integrations](#214-integrations)
-  - [2.15 Utilities](#215-utilities)
+  - [2.15 Receipt Sinks](#215-receipt-sinks-sinks)
+  - [2.16 Execution Surface Interceptors](#216-execution-surface-interceptors-interceptors)
+  - [2.17 Utilities](#217-utilities)
 - [3. Data Flow Diagrams](#3-data-flow-diagrams)
   - [3.1 Constitution Loading to Enforcement](#31-constitution-loading--validation--enforcement)
   - [3.2 Receipt Lifecycle](#32-receipt-creation--signing--verification)
@@ -55,8 +57,8 @@
 ```
 sanna-repo/
 ├── src/sanna/                    # Core library (54 .py files)
-│   ├── __init__.py               # 10 public exports, __getattr__ migration hints
-│   ├── version.py                # __version__ = "0.13.4"
+│   ├── __init__.py               # 21 public exports, __getattr__ migration hints
+│   ├── version.py                # __version__ = "1.4.0" (single source of truth)
 │   ├── receipt.py                # C1-C5 checks, receipt assembly, dataclasses
 │   ├── middleware.py             # @sanna_observe decorator, receipt generation
 │   ├── verify.py                 # Offline receipt verification, fingerprint parity
@@ -130,7 +132,7 @@ sanna-repo/
 │       ├── cowork_personal.yaml
 │       ├── cowork_team.yaml
 │       └── claude_code_standard.yaml
-├── tests/                        # Test suite (93 .py files, 2143 tests)
+├── tests/                        # Test suite (108 .py files; see docs/state.md for current count)
 │   ├── conftest.py               # Root fixtures, sets SANNA_CONSTITUTION_PUBLIC_KEY
 │   ├── vectors/                  # Deterministic test vectors (3 JSON + README)
 │   ├── constitutions/            # 10 test constitution YAML files
@@ -141,7 +143,7 @@ sanna-repo/
 ├── spec/                         # Root schema copies (must sync with src/sanna/spec/)
 │   ├── constitution.schema.json
 │   ├── receipt.schema.json
-│   └── sanna-specification-v1.3.md
+│   └── sanna-specification-v1.4.md
 ├── docs/                         # User/developer documentation (9 .md files)
 ├── examples/                     # Demo scripts, constitutions, gateway configs
 │   ├── *.py                      # 5 demo Python scripts
@@ -164,7 +166,7 @@ sanna-repo/
 
 #### `src/sanna/__init__.py`
 
-**Purpose:** Public API surface with 10 exports and migration hints for relocated names.
+**Purpose:** Public API surface with 21 exports and migration hints for relocated names.
 
 | Export | Type | Description |
 |--------|------|-------------|
@@ -178,8 +180,19 @@ sanna-repo/
 | `VerificationResult` | dataclass | Verification outcome |
 | `ReceiptStore` | class | SQLite receipt persistence |
 | `DriftAnalyzer` | class | Governance drift analytics |
+| `ReceiptSink` | ABC | Pluggable receipt persistence interface |
+| `SinkResult` | dataclass | Sink operation outcome |
+| `FailurePolicy` | enum | `LOG_AND_CONTINUE`, `RAISE`, `BUFFER_AND_RETRY` |
+| `LocalSQLiteSink` | class | SQLite-backed sink |
+| `NullSink` | class | No-op sink (testing) |
+| `CloudHTTPSink` | class | HTTP sink with backoff + JSONL buffer |
+| `CompositeSink` | class | Fan-out to multiple sinks |
+| `patch_subprocess` | function | Governance interceptor for subprocess calls |
+| `unpatch_subprocess` | function | Remove subprocess interceptor |
+| `patch_http` | function | Governance interceptor for HTTP calls |
+| `unpatch_http` | function | Remove HTTP interceptor |
 
-`__getattr__` provides migration hints for ~70 names that moved to submodules in v0.12.0.
+`__getattr__` provides migration hints for names that moved to submodules in v0.12.0.
 
 **Internal deps:** `version`, `middleware`, `receipt`, `verify`, `store`, `drift`
 
@@ -187,7 +200,7 @@ sanna-repo/
 
 #### `src/sanna/version.py`
 
-**Purpose:** Single source of truth for `__version__ = "0.13.4"`.
+**Purpose:** Single source of truth for `__version__ = "1.4.0"`.
 
 ---
 
@@ -332,9 +345,10 @@ Internal: `_reject_floats(obj, path)` raises on NaN/Infinity.
 | `extract_query(trace_data)` | function | Extract query string from trace |
 | `extract_trace_data(trace)` | function | Generic context extraction (replaces Langfuse adapter) |
 | `find_snippet(text, keywords, max_len)` | function | Extract relevant text snippet |
-| `TOOL_VERSION` | constant | `"1.3.0"` |
-| `SPEC_VERSION` | constant | `"1.3"` |
-| `CHECKS_VERSION` | constant | `"8"` |
+| `TOOL_VERSION` | constant | `"1.4.0"` (from `version.py`) |
+| `SPEC_VERSION` | constant | `"1.4"` |
+| `CHECKS_VERSION` | constant | `"9"` |
+| `TOOL_NAME` | constant | `"sanna"` |
 
 Check functions (private, with public aliases at module bottom):
 - `_check_c1_context_contradiction(context, output, enforcement, structured_context)`
@@ -879,7 +893,45 @@ Templates loaded via `importlib.resources` from `src/sanna/templates/`.
 
 ---
 
-### 2.15 Utilities
+### 2.15 Receipt Sinks (`sinks/`)
+
+Pluggable receipt persistence abstraction introduced in v1.0.0.
+
+| Export | Type | Description |
+|--------|------|-------------|
+| `ReceiptSink` | ABC | `store(receipt)`, `batch_store(receipts)`, `flush()`, `close()` |
+| `SinkResult` | dataclass | `stored`, `failed`, `errors`, `ok` (property) |
+| `FailurePolicy` | enum | `LOG_AND_CONTINUE`, `RAISE`, `BUFFER_AND_RETRY` |
+| `NullSink` | class | Always succeeds (testing/no-op) |
+| `LocalSQLiteSink` | class | Wraps `ReceiptStore` for SQLite persistence |
+| `CloudHTTPSink` | class | HTTP POST to `/v1/receipts`; stdlib urllib; exponential backoff with jitter; JSONL buffer for `BUFFER_AND_RETRY` |
+| `CompositeSink` | class | Fan-out to multiple sinks with failure isolation |
+
+`@sanna_observe` gains `sink=` parameter. Gateway gains `configure_sink()` method and `receipt_sink` YAML config block.
+
+**Internal deps:** `store`, `utils.safe_io`, `utils.safe_json`
+
+---
+
+### 2.16 Execution Surface Interceptors (`interceptors/`)
+
+Runtime patching of subprocess and HTTP libraries to enforce governance on
+calls made from within an observed agent function. Introduced in v1.1.0.
+
+| Export | Type | Description |
+|--------|------|-------------|
+| `patch_subprocess()` | function | Patches `subprocess`, `os.exec*`, `os.spawn*`, `os.popen` |
+| `unpatch_subprocess()` | function | Restores original subprocess functions |
+| `patch_http()` | function | Patches `urllib.request` and `http.client` |
+| `unpatch_http()` | function | Restores original HTTP functions |
+
+Key internals: shell metacharacter bypass prevention (SAN-35), TOCTOU-safe binary path resolution (SAN-44), wrapper script bypass detection (SAN-45), thread-safe restore (SAN-46), env var manipulation bypass prevention (SAN-47).
+
+**Internal deps:** `enforcement`, `receipt`
+
+---
+
+### 2.17 Utilities
 
 #### `src/sanna/utils/safe_io.py`
 
@@ -1166,7 +1218,7 @@ receipt.py:generate_receipt() — aggregate results
 
 | Dataclass | Key Fields | Notes |
 |-----------|-----------|-------|
-| `SannaReceipt` | spec_version, tool_version, checks_version, receipt_id, receipt_fingerprint, full_fingerprint, correlation_id, timestamp, inputs, outputs, context_hash, output_hash, checks, checks_passed, checks_failed, status, constitution_ref, enforcement | v0.13.0 format |
+| `SannaReceipt` | spec_version, tool_version, checks_version, receipt_id, receipt_fingerprint, full_fingerprint, correlation_id, timestamp, inputs, outputs, context_hash, output_hash, checks, checks_passed, checks_failed, status, constitution_ref, enforcement, parent_receipts, workflow_id, content_mode, content_mode_source (v1.0.0+), enforcement_surface, invariants_scope (v1.3+), tool_name, agent_model, agent_model_provider, agent_model_version (v1.4+) | v1.4 format; 28 fields |
 | `CheckResult` | check_id, name, passed, severity, evidence, details | |
 | `Enforcement` | action, reason, failed_checks, enforcement_mode, timestamp | v0.13.0+ replaces HaltEvent |
 | `ConstitutionProvenance` | document_id, policy_hash, version, source | |
@@ -1324,9 +1376,10 @@ Source: `src/sanna/spec/receipt.schema.json`
 
 ```json
 {
-  "spec_version": "1.3",                     // REQUIRED
-  "tool_version": "1.3.0",                   // REQUIRED
-  "checks_version": "8",                     // REQUIRED
+  "spec_version": "1.4",                     // REQUIRED (current); verifier accepts "1.3", "1.0" etc.
+  "tool_version": "1.4.0",                   // REQUIRED
+  "checks_version": "9",                     // REQUIRED (current); verifier dispatches by cv value
+  "tool_name": "sanna",                      // REQUIRED at cv>=9 (v1.4+)
   "receipt_id": "uuid-v4",                   // REQUIRED
   "receipt_fingerprint": "hex16",            // REQUIRED — 16-char human-readable
   "full_fingerprint": "hex64",               // REQUIRED — 64-char programmatic
@@ -1466,12 +1519,24 @@ Policy cascade: per-tool override > server `default_policy` > constitution autho
 
 | Constant | Location | Value | Purpose |
 |----------|----------|-------|---------|
-| `TOOL_VERSION` | `receipt.py` | `"1.3.0"` | Package version in receipts |
-| `SPEC_VERSION` | `receipt.py` | `"1.3"` | Receipt spec version |
-| `CHECKS_VERSION` | `receipt.py` | `"8"` | Check algorithm version (part of fingerprint); 16-field formula at cv=8 |
+| `TOOL_VERSION` | `receipt.py` (from `version.py`) | `"1.4.0"` | Package version in receipts |
+| `SPEC_VERSION` | `receipt.py` | `"1.4"` | Receipt spec version |
+| `CHECKS_VERSION` | `receipt.py` | `"9"` | Check algorithm version (part of fingerprint); 20-field formula at cv=9 (v1.4) |
+| `TOOL_NAME` | `receipt.py` | `"sanna"` | Canonical SDK identity constant; fingerprint field 17 at cv≥9 |
 | `_SCHEMA_VERSION` | `store.py` | `1` | SQLite schema version |
 | `BUNDLE_FORMAT_VERSION` | `bundle.py` | `"1.0.0"` | Evidence bundle format |
 | `RECEIPT_VERSION_2` | `gateway/receipt_v2.py` | `"2.0"` | Receipt v2 identifier |
+
+**Fingerprint cv-dispatch ladder:**
+
+| cv | Fields | Version |
+|----|--------|---------|
+| ≥9 | 20 | v1.4 (adds `tool_name_hash`, `agent_model_hash`, `agent_model_provider_hash`, `agent_model_version_hash` at positions 17-20) |
+| 8 | 16 | v1.3 (adds `enforcement_surface_hash`, `invariants_scope_hash` at positions 15-16) |
+| 6–7 | 14 | v1.0/v1.1 (adds `parent_receipts_hash`, `workflow_id_hash` at positions 13-14) |
+| ≤5 | 12 | pre-v1.0 |
+
+The verifier auto-detects formula via `checks_version`. Legacy receipts (cv≤5) use `_verify_fingerprint_legacy()`. `constitution_approval` is stripped before fingerprinting in all four emit sites.
 
 #### Size Guards
 
@@ -1525,7 +1590,7 @@ Policy cascade: per-tool override > server `default_policy` > constitution autho
 
 ```python
 from sanna import (
-    __version__,              # "0.13.4"
+    __version__,              # "1.4.0"
     sanna_observe,            # Decorator for runtime enforcement
     SannaResult,              # Output + receipt wrapper
     SannaHaltError,           # Exception on enforcement halt
@@ -1535,6 +1600,12 @@ from sanna import (
     VerificationResult,       # Verification outcome
     ReceiptStore,             # SQLite persistence
     DriftAnalyzer,            # Governance drift analytics
+    # v1.0.0+ receipt sinks
+    ReceiptSink, SinkResult, FailurePolicy,
+    LocalSQLiteSink, NullSink, CloudHTTPSink, CompositeSink,
+    # v1.1.0+ interceptors
+    patch_subprocess, unpatch_subprocess,
+    patch_http, unpatch_http,
 )
 ```
 
@@ -1692,7 +1763,7 @@ Downstream tools are prefixed: `{server_name}_{original_tool_name}`.
 
 ### Organization
 
-**93 test files** across `tests/` (87 top-level) and `tests/reasoning/` (6 files).
+**108 test files** across `tests/` (102 top-level) and `tests/reasoning/` (6 files). See `docs/state.md` for the current count.
 
 **Naming conventions:**
 - `test_<subsystem>.py` — e.g., `test_bundle.py`, `test_gateway_server.py`
@@ -1844,4 +1915,4 @@ Note: The Langfuse adapter was removed in v0.12.4. Context extraction logic was 
 
 ---
 
-*Generated 2026-02-19 from sanna v0.13.4 source.*
+*Updated 2026-04-27 for sanna v1.4.0 (SAN-326). Generated from source.*

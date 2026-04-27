@@ -46,3 +46,6 @@ jobs:
 
       - name: Verify example constitution
         run: sanna-sign-constitution examples/customer_support_constitution.yaml --verify-only
+
+      - name: Validate state doc (SAN-326)
+        run: python3 tools/generate_state_doc.py --check
