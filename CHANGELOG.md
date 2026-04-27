@@ -2,6 +2,32 @@
 
 **Note:** v0.13.x is the first public release series. Earlier version entries document internal pre-release development.
 
+## [Unreleased] - SAN-215
+
+### Added — SAN-215
+
+- `sanna.cloud.load_constitution_from_cloud(...)` — fetches a Cloud-managed
+  constitution, verifies its Ed25519 signature, and returns a `Constitution`
+  dataclass. Includes in-memory cache (60s TTL default), opt-in disk cache,
+  fail-closed-on-unreachable semantics with explicit `allow_cached_startup`
+  override, and ETag protocol support (server-side ETag emission deferred to
+  a Cloud follow-up).
+- New subpackage `src/sanna/cloud/` for future Cloud client modules
+  (DVR resolvers, agent registry, etc.).
+- Internal `parse_constitution_from_yaml_bytes(yaml_bytes, validate)` helper
+  factored out of `load_constitution(path)`. Public API of `load_constitution`
+  is unchanged.
+
+### Notes
+
+- TS SDK equivalent (`packages/core/src/cloud/constitution.ts`) is deferred to
+  Sprint 16 per Gate 1 status. Python and TS Cloud fetch will be at parity
+  after that ticket lands.
+- The Cloud `GET /v1/constitutions/{id}/export` endpoint does not currently
+  emit `ETag` headers. The SDK is protocol-ready (sends `If-None-Match` if
+  cached, handles `304 Not Modified`); a Cloud follow-up ticket adds the
+  server-side header. Until then, every fetch returns 200 with full body.
+
 ## [1.4.0] - 2026-04-20
 
 ### Added

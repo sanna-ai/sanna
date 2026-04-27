@@ -1898,7 +1898,59 @@ def constitution_to_receipt_ref(constitution: Constitution) -> dict:
 # FILE I/O
 # =============================================================================
 
-def load_constitution(path: str | Path, validate: bool = False) -> Constitution:
+def parse_constitution_from_yaml_bytes(
+    yaml_bytes: bytes,
+    validate: bool = False,
+) -> "Constitution":
+    """Parse a constitution from raw YAML bytes (e.g., from a Cloud GET response).
+
+    Performs schema validation (optional), structural parsing, and hash-integrity
+    verification — the same pipeline as load_constitution(path), minus the file I/O.
+    Used by both load_constitution and the Cloud fetch client (src/sanna/cloud/).
+
+    Args:
+        yaml_bytes: raw YAML bytes.
+        validate: if True, validate against the JSON schema before parsing.
+            Raises SannaConstitutionError on schema violation.
+
+    Returns:
+        Constitution dataclass.
+
+    Raises:
+        SannaConstitutionError: schema or hash-integrity violation.
+        ValueError: malformed YAML or unexpected top-level type.
+    """
+    from .utils.safe_yaml import safe_yaml_load
+
+    yaml_str = yaml_bytes.decode("utf-8")
+    data = safe_yaml_load(yaml_str)
+
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Constitution YAML must be a YAML/JSON object, got {type(data).__name__}"
+        )
+
+    if validate:
+        schema_errors = validate_against_schema(data)
+        if schema_errors:
+            raise SannaConstitutionError(
+                f"Constitution schema validation failed: {'; '.join(schema_errors)}"
+            )
+
+    constitution = parse_constitution(data)
+
+    if constitution.policy_hash:
+        computed = compute_constitution_hash(constitution)
+        if computed != constitution.policy_hash:
+            raise SannaConstitutionError(
+                f"Constitution hash mismatch: "
+                f"stored {constitution.policy_hash[:16]}... != computed {computed[:16]}..."
+            )
+
+    return constitution
+
+
+def load_constitution(path: str | Path, validate: bool = False) -> "Constitution":
     """Load from .yaml/.yml/.json file. Validates on load.
 
     Args:
@@ -1910,39 +1962,49 @@ def load_constitution(path: str | Path, validate: bool = False) -> Constitution:
     if not path.exists():
         raise FileNotFoundError(f"Constitution file not found: {path}")
 
-    with open(path) as f:
-        if path.suffix in (".yaml", ".yml"):
-            from .utils.safe_yaml import safe_yaml_load
-            data = safe_yaml_load(f)
-        elif path.suffix == ".json":
+    if path.suffix in (".yaml", ".yml"):
+        with open(path, "rb") as f:
+            yaml_bytes = f.read()
+        try:
+            return parse_constitution_from_yaml_bytes(yaml_bytes, validate=validate)
+        except SannaConstitutionError as e:
+            # Augment hash-mismatch error with file path and re-sign hint.
+            if "hash mismatch" in str(e):
+                raise SannaConstitutionError(
+                    f"Constitution hash mismatch: file has been modified since signing. "
+                    f"{e} "
+                    f"Re-sign with: sanna-sign-constitution {path}"
+                ) from e
+            raise
+    elif path.suffix == ".json":
+        with open(path) as f:
             from .utils.safe_json import safe_json_load
             data = safe_json_load(f)
-        else:
-            raise ValueError(f"Unsupported file format: {path.suffix} (use .yaml, .yml, or .json)")
 
-    if not isinstance(data, dict):
-        raise ValueError(f"Constitution file must contain a YAML/JSON object, got {type(data).__name__}")
+        if not isinstance(data, dict):
+            raise ValueError(f"Constitution file must contain a YAML/JSON object, got {type(data).__name__}")
 
-    if validate:
-        schema_errors = validate_against_schema(data)
-        if schema_errors:
-            raise SannaConstitutionError(
-                f"Constitution schema validation failed: {'; '.join(schema_errors)}"
-            )
+        if validate:
+            schema_errors = validate_against_schema(data)
+            if schema_errors:
+                raise SannaConstitutionError(
+                    f"Constitution schema validation failed: {'; '.join(schema_errors)}"
+                )
 
-    constitution = parse_constitution(data)
+        constitution = parse_constitution(data)
 
-    # Verify hash integrity if constitution is signed
-    if constitution.policy_hash:
-        computed = compute_constitution_hash(constitution)
-        if computed != constitution.policy_hash:
-            raise SannaConstitutionError(
-                f"Constitution hash mismatch: file has been modified since signing. "
-                f"Expected {constitution.policy_hash[:16]}..., got {computed[:16]}... "
-                f"Re-sign with: sanna-sign-constitution {path}"
-            )
+        if constitution.policy_hash:
+            computed = compute_constitution_hash(constitution)
+            if computed != constitution.policy_hash:
+                raise SannaConstitutionError(
+                    f"Constitution hash mismatch: file has been modified since signing. "
+                    f"Expected {constitution.policy_hash[:16]}..., got {computed[:16]}... "
+                    f"Re-sign with: sanna-sign-constitution {path}"
+                )
 
-    return constitution
+        return constitution
+    else:
+        raise ValueError(f"Unsupported file format: {path.suffix} (use .yaml, .yml, or .json)")
 
 
 def validate_against_schema(data: dict) -> list[str]:
