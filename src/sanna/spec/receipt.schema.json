@@ -135,8 +135,8 @@
     },
     "enforcement_surface": {
       "type": "string",
-      "description": "Governance surface that produced this receipt. REQUIRED at v1.3+. Participates in fingerprint computation (field 15). See spec/sanna-specification-v1.4.md Section 2.16.1.",
-      "enum": ["middleware", "gateway", "cli_interceptor", "http_interceptor"]
+      "description": "Governance surface that produced this receipt. REQUIRED at v1.3+. Participates in fingerprint computation (field 15). See spec/sanna-specification-v1.5.md Section 2.16.1. v1.5+ adds 'mixed' for cross-surface session_manifest receipts.",
+      "enum": ["middleware", "gateway", "cli_interceptor", "http_interceptor", "mixed"]
     },
     "invariants_scope": {
       "type": "string",
@@ -163,6 +163,62 @@
       "type": ["string", "null"],
       "description": "Revision or snapshot identifier of the agent model where the provider exposes one (e.g., OpenAI date-suffixed model strings). Null = opt-out; absent = not captured. Optional at cv >= 9.",
       "examples": ["2026-04-15", null]
+    },
+    "agent_identity": {
+      "type": "object",
+      "description": "Agent identity binding for AARM R6 conformance. Required at checks_version=10. Absent at cv<=9. See spec Section 2.19.",
+      "required": ["agent_session_id"],
+      "properties": {
+        "agent_session_id": {
+          "type": "string",
+          "description": "Opaque identifier for the agent's active session. Stable for one governed session.",
+          "minLength": 1
+        },
+        "human_principal": {
+          "type": ["object", "null"],
+          "description": "User/principal identity the agent acts on behalf of.",
+          "properties": {
+            "subject": {
+              "type": "string",
+              "description": "Subject identifier (email, OIDC sub claim, or organization-scoped user id)."
+            },
+            "provider": {
+              "type": "string",
+              "description": "Identity provider (e.g., 'okta', 'google_workspace', 'azure_ad', 'local')."
+            },
+            "verified": {
+              "type": "boolean",
+              "description": "Whether the gateway verified the principal claim against the provider."
+            }
+          },
+          "additionalProperties": false
+        },
+        "service_account": {
+          "type": ["object", "null"],
+          "description": "Service account identity separate from agent identity.",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Service account identifier."
+            },
+            "provider": {
+              "type": "string",
+              "description": "IAM provider (e.g., 'aws_iam', 'gcp_iam', 'azure_managed_identity')."
+            }
+          },
+          "additionalProperties": false
+        },
+        "role": {
+          "type": ["string", "null"],
+          "description": "Role assigned to the agent for this session."
+        },
+        "privilege_scope": {
+          "type": ["array", "null"],
+          "description": "Explicit privileges granted to the agent for this session.",
+          "items": {"type": "string"}
+        }
+      },
+      "additionalProperties": false
     },
     "evaluation_coverage": {
       "type": ["object", "null"],
@@ -380,7 +436,7 @@
     },
     "event_type": {
       "type": ["string", "null"],
-      "description": "Governance event type. Identifies the execution surface and enforcement outcome. Aligned with GCD Layer 4 (Enforcement) event schema.",
+      "description": "Governance event type. Identifies the execution surface and enforcement outcome. Aligned with GCD Layer 4 (Enforcement) event schema. v1.5+ adds session_manifest, anomaly, modified, and deferred variants.",
       "enum": [
         "invocation_allowed",
         "invocation_halted",
@@ -391,6 +447,16 @@
         "api_invocation_allowed",
         "api_invocation_halted",
         "api_invocation_escalated",
+        "session_manifest",
+        "invocation_anomaly",
+        "invocation_modified",
+        "invocation_deferred",
+        "cli_invocation_anomaly",
+        "cli_invocation_modified",
+        "cli_invocation_deferred",
+        "api_invocation_anomaly",
+        "api_invocation_modified",
+        "api_invocation_deferred",
         null
       ]
     },
@@ -545,6 +611,109 @@
       "then": {
         "required": ["tool_name"]
       }
+    },
+    {
+      "$comment": "B1: session_manifest receipts must have invariants_scope=none and no enforcement object. Spec Section 2.16.3. SAN-204.",
+      "if": {
+        "properties": {"event_type": {"const": "session_manifest"}},
+        "required": ["event_type"]
+      },
+      "then": {
+        "properties": {
+          "enforcement": {"type": "null"},
+          "invariants_scope": {"const": "none"}
+        }
+      }
+    },
+    {
+      "$comment": "B2: mixed enforcement_surface requires com.sanna.manifest with at least 2 surfaces. Spec Section 2.16.1. SAN-204.",
+      "if": {
+        "properties": {"enforcement_surface": {"const": "mixed"}},
+        "required": ["enforcement_surface"]
+      },
+      "then": {
+        "properties": {
+          "extensions": {
+            "type": "object",
+            "properties": {
+              "com.sanna.manifest": {
+                "type": "object",
+                "properties": {
+                  "surfaces": {"type": "object", "minProperties": 2}
+                },
+                "required": ["surfaces"]
+              }
+            },
+            "required": ["com.sanna.manifest"]
+          }
+        },
+        "required": ["extensions"]
+      }
+    },
+    {
+      "$comment": "A1: checks_version=10 requires agent_identity. Spec Section 2.19. SAN-204 (activation in SAN-370).",
+      "if": {
+        "properties": {"checks_version": {"const": "10"}},
+        "required": ["checks_version"]
+      },
+      "then": {
+        "required": ["agent_identity"],
+        "properties": {
+          "agent_identity": {
+            "type": "object",
+            "required": ["agent_session_id"]
+          }
+        }
+      }
+    },
+    {
+      "$comment": "A3: com.sanna.manifest extension implies event_type=session_manifest. Spec Section 2.15.1. SAN-204.",
+      "if": {
+        "properties": {
+          "extensions": {
+            "type": "object",
+            "required": ["com.sanna.manifest"]
+          }
+        },
+        "required": ["extensions"]
+      },
+      "then": {
+        "properties": {
+          "event_type": {"const": "session_manifest"}
+        },
+        "required": ["event_type"]
+      }
+    },
+    {
+      "$comment": "MODIFY: modify_with_constraints decision requires the 3 MODIFY recording fields. Spec Section 2.7. SAN-204.",
+      "if": {
+        "properties": {
+          "authority_decisions": {
+            "type": "array",
+            "contains": {
+              "type": "object",
+              "properties": {"decision": {"const": "modify_with_constraints"}},
+              "required": ["decision"]
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "authority_decisions": {
+            "type": "array",
+            "items": {
+              "if": {
+                "properties": {"decision": {"const": "modify_with_constraints"}},
+                "required": ["decision"]
+              },
+              "then": {
+                "required": ["tool_input_original", "tool_input_transformed", "transformations_applied"]
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -620,7 +789,7 @@
       "properties": {
         "action": {"type": "string"},
         "params": {"type": "object", "additionalProperties": true},
-        "decision": {"type": "string", "enum": ["halt", "allow", "escalate"]},
+        "decision": {"type": "string", "enum": ["halt", "allow", "escalate", "modify_with_constraints"]},
         "reason": {"type": "string"},
         "boundary_type": {"type": "string", "enum": ["cannot_execute", "must_escalate", "can_execute", "uncategorized"]},
         "escalation_target": {
@@ -628,7 +797,29 @@
           "properties": {"type": {"type": "string", "enum": ["log", "webhook", "callback"]}},
           "additionalProperties": false
         },
-        "timestamp": {"type": "string", "format": "date-time"}
+        "timestamp": {"type": "string", "format": "date-time"},
+        "tool_input_original": {
+          "description": "Input the agent submitted before transformation. Required when decision=modify_with_constraints. See spec Section 2.7.",
+          "oneOf": [{"type": "string"}, {"type": "object", "additionalProperties": true}]
+        },
+        "tool_input_transformed": {
+          "description": "Input actually passed to the tool after transformation. Required when decision=modify_with_constraints. See spec Section 2.7.",
+          "oneOf": [{"type": "string"}, {"type": "object", "additionalProperties": true}]
+        },
+        "transformations_applied": {
+          "type": "array",
+          "description": "List of applied transformations. Required when decision=modify_with_constraints. See spec Section 2.7.",
+          "items": {
+            "type": "object",
+            "required": ["type", "target_field", "rationale"],
+            "properties": {
+              "type": {"type": "string"},
+              "target_field": {"type": "string"},
+              "rationale": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        }
       },
       "additionalProperties": false
     },

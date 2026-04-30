@@ -172,3 +172,24 @@ Sanna exposes these CLI entry points. If your change affects CLI behavior, updat
 ## Questions
 
 Open an issue. If it's about architecture or direction, label it `discussion`.
+
+## Schemas: dual-location pattern
+
+sanna-repo holds Sanna Protocol schemas in two locations, intentionally:
+
+- `spec/` -- a git submodule pinned to a specific sanna-protocol commit. Canonical, version-pinned reference. Cross-SDK fixture parity tests load from here.
+- `src/sanna/spec/` -- file-copied operational schemas the runtime uses for receipt and constitution validation. Shipped to PyPI in package data; submodules don't survive `pip install`.
+
+The two locations MUST match exactly. A CI gate (`.github/workflows/ci.yml`) runs `diff -q` on every push and pull request and fails if they diverge.
+
+To update both in sync after a sanna-protocol change:
+
+    git submodule update --remote spec/
+    cp spec/schemas/receipt.schema.json src/sanna/spec/receipt.schema.json
+    cp spec/schemas/constitution.schema.json src/sanna/spec/constitution.schema.json
+    git add spec src/sanna/spec/
+
+Then run the full test suite to confirm no regressions.
+
+The CI drift gate prevents a submodule bump from landing without the operational copy update. Per CLAUDE.md governance principle: cross-SDK coherence is load-bearing; silent drift is the failure mode this gate prevents.
+

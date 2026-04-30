@@ -27,6 +27,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Verify operational schema copies match submodule (governance gate)
+        run: |
+          diff -q spec/schemas/receipt.schema.json src/sanna/spec/receipt.schema.json
+          diff -q spec/schemas/constitution.schema.json src/sanna/spec/constitution.schema.json
       - name: Install dependencies
         run: pip install -e ".[dev]" pytest-asyncio
 
@@ -37,7 +41,7 @@ jobs:
         run: |
           for f in golden/receipts/*.json; do
             if [[ "$(basename "$f")" == "999_tampered"* ]]; then
-              sanna-verify "$f" --format json && echo "ERROR: tampered receipt should fail" && exit 1 || echo "✓ tampered detected"
+              sanna-verify "$f" --format json && echo "ERROR: tampered receipt should fail" && exit 1 || echo "tampered detected"
             else
               sanna-verify "$f" --format json | python -c "import sys,json; r=json.load(sys.stdin); assert r['valid'], f'FAILED: {r}'"
             fi

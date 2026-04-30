@@ -205,6 +205,12 @@
           "type": "array",
           "items": {"type": "string"},
           "description": "Actions explicitly permitted for the agent"
+        },
+        "escalation_visibility": {
+          "type": "string",
+          "description": "Visibility of must_escalate tools at discovery time (v1.5+). 'visible' = listed and visible to agent (default; backward compatible). 'suppressed' = hidden from tool listing.",
+          "enum": ["visible", "suppressed"],
+          "default": "visible"
         }
       },
       "additionalProperties": false
@@ -248,23 +254,20 @@
       },
       "additionalProperties": false
     },
-    "reasoning": {
-      "type": "object",
-      "description": "Reasoning receipt configuration (v1.1+)",
-      "additionalProperties": true
-    },
     "cli_permissions": {
       "type": "object",
-      "description": "CLI subprocess governance — which binaries the agent may invoke (v1.2+)",
+      "description": "CLI subprocess governance rules. Controls which binaries an agent may execute.",
       "properties": {
         "mode": {
           "type": "string",
           "enum": ["strict", "permissive"],
-          "description": "Default policy for unlisted binaries"
+          "description": "strict: unlisted binaries are denied (fail-closed). permissive: unlisted binaries are allowed with audit receipt.",
+          "default": "strict"
         },
         "justification_required": {
           "type": "boolean",
-          "description": "Whether subprocess calls require a justification"
+          "description": "Whether a justification string is required for CLI invocations.",
+          "default": true
         },
         "commands": {
           "type": "array",
@@ -272,11 +275,30 @@
             "type": "object",
             "required": ["id", "binary", "authority"],
             "properties": {
-              "id": {"type": "string", "minLength": 1},
-              "binary": {"type": "string", "minLength": 1},
-              "authority": {"type": "string", "enum": ["can_execute", "must_escalate", "cannot_execute"]},
-              "args_patterns": {"type": "array", "items": {"type": "string"}},
-              "reason": {"type": "string"}
+              "id": {
+                "type": "string",
+                "description": "Unique rule identifier (e.g., cli-001)",
+                "pattern": "^[a-zA-Z0-9_-]+$"
+              },
+              "binary": {
+                "type": "string",
+                "description": "Binary name to match. No path separators or wildcards.",
+                "pattern": "^[^/\\\\*?]+$"
+              },
+              "argv_pattern": {
+                "type": "string",
+                "description": "Glob pattern for argument vector. '*' matches everything.",
+                "default": "*"
+              },
+              "authority": {
+                "type": "string",
+                "enum": ["can_execute", "must_escalate", "cannot_execute"]
+              },
+              "description": { "type": "string" },
+              "escalation_target": {
+                "type": "string",
+                "description": "Named escalation target (for must_escalate rules)"
+              }
             },
             "additionalProperties": false
           }
@@ -287,9 +309,11 @@
             "type": "object",
             "required": ["id", "description", "verdict"],
             "properties": {
-              "id": {"type": "string", "minLength": 1},
-              "description": {"type": "string", "minLength": 1},
-              "verdict": {"type": "string", "enum": ["halt", "warn"]}
+              "id": { "type": "string", "pattern": "^[a-zA-Z0-9_-]+$" },
+              "description": { "type": "string" },
+              "pattern": { "type": "string", "description": "Regex pattern to match against command + args" },
+              "condition": { "type": "string", "description": "Named condition for complex rules" },
+              "verdict": { "type": "string", "enum": ["halt", "warn"] }
             },
             "additionalProperties": false
           }
@@ -299,16 +323,18 @@
     },
     "api_permissions": {
       "type": "object",
-      "description": "HTTP API governance — which endpoints the agent may call (v1.2+)",
+      "description": "HTTP/API governance rules. Controls which URLs and methods an agent may call.",
       "properties": {
         "mode": {
           "type": "string",
           "enum": ["strict", "permissive"],
-          "description": "Default policy for unlisted endpoints"
+          "description": "strict: unmatched URLs are denied. permissive: unmatched URLs are allowed with audit receipt.",
+          "default": "strict"
         },
         "justification_required": {
           "type": "boolean",
-          "description": "Whether API calls require a justification"
+          "description": "Whether a justification string is required for API invocations.",
+          "default": true
         },
         "endpoints": {
           "type": "array",
@@ -316,11 +342,17 @@
             "type": "object",
             "required": ["id", "url_pattern", "authority"],
             "properties": {
-              "id": {"type": "string", "minLength": 1},
-              "url_pattern": {"type": "string", "minLength": 1},
-              "methods": {"type": "array", "items": {"type": "string"}},
-              "authority": {"type": "string", "enum": ["can_execute", "must_escalate", "cannot_execute"]},
-              "reason": {"type": "string"}
+              "id": { "type": "string", "pattern": "^[a-zA-Z0-9_-]+$" },
+              "url_pattern": { "type": "string", "description": "URL glob pattern. * for wildcards. First match wins." },
+              "methods": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "*"] },
+                "description": "HTTP methods this rule applies to.",
+                "default": ["*"]
+              },
+              "authority": { "type": "string", "enum": ["can_execute", "must_escalate", "cannot_execute"] },
+              "description": { "type": "string" },
+              "escalation_target": { "type": "string" }
             },
             "additionalProperties": false
           }
@@ -331,9 +363,10 @@
             "type": "object",
             "required": ["id", "description", "verdict"],
             "properties": {
-              "id": {"type": "string", "minLength": 1},
-              "description": {"type": "string", "minLength": 1},
-              "verdict": {"type": "string", "enum": ["halt", "warn"]}
+              "id": { "type": "string", "pattern": "^[a-zA-Z0-9_-]+$" },
+              "description": { "type": "string" },
+              "pattern": { "type": "string", "description": "Regex pattern to match against URL" },
+              "verdict": { "type": "string", "enum": ["halt", "warn"] }
             },
             "additionalProperties": false
           }
@@ -359,6 +392,19 @@
         }
       },
       "required": ["records"],
+      "additionalProperties": false
+    },
+    "composition": {
+      "type": "object",
+      "description": "Composition policy (v1.5+). Phase 1 contains only escalation_visibility; rule engine reserved for Phase 2. Optional; existing constitutions without this section validate normally.",
+      "properties": {
+        "escalation_visibility": {
+          "type": "string",
+          "description": "Visibility of must_escalate tools at discovery time. 'visible' = listed and visible to agent (default). 'suppressed' = hidden from tool listing.",
+          "enum": ["visible", "suppressed"],
+          "default": "visible"
+        }
+      },
       "additionalProperties": false
     }
   },
