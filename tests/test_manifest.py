@@ -481,6 +481,7 @@ class TestManifestEmittedFlag:
         gw._persist_receipt_async = _fake_persist
         gw._constitution_ref = None
         gw._signing_key_path = None
+        gw._content_mode = ""  # SAN-206: required by _emit_session_manifest
 
         async def _run():
             # Simulate what handle_list_tools does
@@ -530,6 +531,7 @@ class TestManifestEmittedFlag:
         gw._persist_receipt_async = _fake_persist
         gw._constitution_ref = None
         gw._signing_key_path = None
+        gw._content_mode = ""  # SAN-206: required by _emit_session_manifest
 
         async def _run():
             await gw._emit_session_manifest([])

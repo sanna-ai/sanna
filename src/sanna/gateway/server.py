@@ -1202,6 +1202,10 @@ class SannaGateway:
         self._last_receipt_fingerprint: str | None = None  # for receipt chaining
         # SAN-202: session_manifest receipt emitted once per gateway lifecycle
         self._manifest_emitted: bool = False
+        # SAN-206: full_fingerprint of the session_manifest receipt for anomaly chaining
+        self._manifest_full_fingerprint: Optional[str] = None
+        # SAN-206: tool names suppressed by authority filtering (prefixed), for anomaly detection
+        self._suppressed_tool_names: set[str] = set()
 
         # Block G: PII redaction
         from sanna.gateway.config import RedactionConfig
@@ -2024,6 +2028,7 @@ class SannaGateway:
                 self._constitution.authority_boundaries.escalation_visibility
             )
 
+        self._suppressed_tool_names = set()  # SAN-206: reset each rebuild
         tools: list[types.Tool] = []
         for ds_state in self._downstream_states.values():
             if ds_state.connection is None:
@@ -2036,22 +2041,26 @@ class SannaGateway:
                 if self._constitution is not None:
                     policy_override = self._resolve_policy(original_name, ds_state)
                     if policy_override == "cannot_execute":
+                        self._suppressed_tool_names.add(prefixed)  # SAN-206
                         continue
                     if (
                         policy_override == "must_escalate"
                         and escalation_visibility == "suppressed"
                     ):
+                        self._suppressed_tool_names.add(prefixed)  # SAN-206
                         continue
                     if policy_override is None:
                         decision = evaluate_authority(
                             original_name, {}, self._constitution,
                         )
                         if decision.decision == "halt":
+                            self._suppressed_tool_names.add(prefixed)  # SAN-206
                             continue
                         if (
                             decision.decision == "escalate"
                             and escalation_visibility == "suppressed"
                         ):
+                            self._suppressed_tool_names.add(prefixed)  # SAN-206
                             continue
 
                 # Block G: mutate schema to add _justification if required
@@ -2431,7 +2440,10 @@ class SannaGateway:
         correlation_id = f"manifest-{uuid.uuid4().hex[:12]}"
         try:
             manifest_ext = generate_manifest(
-                self._constitution, mcp_tools=mcp_tool_names,
+                self._constitution,
+                mcp_tools=mcp_tool_names,
+                surfaces=["mcp"],                          # SAN-206
+                content_mode=self._content_mode or None,  # SAN-206
             )
             status_override = "PASS"
         except Exception as exc:
@@ -2472,6 +2484,15 @@ class SannaGateway:
             if status_override == "FAIL":
                 receipt["status"] = "FAIL"
 
+            # SAN-206: declare content_mode on the gateway-emitted receipt
+            if self._content_mode:
+                receipt["content_mode"] = self._content_mode
+                receipt["content_mode_source"] = self._content_mode_source
+
+            # SAN-206: capture full_fingerprint BEFORE persistence so
+            # invocation_anomaly receipts can chain even if sink fails.
+            self._manifest_full_fingerprint = receipt["full_fingerprint"]
+
             if self._signing_key_path is not None:
                 from sanna.crypto import sign_receipt
                 receipt = sign_receipt(receipt, self._signing_key_path)
@@ -2484,6 +2505,81 @@ class SannaGateway:
             )
         except Exception as exc:
             logger.error("session_manifest receipt emission failed: %s", exc)
+
+    async def _emit_invocation_anomaly(
+        self,
+        attempted_tool: str,
+        arguments: dict[str, Any],
+    ) -> None:
+        """Emit invocation_anomaly per v1.5 Section 2.12 + 2.16.3.
+
+        parent_receipts chains to the active session_manifest's full_fingerprint
+        so verifiers can reconstruct the anti-enumeration signal.
+        """
+        from sanna.middleware import (
+            generate_constitution_receipt,
+            build_trace_data,
+        )
+
+        from sanna.receipt import HaltEvent
+
+        correlation_id = f"anomaly-{uuid.uuid4().hex[:12]}"
+        trace_data = build_trace_data(
+            correlation_id=correlation_id,
+            query=f"tools/call name={attempted_tool}",
+            context=str(arguments),
+            output="",
+        )
+
+        enforcement_obj = HaltEvent(
+            halted=True,
+            reason="tool_suppressed_by_constitution",
+            failed_checks=[],
+            enforcement_mode="halt",  # halt/warn/log enum, NOT enforce/audit/passthrough
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
+        try:
+            receipt = generate_constitution_receipt(
+                trace_data,
+                check_configs=[],
+                custom_records=[],
+                constitution_ref=self._constitution_ref,
+                constitution_version=(
+                    self._constitution.schema_version
+                    if self._constitution else ""
+                ),
+                extensions={
+                    "com.sanna.anomaly": {
+                        "attempted_tool": attempted_tool,
+                        "suppression_basis": "session_manifest",
+                    },
+                },
+                enforcement=enforcement_obj,
+                authority_decisions=None,
+                enforcement_surface="gateway",
+                invariants_scope="authority_only",
+                parent_receipts=[self._manifest_full_fingerprint],
+            )
+            receipt["event_type"] = "invocation_anomaly"
+            receipt["status"] = "FAIL"
+
+            if self._content_mode:
+                receipt["content_mode"] = self._content_mode
+                receipt["content_mode_source"] = self._content_mode_source
+
+            if self._signing_key_path is not None:
+                from sanna.crypto import sign_receipt
+                receipt = sign_receipt(receipt, self._signing_key_path)
+
+            await self._persist_receipt_async(receipt)
+            logger.info(
+                "invocation_anomaly receipt emitted (tool=%s, parent_fingerprint=%s)",
+                attempted_tool,
+                self._manifest_full_fingerprint[:16] if self._manifest_full_fingerprint else "none",
+            )
+        except Exception as exc:
+            logger.error("invocation_anomaly receipt emission failed: %s", exc)
 
     async def _deliver_token_async(
         self, entry: PendingEscalation, token: str,
@@ -2509,6 +2605,14 @@ class SannaGateway:
         # Route to correct downstream
         lookup = self._get_ds_for_tool(name)
         if lookup is None:
+            # SAN-206: emit invocation_anomaly receipt if the tool was
+            # suppressed at session start. Distinguishes anti-enumeration
+            # signal from agent typo. Spec v1.5 Section 2.12 + 2.16.3.
+            if (
+                name in self._suppressed_tool_names
+                and self._manifest_full_fingerprint is not None
+            ):
+                await self._emit_invocation_anomaly(name, arguments or {})
             return types.CallToolResult(
                 content=[types.TextContent(
                     type="text", text=f"Unknown tool: {name}",

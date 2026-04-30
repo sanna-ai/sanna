@@ -82,6 +82,9 @@ def patched(sink):
         agent_id="test-agent",
         mode="enforce",
     )
+    # SAN-206: patch_subprocess now emits a session_manifest receipt; clear it
+    # so per-test assertions remain relative to invocation receipts only.
+    sink.receipts.clear()
     return sink
 
 
@@ -94,6 +97,7 @@ def patched_audit(sink):
         agent_id="test-agent",
         mode="audit",
     )
+    sink.receipts.clear()  # SAN-206: clear session_manifest receipt from setup
     return sink
 
 
@@ -106,6 +110,7 @@ def patched_passthrough(sink):
         agent_id="test-agent",
         mode="passthrough",
     )
+    sink.receipts.clear()  # SAN-206: clear session_manifest receipt from setup
     return sink
 
 
@@ -118,6 +123,7 @@ def patched_permissive(sink):
         agent_id="test-agent",
         mode="enforce",
     )
+    sink.receipts.clear()  # SAN-206: clear session_manifest receipt from setup
     return sink
 
 
@@ -401,6 +407,8 @@ class TestEdgeCases:
             agent_id="test-agent",
             mode="enforce",
         )
+        # SAN-206: clear session_manifest receipt from first patch; second patch is no-op
+        sink.receipts.clear()
         # Should still work correctly
         subprocess.run(["echo", "hello"])
         assert sink.count == 1
@@ -426,6 +434,7 @@ class TestEdgeCases:
             agent_id="test-agent",
             mode="enforce",
         )
+        sink.receipts.clear()  # SAN-206: clear session_manifest receipt from setup
         result = subprocess.run(["echo", "hello"])
         assert sink.count == 1
         assert sink.last["event_type"] == "cli_invocation_allowed"

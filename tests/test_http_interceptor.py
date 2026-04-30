@@ -156,6 +156,9 @@ def _patch_and_mock(sink, constitution=API_TEST_CONSTITUTION, mode="enforce", **
         mode=mode,
         **kwargs,
     )
+    # SAN-206: patch_http now emits a session_manifest receipt; clear it so
+    # per-test assertions remain relative to invocation receipts only.
+    sink.receipts.clear()
     from sanna.interceptors import http_interceptor
     return http_interceptor
 

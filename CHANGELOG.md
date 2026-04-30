@@ -1,3 +1,32 @@
+## [Unreleased] -- 2026-04-30 (SAN-206)
+
+### Added
+- `manifest.py`: `generate_manifest` gains `surfaces` and `content_mode` params. Surfaces filter restricts the returned `surfaces` dict to listed surfaces. content_mode applies v1.5 Section 2.14 (post-SAN-377) redaction.
+- Gateway `_emit_session_manifest`: passes `surfaces=['mcp']` + `content_mode=self._content_mode or None`. Sets receipt content_mode + content_mode_source. Captures `_manifest_full_fingerprint` BEFORE persistence.
+- Gateway `_suppressed_tool_names: set[str]` populated by `_build_tool_list`.
+- Gateway `_emit_invocation_anomaly`: emits `invocation_anomaly` receipt per v1.5 Section 2.12 + 2.16.3.
+- CLI + HTTP interceptors emit per-surface session_manifest at patch time. Mode-aware fail-closed/fail-open.
+- New tests: content vectors, content_mode redaction shapes with schema validation, parent-chain integrity.
+
+### Changed
+- `spec/` submodule pin bumped from `5bfee54` to `f89c8c9` (post-SAN-376 + SAN-377).
+
+### Compatibility
+- `generate_manifest` signature backwards-compatible.
+- Gateway session_manifest receipts now include only `surfaces.mcp` (resolves SAN-202/203 multi-surface defect).
+- Gateway session_manifest receipts under `content_mode=redacted/hashes_only` apply spec-conformant redaction (resolves SAN-202/203 content_mode defect).
+- New invocation_anomaly receipts on calls to suppressed tools.
+- Interceptors emit session_manifest at patch time; enforce mode raises if sink rejects manifest.
+
+### Out of scope (follow-ups)
+- TS mirror: SAN-209.
+- Existing CLI/HTTP interceptor enforcement_mode schema bug: SAN-379.
+- Cross-SDK redacted/hashes_only fixtures: SAN-380 post-SAN-209.
+
+### Tickets
+- SAN-206 (this entry)
+- Companion: SAN-209, SAN-202 (annotated x2), SAN-203 (annotated x2), SAN-204, SAN-205, SAN-376, SAN-377 (merged), SAN-378/379/380 (deferred).
+
 ## [Unreleased] -- 2026-04-30 (SAN-202)
 
 ### Added
