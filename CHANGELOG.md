@@ -1,3 +1,21 @@
+## [Unreleased] -- 2026-04-30
+
+### Changed
+- Submodule `spec/` bumped from sanna-protocol commit `72097f2` to `5bfee54` (post-SAN-204; sanna-protocol v1.5 release). v1.5 introduces 10 new event_type values, the `mixed` enforcement_surface, agent_identity field (required at cv=10), the com.sanna.manifest extension namespace, the suppression_reason enum, and the modify_with_constraints + defer_for_context authority decisions.
+- Operational schema copies `src/sanna/spec/receipt.schema.json` and `src/sanna/spec/constitution.schema.json` synchronized to match the bumped submodule's contents.
+
+### Added (governance)
+- CI drift gate in `.github/workflows/ci.yml`: every push and pull request runs `diff -q spec/schemas/<file>.json src/sanna/spec/<file>.json` for both schemas. Fails CI if the operational copy ever drifts from the submodule. Prevents silent re-drift on future protocol updates.
+- CONTRIBUTING.md: dual-location pattern documented; sync recipe included for future protocol bumps.
+
+### Compatibility
+- cv=9 receipts continue to validate against the new schema (SAN-204 used CONDITIONAL cv=10 rules so the new requirements are no-ops at cv<10). All existing golden receipts pass.
+- This bump alone does NOT activate cv=10 in the SDK. SDK code flips CHECKS_VERSION 9 -> 10 in SAN-370.
+
+### Tickets
+- SAN-374 (this entry)
+- Companion: SAN-375 (sanna-ts schema sync), SAN-205 (constitution authority enum + escalation_visibility), SAN-202/203/209/370/371 (SDK feature work that depends on this sync).
+
 # Changelog
 
 **Note:** v0.13.x is the first public release series. Earlier version entries document internal pre-release development.
