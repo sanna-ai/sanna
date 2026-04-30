@@ -1,3 +1,18 @@
+## [Unreleased] -- 2026-04-30 (SAN-202)
+
+### Added
+- New module `src/sanna/manifest.py` with `generate_manifest(constitution, mcp_tools=None) -> dict`. Reads the constitution's `authority_boundaries`, `cli_permissions`, and `api_permissions` and produces the `com.sanna.manifest` extension dict per v1.5 spec Section 2.20. snake_case keys; deterministic sorted lists; stable suppression_reason enum (Section 2.21).
+- Gateway `_build_tool_list()` applies authority filtering: suppress `cannot_execute` tools; suppress `must_escalate` tools when `constitution.authority_boundaries.escalation_visibility == 'suppressed'`; deliver `can_execute` and (default) `must_escalate` tools. Suppressed tools are absent from `tools/list` (anti-enumeration).
+- Gateway `handle_list_tools` emits a `session_manifest` receipt on the FIRST tools/list call per gateway lifecycle. State-tracked via `self._manifest_emitted: bool`. Subsequent calls return the filtered list without emitting another manifest. Receipt has `event_type="session_manifest"`, `invariants_scope="none"`, `enforcement` absent (per v1.5 Section 2.16.3).
+
+### Compatibility
+- Pre-Manifest gateway behavior preserved when no constitution is loaded: tools pass through unfiltered, no manifest receipt emitted.
+- v1.4-era constitutions (no `escalation_visibility`) default to `"visible"` per SAN-205. must_escalate tools remain in tools/list as before.
+
+### Tickets
+- SAN-202 (this entry)
+- Companion: SAN-203 (TS gateway filtering, mirror of this), SAN-206 (Python interceptor manifest emission), SAN-209 (TS interceptor manifest emission), SAN-205 (constitution authority enum support, already merged), SAN-374 (sanna-repo schema sync, already merged), SAN-204 (v1.5 protocol schema, already merged).
+
 ## [Unreleased] -- 2026-04-30 (SAN-205)
 
 ### Added

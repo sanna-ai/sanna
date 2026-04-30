@@ -1200,6 +1200,8 @@ class SannaGateway:
         self._content_mode: str = ""  # v1.0.0: content mode metadata
         self._workflow_id: str | None = None  # v1.0.0: workflow grouping
         self._last_receipt_fingerprint: str | None = None  # for receipt chaining
+        # SAN-202: session_manifest receipt emitted once per gateway lifecycle
+        self._manifest_emitted: bool = False
 
         # Block G: PII redaction
         from sanna.gateway.config import RedactionConfig
@@ -1769,7 +1771,11 @@ class SannaGateway:
 
         @self._server.list_tools()
         async def handle_list_tools() -> list[types.Tool]:
-            return gateway._build_tool_list()
+            tool_list = gateway._build_tool_list()
+            if not gateway._manifest_emitted and gateway._constitution is not None:
+                await gateway._emit_session_manifest(tool_list)
+                gateway._manifest_emitted = True
+            return tool_list
 
         @self._server.call_tool()
         async def handle_call_tool(
@@ -2003,13 +2009,51 @@ class SannaGateway:
 
     def _build_tool_list(self) -> list[types.Tool]:
         """Build the gateway's tool list from discovered downstream tools
-        plus gateway meta-tools."""
+        plus gateway meta-tools.
+
+        SAN-202: applies authority filtering when a constitution is loaded.
+        Suppressed tools are absent from the returned list (anti-enumeration
+        per v1.5 Section 2.20.2). Filtering precedes schema mutation so that
+        suppressed tools never reach the justification-injection step.
+        """
+        from sanna.enforcement.authority import evaluate_authority
+
+        escalation_visibility = "visible"
+        if self._constitution and self._constitution.authority_boundaries:
+            escalation_visibility = (
+                self._constitution.authority_boundaries.escalation_visibility
+            )
+
         tools: list[types.Tool] = []
         for ds_state in self._downstream_states.values():
             if ds_state.connection is None:
                 continue
             for tool_dict in ds_state.connection.tools:
-                prefixed = f"{ds_state.spec.name}_{tool_dict['name']}"
+                original_name = tool_dict["name"]
+                prefixed = f"{ds_state.spec.name}_{original_name}"
+
+                # SAN-202: authority filtering (anti-enumeration)
+                if self._constitution is not None:
+                    policy_override = self._resolve_policy(original_name, ds_state)
+                    if policy_override == "cannot_execute":
+                        continue
+                    if (
+                        policy_override == "must_escalate"
+                        and escalation_visibility == "suppressed"
+                    ):
+                        continue
+                    if policy_override is None:
+                        decision = evaluate_authority(
+                            original_name, {}, self._constitution,
+                        )
+                        if decision.decision == "halt":
+                            continue
+                        if (
+                            decision.decision == "escalate"
+                            and escalation_visibility == "suppressed"
+                        ):
+                            continue
+
                 # Block G: mutate schema to add _justification if required
                 effective_dict = tool_dict
                 if (
@@ -2357,6 +2401,89 @@ class SannaGateway:
         """Offload receipt persistence to thread pool to avoid blocking."""
         loop = _asyncio.get_running_loop()
         await loop.run_in_executor(None, self._persist_receipt, receipt)
+
+    async def _emit_session_manifest(
+        self, tool_list: list[types.Tool],
+    ) -> None:
+        """Emit a session_manifest receipt at the first tools/list call.
+
+        Per v1.5 Section 2.16.3 + 2.20: enforcement field absent,
+        invariants_scope="none", status="PASS" on success / "FAIL"
+        on fail-closed-emit. The receipt flows through the existing
+        sink chain via _persist_receipt_async.
+        """
+        from sanna.manifest import generate_manifest
+        from sanna.middleware import (
+            generate_constitution_receipt,
+            build_trace_data,
+        )
+
+        # Collect raw MCP tool names from connected downstreams (pre-filter
+        # catalog, not the filtered tool_list, so the manifest accurately
+        # reflects what the constitution decided to suppress).
+        mcp_tool_names: list[str] = []
+        for ds_state in self._downstream_states.values():
+            if ds_state.connection is None:
+                continue
+            for tool_dict in ds_state.connection.tools:
+                mcp_tool_names.append(tool_dict["name"])
+
+        correlation_id = f"manifest-{uuid.uuid4().hex[:12]}"
+        try:
+            manifest_ext = generate_manifest(
+                self._constitution, mcp_tools=mcp_tool_names,
+            )
+            status_override = "PASS"
+        except Exception as exc:
+            logger.error("session_manifest generate_manifest failed: %s", exc)
+            manifest_ext = {
+                "version": "0.1",
+                "composition_basis": "static",
+                "surfaces": {},
+            }
+            status_override = "FAIL"
+
+        trace_data = build_trace_data(
+            correlation_id=correlation_id,
+            query="session_manifest",
+            context="",
+            output="",
+        )
+
+        try:
+            receipt = generate_constitution_receipt(
+                trace_data,
+                check_configs=[],
+                custom_records=[],
+                constitution_ref=self._constitution_ref,
+                constitution_version=(
+                    self._constitution.schema_version
+                    if self._constitution else ""
+                ),
+                extensions={"com.sanna.manifest": manifest_ext},
+                enforcement=None,
+                authority_decisions=None,
+                enforcement_surface="gateway",
+                invariants_scope="none",
+            )
+            # session_manifest receipts have status="PASS"/"FAIL" driven by
+            # manifest generation success, not by check results (none run).
+            receipt["event_type"] = "session_manifest"
+            if status_override == "FAIL":
+                receipt["status"] = "FAIL"
+
+            if self._signing_key_path is not None:
+                from sanna.crypto import sign_receipt
+                receipt = sign_receipt(receipt, self._signing_key_path)
+
+            await self._persist_receipt_async(receipt)
+            logger.info(
+                "session_manifest receipt emitted (status=%s, tools=%d)",
+                receipt["status"],
+                len(mcp_tool_names),
+            )
+        except Exception as exc:
+            logger.error("session_manifest receipt emission failed: %s", exc)
 
     async def _deliver_token_async(
         self, entry: PendingEscalation, token: str,
