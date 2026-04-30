@@ -141,8 +141,7 @@ class TestRedactedMode:
         assert cli_surf["patterns_delivered"] == ["<redacted>"]
         assert cli_surf["patterns_suppressed"] == ["<redacted>"]
         assert "suppression_reasons" not in cli_surf
-        # CLI surface suppression_reasons dict has no keys (cli uses "unknown" fallback)
-        assert cli_surf["aggregate_suppression_reasons"] == ["unknown"]
+        assert cli_surf["aggregate_suppression_reasons"] == ["cannot_execute"]
 
     def test_schema_validates_redacted_cli_receipt(self):
         cli = CliPermissions(
