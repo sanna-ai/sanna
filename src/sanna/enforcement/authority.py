@@ -49,11 +49,16 @@ class AuthorityDecision:
     """Result of evaluating an action against authority boundaries.
 
     Attributes:
-        decision: The enforcement outcome — ``"halt"``, ``"allow"``,
-            or ``"escalate"``.
+        decision: The enforcement outcome. Phase 1 legal values:
+            ``"halt"``, ``"allow"``, ``"escalate"``, ``"modify"`` (v1.5+),
+            ``"defer"`` (v1.5+). evaluate_authority only returns halt/allow/
+            escalate in v1.5; modify and defer are reserved for runtime-
+            evaluated outcomes returned by future evaluators (SAN-369+).
         reason: Human-readable explanation of why this decision was made.
-        boundary_type: Which boundary tier matched — ``"cannot_execute"``,
-            ``"must_escalate"``, ``"can_execute"``, or ``"uncategorized"``.
+        boundary_type: Which boundary tier matched. Phase 1 legal values:
+            ``"cannot_execute"``, ``"must_escalate"``, ``"can_execute"``,
+            ``"uncategorized"``, ``"modify_with_constraints"`` (v1.5+,
+            reserved), ``"defer_for_context"`` (v1.5+, reserved).
         escalation_target: Resolved escalation target (only present when
             ``decision="escalate"``).
     """
