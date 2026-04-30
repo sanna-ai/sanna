@@ -1,3 +1,18 @@
+## [Unreleased] -- 2026-04-30 (SAN-378 Prompt B)
+
+### Changed
+- `src/sanna/manifest.py`: `_generate_cli_surface` and `_generate_http_surface` now emit `suppression_reasons: dict[str, str]` per v1.5 spec Section 2.20.2. Empty dict when no suppressions; populated when the constitution's commands/endpoints declare `cannot_execute` or `must_escalate` with `escalation_visibility=suppressed`. Mirrors the mcp surface's existing `suppression_reasons` algorithm.
+- `spec/` submodule pin bumped from sanna-protocol `f89c8c9` to `03160f1` (SAN-378 Prompt A merge: MC-006 + MC-007 fixture vectors updated to include `suppression_reasons`).
+- Existing tests updated where they asserted cli/http surface output shape (Issue 14-equivalent for SAN-378). Each updated assertion now includes the new `suppression_reasons` field.
+
+### Compatibility
+- **Receipt fingerprint compatibility:** post-SAN-378 receipts include `suppression_reasons` in cli/http surfaces (per v1.5 Section 2.20.2). This changes the canonical JSON shape and therefore the receipt fingerprint when cli/http surfaces have suppressed entries. Existing signed receipts remain valid (signature is over what was emitted). Re-emission of the same input post-upgrade produces a different fingerprint than pre-upgrade. Verifiers should accept receipts as-emitted; cross-version fingerprint replay is not a conformance test.
+- **Cross-SDK lockstep:** sanna-ts SDK is updated in SAN-378 Prompt C (in flight). Until Prompt C merges, sanna-ts emits cli/http surfaces WITHOUT `suppression_reasons` while sanna-repo emits them WITH the field. Cross-SDK divergence during this window is bounded; no fingerprint compatibility implication beyond the per-SDK note above.
+
+### Tickets
+- SAN-378 Prompt B (this entry)
+- Companion: SAN-378 Prompt A (sanna-protocol fixture update, MERGED at 03160f1), SAN-378 Prompt C (sanna-ts mirror, in flight). SAN-376 (cross-SDK fixture origin), SAN-202 (Python manifest origin, will be annotated post-done on full SAN-378 close), SAN-377 (spec clarification, MERGED), SAN-382 (R1 schema-rule enforcement gap, deferred Backlog).
+
 ## [Unreleased] -- 2026-04-30 (SAN-206)
 
 ### Added

@@ -146,21 +146,29 @@ def _generate_cli_surface(constitution: Constitution) -> dict[str, Any]:
     """Build the CLI surface sub-object from constitution.cli_permissions."""
     cp = constitution.cli_permissions
     if cp is None:
-        return {"patterns_delivered": [], "patterns_suppressed": [], "mode": "strict"}
+        return {
+            "patterns_delivered": [],
+            "patterns_suppressed": [],
+            "suppression_reasons": {},
+            "mode": "strict",
+        }
 
     ab = constitution.authority_boundaries
     escalation_visibility = ab.escalation_visibility if ab is not None else "visible"
 
     delivered: list[str] = []
     suppressed: list[str] = []
+    suppression_reasons: dict[str, str] = {}
     for cmd in cp.commands:
         pattern = cmd.binary
         authority = getattr(cmd, "authority", "can_execute")
         if authority == "cannot_execute":
             suppressed.append(pattern)
+            suppression_reasons[pattern] = SUPPRESSION_REASON_CANNOT_EXECUTE
         elif authority == "must_escalate":
             if escalation_visibility == "suppressed":
                 suppressed.append(pattern)
+                suppression_reasons[pattern] = SUPPRESSION_REASON_ESCALATION_SUPPRESSED
             else:
                 delivered.append(pattern)
         else:
@@ -169,6 +177,7 @@ def _generate_cli_surface(constitution: Constitution) -> dict[str, Any]:
     return {
         "patterns_delivered": sorted(delivered),
         "patterns_suppressed": sorted(suppressed),
+        "suppression_reasons": suppression_reasons,
         "mode": cp.mode,
     }
 
@@ -177,21 +186,29 @@ def _generate_http_surface(constitution: Constitution) -> dict[str, Any]:
     """Build the HTTP surface sub-object from constitution.api_permissions."""
     ap = constitution.api_permissions
     if ap is None:
-        return {"patterns_delivered": [], "patterns_suppressed": [], "mode": "strict"}
+        return {
+            "patterns_delivered": [],
+            "patterns_suppressed": [],
+            "suppression_reasons": {},
+            "mode": "strict",
+        }
 
     ab = constitution.authority_boundaries
     escalation_visibility = ab.escalation_visibility if ab is not None else "visible"
 
     delivered: list[str] = []
     suppressed: list[str] = []
+    suppression_reasons: dict[str, str] = {}
     for ep in ap.endpoints:
         pattern = ep.url_pattern
         authority = getattr(ep, "authority", "can_execute")
         if authority == "cannot_execute":
             suppressed.append(pattern)
+            suppression_reasons[pattern] = SUPPRESSION_REASON_CANNOT_EXECUTE
         elif authority == "must_escalate":
             if escalation_visibility == "suppressed":
                 suppressed.append(pattern)
+                suppression_reasons[pattern] = SUPPRESSION_REASON_ESCALATION_SUPPRESSED
             else:
                 delivered.append(pattern)
         else:
@@ -200,6 +217,7 @@ def _generate_http_surface(constitution: Constitution) -> dict[str, Any]:
     return {
         "patterns_delivered": sorted(delivered),
         "patterns_suppressed": sorted(suppressed),
+        "suppression_reasons": suppression_reasons,
         "mode": ap.mode,
     }
 

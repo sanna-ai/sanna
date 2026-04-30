@@ -238,6 +238,7 @@ class TestCliSurface:
         c = _bare_constitution(cli_permissions=cli)
         out = generate_manifest(c)
         assert "ls" in out["surfaces"]["cli"]["patterns_delivered"]
+        assert out["surfaces"]["cli"]["suppression_reasons"] == {}
 
     def test_cannot_execute_suppressed(self):
         cli = self._make_cli([
@@ -247,6 +248,7 @@ class TestCliSurface:
         out = generate_manifest(c)
         assert "rm" in out["surfaces"]["cli"]["patterns_suppressed"]
         assert "rm" not in out["surfaces"]["cli"]["patterns_delivered"]
+        assert out["surfaces"]["cli"]["suppression_reasons"] == {"rm": "cannot_execute"}
 
     def test_must_escalate_visible(self):
         cli = self._make_cli([
@@ -255,6 +257,7 @@ class TestCliSurface:
         c = _bare_constitution(cli_permissions=cli, escalation_visibility="visible")
         out = generate_manifest(c)
         assert "sudo" in out["surfaces"]["cli"]["patterns_delivered"]
+        assert out["surfaces"]["cli"]["suppression_reasons"] == {}
 
     def test_must_escalate_suppressed(self):
         cli = self._make_cli([
@@ -263,6 +266,7 @@ class TestCliSurface:
         c = _bare_constitution(cli_permissions=cli, escalation_visibility="suppressed")
         out = generate_manifest(c)
         assert "sudo" in out["surfaces"]["cli"]["patterns_suppressed"]
+        assert out["surfaces"]["cli"]["suppression_reasons"] == {"sudo": "escalation_suppressed"}
 
     def test_mode_passed_through(self):
         cli = self._make_cli([], mode="permissive")
@@ -295,6 +299,7 @@ class TestHttpSurface:
         c = _bare_constitution(api_permissions=api)
         out = generate_manifest(c)
         assert "/api/read" in out["surfaces"]["http"]["patterns_delivered"]
+        assert out["surfaces"]["http"]["suppression_reasons"] == {}
 
     def test_cannot_execute_suppressed(self):
         api = self._make_api([
@@ -303,6 +308,7 @@ class TestHttpSurface:
         c = _bare_constitution(api_permissions=api)
         out = generate_manifest(c)
         assert "/admin/*" in out["surfaces"]["http"]["patterns_suppressed"]
+        assert out["surfaces"]["http"]["suppression_reasons"] == {"/admin/*": "cannot_execute"}
 
     def test_must_escalate_visible(self):
         api = self._make_api([
@@ -311,6 +317,7 @@ class TestHttpSurface:
         c = _bare_constitution(api_permissions=api, escalation_visibility="visible")
         out = generate_manifest(c)
         assert "/api/delete" in out["surfaces"]["http"]["patterns_delivered"]
+        assert out["surfaces"]["http"]["suppression_reasons"] == {}
 
     def test_must_escalate_suppressed(self):
         api = self._make_api([
@@ -319,6 +326,7 @@ class TestHttpSurface:
         c = _bare_constitution(api_permissions=api, escalation_visibility="suppressed")
         out = generate_manifest(c)
         assert "/api/delete" in out["surfaces"]["http"]["patterns_suppressed"]
+        assert out["surfaces"]["http"]["suppression_reasons"] == {"/api/delete": "escalation_suppressed"}
 
     def test_mode_passed_through(self):
         api = self._make_api([], mode="permissive")
