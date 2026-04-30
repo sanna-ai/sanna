@@ -17,7 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -211,6 +211,10 @@ class AuthorityBoundaries:
     - **cannot_execute**: Actions the agent must never perform.
     - **must_escalate**: Conditions under which human/system review is required.
     - **can_execute**: Actions explicitly permitted for the agent.
+    - **escalation_visibility** (v1.5+): Whether must_escalate tools are visible
+      to the agent at discovery time. 'visible' (default, backward compatible)
+      lists the tool and triggers escalation on attempted invocation.
+      'suppressed' hides the tool from tools/list (anti-enumeration).
 
     Attributes:
         cannot_execute: List of forbidden action descriptions.
@@ -218,11 +222,24 @@ class AuthorityBoundaries:
         can_execute: List of explicitly allowed action descriptions.
         default_escalation: Fallback escalation target type when a
             must_escalate rule has no explicit target.
+        escalation_visibility: 'visible' or 'suppressed'. Default 'visible'.
     """
     cannot_execute: list[str] = field(default_factory=list)
     must_escalate: list[EscalationRule] = field(default_factory=list)
     can_execute: list[str] = field(default_factory=list)
     default_escalation: str = "log"
+    escalation_visibility: str = "visible"
+
+
+@dataclass
+class Composition:
+    """Composition policy (v1.5+).
+
+    Phase 1 contains only escalation_visibility. Phase 2 will add a rule
+    engine. Optional; existing constitutions without this section validate
+    normally and behave as if escalation_visibility=visible.
+    """
+    escalation_visibility: str = "visible"
 
 
 # ---------------------------------------------------------------------------
@@ -490,6 +507,7 @@ class Constitution:
     reasoning: Optional[ReasoningConfig] = None
     cli_permissions: Optional[CliPermissions] = None
     api_permissions: Optional[ApiPermissions] = None
+    composition: Optional[Composition] = None
 
 
 # =============================================================================
@@ -626,6 +644,23 @@ def validate_constitution_data(data: dict) -> list[str]:
                         errors.append(f"authority_boundaries.must_escalate[{i}] must be a dict")
                     elif not rule.get("condition"):
                         errors.append(f"authority_boundaries.must_escalate[{i}].condition is required")
+            esc_vis = ab.get("escalation_visibility")
+            if esc_vis is not None and esc_vis not in ("visible", "suppressed"):
+                errors.append(
+                    f"authority_boundaries.escalation_visibility '{esc_vis}' must be 'visible' or 'suppressed'"
+                )
+
+    # Composition (optional, v1.5+)
+    comp = data.get("composition")
+    if comp is not None:
+        if not isinstance(comp, dict):
+            errors.append("composition must be a dict")
+        else:
+            comp_vis = comp.get("escalation_visibility")
+            if comp_vis is not None and comp_vis not in ("visible", "suppressed"):
+                errors.append(
+                    f"composition.escalation_visibility '{comp_vis}' must be 'visible' or 'suppressed'"
+                )
 
     # CLI permissions (optional, v1.2+)
     cli_perms = data.get("cli_permissions")
@@ -1067,6 +1102,15 @@ def parse_constitution(data: dict) -> Constitution:
             must_escalate=must_escalate,
             can_execute=can_execute,
             default_escalation=default_esc,
+            escalation_visibility=ab_data.get("escalation_visibility", "visible"),
+        )
+
+    # Composition (optional, v1.5+)
+    composition = None
+    comp_data = data.get("composition")
+    if comp_data is not None and isinstance(comp_data, dict):
+        composition = Composition(
+            escalation_visibility=comp_data.get("escalation_visibility", "visible"),
         )
 
     # Trusted sources (optional, v0.7.0+)
@@ -1204,6 +1248,7 @@ def parse_constitution(data: dict) -> Constitution:
         reasoning=reasoning,
         cli_permissions=cli_permissions,
         api_permissions=api_permissions,
+        composition=composition,
     )
 
 
@@ -1387,9 +1432,20 @@ def compute_constitution_hash(constitution: Constitution) -> str:
     }
 
     # Include authority_boundaries only if present (backward compat:
-    # constitutions without this field produce the same hash as before)
+    # constitutions without this field produce the same hash as before).
+    # New v1.5 fields use only-when-non-default inclusion so pre-v1.5
+    # constitutions produce identical hashes without re-signing.
     if constitution.authority_boundaries is not None:
-        hashable["authority_boundaries"] = asdict(constitution.authority_boundaries)
+        ab = constitution.authority_boundaries
+        ab_dict: dict = {
+            "cannot_execute": ab.cannot_execute,
+            "must_escalate": [asdict(r) if is_dataclass(r) else r for r in ab.must_escalate],
+            "can_execute": ab.can_execute,
+            "default_escalation": ab.default_escalation,
+        }
+        if ab.escalation_visibility != "visible":
+            ab_dict["escalation_visibility"] = ab.escalation_visibility
+        hashable["authority_boundaries"] = ab_dict
 
     # Include trusted_sources only if present (backward compat)
     if constitution.trusted_sources is not None:
@@ -1461,9 +1517,18 @@ def constitution_to_signable_dict(constitution: Constitution) -> dict:
     }
 
     if constitution.authority_boundaries is not None:
-        result["authority_boundaries"] = asdict(constitution.authority_boundaries)
+        ab = constitution.authority_boundaries
+        ab_sig_dict: dict = {
+            "cannot_execute": ab.cannot_execute,
+            "must_escalate": [asdict(r) if is_dataclass(r) else r for r in ab.must_escalate],
+            "can_execute": ab.can_execute,
+            "default_escalation": ab.default_escalation,
+        }
+        if ab.escalation_visibility != "visible":
+            ab_sig_dict["escalation_visibility"] = ab.escalation_visibility
+        result["authority_boundaries"] = ab_sig_dict
         result["escalation_targets"] = {
-            "default": constitution.authority_boundaries.default_escalation,
+            "default": ab.default_escalation,
         }
 
     if constitution.trusted_sources is not None:
@@ -2070,12 +2135,22 @@ def constitution_to_dict(constitution: Constitution) -> dict:
             if rule.target is not None:
                 rd["target"] = asdict(rule.target)
             must_escalate_list.append(rd)
-        result["authority_boundaries"] = {
+        ab_out: dict = {
             "cannot_execute": ab.cannot_execute,
             "must_escalate": must_escalate_list,
             "can_execute": ab.can_execute,
         }
+        if ab.escalation_visibility != "visible":
+            ab_out["escalation_visibility"] = ab.escalation_visibility
+        result["authority_boundaries"] = ab_out
         result["escalation_targets"] = {"default": ab.default_escalation}
+
+    if constitution.composition is not None:
+        comp_out: dict = {}
+        if constitution.composition.escalation_visibility != "visible":
+            comp_out["escalation_visibility"] = constitution.composition.escalation_visibility
+        if comp_out:
+            result["composition"] = comp_out
 
     if constitution.trusted_sources is not None:
         result["trusted_sources"] = asdict(constitution.trusted_sources)

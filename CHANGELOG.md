@@ -1,3 +1,19 @@
+## [Unreleased] -- 2026-04-30 (SAN-205)
+
+### Added
+- `AuthorityBoundaries.escalation_visibility` field (v1.5+, default `"visible"`). Backward-compatible: pre-v1.5 constitutions without the field validate cleanly with the default.
+- `Composition` dataclass + optional `Constitution.composition` field. Phase 1 contains only `escalation_visibility`. Phase 2 will add a composition rule engine. Optional; absent in pre-v1.5 constitutions.
+- `AuthorityDecision.decision` legal values extended with `modify` and `defer` (v1.5+). Reserved for future runtime evaluators (SAN-369 emits MODIFY first). evaluate_authority does not return either value in v1.5.
+- `AuthorityDecision.boundary_type` legal values extended with `modify_with_constraints` and `defer_for_context` (v1.5+, reserved).
+
+### Compatibility
+- v1.4-era constitutions WITHOUT escalation_visibility or composition validate cleanly; defaults applied. No migration needed for existing customers.
+- AuthorityDecision shape unchanged at the field level; only the documented legal values for `decision` and `boundary_type` expanded.
+
+### Tickets
+- SAN-205 Python half (this entry; companion TS PR also incoming under same ticket).
+- Companion: SAN-202 (Python manifest.py + gateway filtering, depends on this), SAN-204 (v1.5 protocol schema), SAN-374 (sanna-repo schema sync, already merged).
+
 ## [Unreleased] -- 2026-04-30
 
 ### Changed
