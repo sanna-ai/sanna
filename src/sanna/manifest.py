@@ -43,6 +43,8 @@ MANIFEST_VERSION = "0.1"
 def generate_manifest(
     constitution: Optional[Constitution],
     mcp_tools: Optional[list[str]] = None,
+    surfaces: Optional[list[str]] = None,
+    content_mode: Optional[str] = None,
 ) -> dict[str, Any]:
     """Generate the com.sanna.manifest extension dict for a session.
 
@@ -54,27 +56,46 @@ def generate_manifest(
             downstream catalog. If None, the MCP surface section is
             omitted. If provided, each tool is evaluated via
             evaluate_authority and bucketed into delivered or suppressed.
+        surfaces: Optional list of surface names to include. When None
+            (default), all surfaces are included. When provided, only
+            listed surfaces appear in the returned dict.
+        content_mode: Optional content mode. "redacted" applies
+            v1.5 Section 2.14 (post-SAN-377) redaction. "hashes_only"
+            replaces names with SHA-256 hex via canonical hash_text.
 
     Returns:
         A dict with keys: version, composition_basis, surfaces. surfaces
         contains optional sub-objects mcp / cli / http depending on what
-        the constitution declares + what mcp_tools provides.
+        the constitution declares + what mcp_tools provides + the surfaces
+        filter.
     """
-    surfaces: dict[str, Any] = {}
+    surfaces_dict: dict[str, Any] = {}
 
     if mcp_tools is not None:
-        surfaces["mcp"] = _generate_mcp_surface(constitution, mcp_tools)
+        surfaces_dict["mcp"] = _generate_mcp_surface(constitution, mcp_tools)
 
     if constitution is not None and constitution.cli_permissions is not None:
-        surfaces["cli"] = _generate_cli_surface(constitution)
+        surfaces_dict["cli"] = _generate_cli_surface(constitution)
 
     if constitution is not None and constitution.api_permissions is not None:
-        surfaces["http"] = _generate_http_surface(constitution)
+        surfaces_dict["http"] = _generate_http_surface(constitution)
+
+    # SAN-206: surfaces filter
+    if surfaces is not None:
+        surfaces_dict = {k: v for k, v in surfaces_dict.items() if k in surfaces}
+
+    # SAN-206: content_mode redaction (per v1.5 Section 2.14 + SAN-377)
+    if content_mode == "redacted":
+        for surface in surfaces_dict.values():
+            _redact_for_redacted_mode(surface)
+    elif content_mode == "hashes_only":
+        for surface in surfaces_dict.values():
+            _redact_for_hashes_only_mode(surface)
 
     return {
         "version": MANIFEST_VERSION,
         "composition_basis": "static",
-        "surfaces": surfaces,
+        "surfaces": surfaces_dict,
     }
 
 
@@ -181,3 +202,53 @@ def _generate_http_surface(constitution: Constitution) -> dict[str, Any]:
         "patterns_suppressed": sorted(suppressed),
         "mode": ap.mode,
     }
+
+
+def _redact_for_redacted_mode(surface: dict[str, Any]) -> None:
+    """v1.5 Section 2.14 + SAN-377 content_mode=redacted transform.
+
+    Order critical for cross-SDK reproducibility: capture aggregate BEFORE
+    redaction, then redact, then drop suppression_reasons and add aggregate.
+    The suppressed list (already sorted) drives aggregate index alignment.
+    """
+    suppressed_list = (
+        surface.get("tools_suppressed") or surface.get("patterns_suppressed") or []
+    )
+    sup_reasons_dict = surface.get("suppression_reasons", {})
+    aggregate = [sup_reasons_dict.get(name, "unknown") for name in suppressed_list]
+
+    for list_field in (
+        "tools_delivered", "tools_suppressed",
+        "patterns_delivered", "patterns_suppressed",
+    ):
+        if list_field in surface:
+            count = len(surface[list_field])
+            surface[list_field] = ["<redacted>"] * count
+
+    surface.pop("suppression_reasons", None)
+    if aggregate:
+        surface["aggregate_suppression_reasons"] = aggregate
+
+
+def _redact_for_hashes_only_mode(surface: dict[str, Any]) -> None:
+    """v1.5 Section 2.14 + SAN-377 content_mode=hashes_only transform.
+
+    Names hashed via canonical hash_text helper. Lists re-sorted by hash
+    alphabetically after hashing. suppression_reasons keys also hashed;
+    values remain cleartext.
+    """
+    from .hashing import hash_text
+
+    for list_field in (
+        "tools_delivered", "tools_suppressed",
+        "patterns_delivered", "patterns_suppressed",
+    ):
+        if list_field in surface:
+            hashed = [hash_text(name) for name in surface[list_field]]
+            surface[list_field] = sorted(hashed)
+
+    sup_reasons = surface.get("suppression_reasons")
+    if sup_reasons:
+        surface["suppression_reasons"] = {
+            hash_text(k): v for k, v in sup_reasons.items()
+        }

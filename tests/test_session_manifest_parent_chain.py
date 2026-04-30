@@ -1,0 +1,189 @@
+"""SAN-206: invocation_anomaly receipt parent-chain integrity tests."""
+
+import asyncio
+import sys
+
+import pytest
+
+pytest.importorskip("mcp", reason="mcp extra not installed")
+
+from sanna.constitution import (
+    AgentIdentity,
+    AuthorityBoundaries,
+    Boundary,
+    Constitution,
+    Provenance,
+)
+
+
+def _con(cannot_execute=None) -> Constitution:
+    return Constitution(
+        schema_version="1.0.0",
+        identity=AgentIdentity(agent_name="test-agent", domain="testing"),
+        provenance=Provenance(
+            authored_by="tester@test.com",
+            approved_by=["approver@test.com"],
+            approval_date="2026-01-01",
+            approval_method="test",
+        ),
+        boundaries=[
+            Boundary(id="B001", description="Test", category="scope", severity="medium"),
+        ],
+        authority_boundaries=AuthorityBoundaries(
+            cannot_execute=cannot_execute or [],
+            must_escalate=[],
+            can_execute=[],
+            escalation_visibility="visible",
+        ),
+    )
+
+
+def _make_gateway(constitution, captured_receipts):
+    """Build a minimal SannaGateway stub for parent-chain testing."""
+    from sanna.gateway.server import SannaGateway, DownstreamSpec, _DownstreamState
+
+    gw = object.__new__(SannaGateway)
+
+    spec = DownstreamSpec(name="mock", command=sys.executable, args=[])
+    ds_state = _DownstreamState(spec=spec)
+
+    class _FakeConn:
+        tools = [
+            {"name": "delete_all", "description": "d", "inputSchema": {"type": "object"}},
+            {"name": "read_data", "description": "d", "inputSchema": {"type": "object"}},
+        ]
+
+    ds_state.connection = _FakeConn()
+    gw._downstream_states = {"mock": ds_state}
+    gw._constitution = constitution
+    gw._reasoning_evaluator = None
+    gw._manifest_emitted = False
+    gw._manifest_full_fingerprint = None
+    gw._suppressed_tool_names = set()
+    gw._constitution_ref = None
+    gw._signing_key_path = None
+    gw._content_mode = ""
+    gw._tool_to_downstream = {}
+
+    async def _fake_persist(receipt):
+        captured_receipts.append(receipt)
+
+    gw._persist_receipt_async = _fake_persist
+    return gw
+
+
+class TestSessionManifestParentChain:
+    def test_anomaly_chains_to_manifest(self):
+        """invocation_anomaly.parent_receipts == [manifest.full_fingerprint]."""
+        captured = []
+        cons = _con(cannot_execute=["delete_all"])
+        gw = _make_gateway(cons, captured)
+
+        async def _run():
+            tool_list = gw._build_tool_list()
+            await gw._emit_session_manifest(tool_list)
+
+            manifest_receipts = [r for r in captured if r.get("event_type") == "session_manifest"]
+            assert len(manifest_receipts) == 1
+            manifest_fp = manifest_receipts[0]["full_fingerprint"]
+            assert manifest_fp == gw._manifest_full_fingerprint
+
+            # "mock_delete_all" was suppressed -- should emit anomaly
+            assert "mock_delete_all" in gw._suppressed_tool_names
+
+            await gw._emit_invocation_anomaly("mock_delete_all", {})
+
+            anomaly_receipts = [r for r in captured if r.get("event_type") == "invocation_anomaly"]
+            assert len(anomaly_receipts) == 1
+            anomaly = anomaly_receipts[0]
+            assert anomaly["status"] == "FAIL"
+            assert anomaly["enforcement"]["action"] == "halted"
+            assert anomaly["enforcement"]["enforcement_mode"] == "halt"
+            assert anomaly["parent_receipts"] == [manifest_fp]
+            assert anomaly["extensions"]["com.sanna.anomaly"]["attempted_tool"] == "mock_delete_all"
+            assert anomaly["extensions"]["com.sanna.anomaly"]["suppression_basis"] == "session_manifest"
+
+        asyncio.run(_run())
+
+    def test_forward_call_suppressed_tool_emits_anomaly(self):
+        """_forward_call to a suppressed tool triggers anomaly emission."""
+        captured = []
+        cons = _con(cannot_execute=["delete_all"])
+        gw = _make_gateway(cons, captured)
+
+        async def _run():
+            tool_list = gw._build_tool_list()
+            await gw._emit_session_manifest(tool_list)
+            manifest_fp = gw._manifest_full_fingerprint
+
+            result = await gw._forward_call("mock_delete_all", {})
+            assert result.isError
+
+            anomaly_receipts = [r for r in captured if r.get("event_type") == "invocation_anomaly"]
+            assert len(anomaly_receipts) == 1
+            assert anomaly_receipts[0]["parent_receipts"] == [manifest_fp]
+
+        asyncio.run(_run())
+
+    def test_typo_does_not_emit_anomaly(self):
+        """_forward_call with a tool name not in suppressed set emits no anomaly."""
+        captured = []
+        cons = _con(cannot_execute=["delete_all"])
+        gw = _make_gateway(cons, captured)
+
+        async def _run():
+            tool_list = gw._build_tool_list()
+            await gw._emit_session_manifest(tool_list)
+
+            result = await gw._forward_call("garbage_typo_name_xyz", {})
+            assert result.isError
+
+            anomaly_receipts = [r for r in captured if r.get("event_type") == "invocation_anomaly"]
+            assert len(anomaly_receipts) == 0
+
+        asyncio.run(_run())
+
+    def test_no_anomaly_before_manifest_emitted(self):
+        """_forward_call does not emit anomaly if manifest_full_fingerprint is None."""
+        captured = []
+        cons = _con(cannot_execute=["delete_all"])
+        gw = _make_gateway(cons, captured)
+
+        async def _run():
+            # Build tool list (populates _suppressed_tool_names) but don't emit manifest
+            gw._build_tool_list()
+            assert gw._manifest_full_fingerprint is None
+
+            result = await gw._forward_call("mock_delete_all", {})
+            assert result.isError
+
+            anomaly_receipts = [r for r in captured if r.get("event_type") == "invocation_anomaly"]
+            assert len(anomaly_receipts) == 0
+
+        asyncio.run(_run())
+
+    def test_suppressed_tool_names_populated_by_build_tool_list(self):
+        """_build_tool_list populates _suppressed_tool_names with prefixed names."""
+        captured = []
+        cons = _con(cannot_execute=["delete_all"])
+        gw = _make_gateway(cons, captured)
+
+        gw._build_tool_list()
+
+        assert "mock_delete_all" in gw._suppressed_tool_names
+        assert "mock_read_data" not in gw._suppressed_tool_names
+
+    def test_build_tool_list_resets_suppressed_on_rebuild(self):
+        """_build_tool_list clears _suppressed_tool_names on each call."""
+        captured = []
+        cons = _con(cannot_execute=["delete_all"])
+        gw = _make_gateway(cons, captured)
+
+        # First build
+        gw._build_tool_list()
+        assert "mock_delete_all" in gw._suppressed_tool_names
+
+        # Switch to no constitution -- set should be empty after rebuild
+        gw._constitution = None
+        gw._build_tool_list()
+        assert gw._suppressed_tool_names == set()

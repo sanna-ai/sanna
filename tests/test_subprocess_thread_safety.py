@@ -75,6 +75,7 @@ def patched(sink):
         agent_id="test-agent",
         mode="enforce",
     )
+    sink.receipts.clear()  # SAN-206: clear session_manifest receipt from setup
     return sink
 
 
