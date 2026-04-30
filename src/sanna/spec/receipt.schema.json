@@ -714,6 +714,82 @@
           }
         }
       }
+    },
+    {
+      "$comment": "R1: content_mode=redacted requires <redacted> markers, omitted suppression_reasons, and aggregate_suppression_reasons. Spec Section 2.14 + SAN-377.",
+      "if": {
+        "allOf": [
+          {"properties": {"content_mode": {"const": "redacted"}}, "required": ["content_mode"]},
+          {"properties": {"extensions": {"type": "object", "required": ["com.sanna.manifest"]}}, "required": ["extensions"]}
+        ]
+      },
+      "then": {
+        "properties": {
+          "extensions": {
+            "properties": {
+              "com.sanna.manifest": {
+                "properties": {
+                  "surfaces": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
+                        "tools_delivered":      {"type": "array", "items": {"const": "<redacted>"}},
+                        "tools_suppressed":     {"type": "array", "items": {"const": "<redacted>"}},
+                        "patterns_delivered":   {"type": "array", "items": {"const": "<redacted>"}},
+                        "patterns_suppressed":  {"type": "array", "items": {"const": "<redacted>"}},
+                        "suppression_reasons":  false,
+                        "aggregate_suppression_reasons": {
+                          "type": "array",
+                          "items": {"enum": ["cannot_execute", "policy_denied", "escalation_suppressed", "server_default_denied", "constitution_invalid", "content_mode_redacted", "unknown"]}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "$comment": "R2: content_mode=hashes_only requires SHA-256 hex (lowercase) for tool names, patterns, and suppression_reasons keys. Spec Section 2.14 + SAN-377.",
+      "if": {
+        "allOf": [
+          {"properties": {"content_mode": {"const": "hashes_only"}}, "required": ["content_mode"]},
+          {"properties": {"extensions": {"type": "object", "required": ["com.sanna.manifest"]}}, "required": ["extensions"]}
+        ]
+      },
+      "then": {
+        "properties": {
+          "extensions": {
+            "properties": {
+              "com.sanna.manifest": {
+                "properties": {
+                  "surfaces": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
+                        "tools_delivered":     {"type": "array", "items": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+                        "tools_suppressed":    {"type": "array", "items": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+                        "patterns_delivered":  {"type": "array", "items": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+                        "patterns_suppressed": {"type": "array", "items": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+                        "suppression_reasons": {
+                          "type": "object",
+                          "propertyNames": {"pattern": "^[a-f0-9]{64}$"},
+                          "additionalProperties": {"enum": ["cannot_execute", "policy_denied", "escalation_suppressed", "server_default_denied", "constitution_invalid", "content_mode_redacted", "unknown"]}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "$defs": {
