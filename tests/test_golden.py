@@ -278,9 +278,10 @@ class TestReceiptGeneration:
 
     def test_receipt_versions(self):
         receipt = generate_receipt(self.make_trace())
-        assert receipt.spec_version == SPEC_VERSION
+        # Library middleware path (no agent_identity): emits cv=9 legacy per spec Section 2.19 line 781-782
+        assert receipt.spec_version == "1.4"
         assert receipt.tool_version == TOOL_VERSION
-        assert receipt.checks_version == CHECKS_VERSION
+        assert receipt.checks_version == "9"
 
     def test_receipt_has_five_checks(self):
         receipt = generate_receipt(self.make_trace())

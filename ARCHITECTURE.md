@@ -4,7 +4,7 @@
 > constraints are violated, generates portable cryptographic receipts proving governance
 > was enforced.
 >
-> **Version:** 1.4.0 | **Python:** 3.10, 3.11, 3.12 | See `docs/state.md` for current test counts.
+> **Version:** 1.5.0 | **Python:** 3.10, 3.11, 3.12 | See `docs/state.md` for current test counts.
 
 ---
 
@@ -58,7 +58,7 @@
 sanna-repo/
 ├── src/sanna/                    # Core library (54 .py files)
 │   ├── __init__.py               # 21 public exports, __getattr__ migration hints
-│   ├── version.py                # __version__ = "1.4.0" (single source of truth)
+│   ├── version.py                # __version__ = "1.5.0" (single source of truth)
 │   ├── receipt.py                # C1-C5 checks, receipt assembly, dataclasses
 │   ├── middleware.py             # @sanna_observe decorator, receipt generation
 │   ├── verify.py                 # Offline receipt verification, fingerprint parity
@@ -143,7 +143,7 @@ sanna-repo/
 ├── spec/                         # Root schema copies (must sync with src/sanna/spec/)
 │   ├── constitution.schema.json
 │   ├── receipt.schema.json
-│   └── sanna-specification-v1.4.md
+│   └── sanna-specification-v1.5.md
 ├── docs/                         # User/developer documentation (9 .md files)
 ├── examples/                     # Demo scripts, constitutions, gateway configs
 │   ├── *.py                      # 5 demo Python scripts
@@ -200,7 +200,7 @@ sanna-repo/
 
 #### `src/sanna/version.py`
 
-**Purpose:** Single source of truth for `__version__ = "1.4.0"`.
+**Purpose:** Single source of truth for `__version__ = "1.5.0"`.
 
 ---
 
@@ -345,9 +345,9 @@ Internal: `_reject_floats(obj, path)` raises on NaN/Infinity.
 | `extract_query(trace_data)` | function | Extract query string from trace |
 | `extract_trace_data(trace)` | function | Generic context extraction (replaces Langfuse adapter) |
 | `find_snippet(text, keywords, max_len)` | function | Extract relevant text snippet |
-| `TOOL_VERSION` | constant | `"1.4.0"` (from `version.py`) |
-| `SPEC_VERSION` | constant | `"1.4"` |
-| `CHECKS_VERSION` | constant | `"9"` |
+| `TOOL_VERSION` | constant | `"1.5.0"` (from `version.py`) |
+| `SPEC_VERSION` | constant | `"1.5"` |
+| `CHECKS_VERSION` | constant | `"10"` |
 | `TOOL_NAME` | constant | `"sanna"` |
 
 Check functions (private, with public aliases at module bottom):
@@ -1218,7 +1218,7 @@ receipt.py:generate_receipt() — aggregate results
 
 | Dataclass | Key Fields | Notes |
 |-----------|-----------|-------|
-| `SannaReceipt` | spec_version, tool_version, checks_version, receipt_id, receipt_fingerprint, full_fingerprint, correlation_id, timestamp, inputs, outputs, context_hash, output_hash, checks, checks_passed, checks_failed, status, constitution_ref, enforcement, parent_receipts, workflow_id, content_mode, content_mode_source (v1.0.0+), enforcement_surface, invariants_scope (v1.3+), tool_name, agent_model, agent_model_provider, agent_model_version (v1.4+) | v1.4 format; 28 fields |
+| `SannaReceipt` | spec_version, tool_version, checks_version, receipt_id, receipt_fingerprint, full_fingerprint, correlation_id, timestamp, inputs, outputs, context_hash, output_hash, checks, checks_passed, checks_failed, status, constitution_ref, enforcement, parent_receipts, workflow_id, content_mode, content_mode_source (v1.0.0+), enforcement_surface, invariants_scope (v1.3+), tool_name, agent_model, agent_model_provider, agent_model_version (v1.4+), agent_identity (v1.5+) | v1.5 format; 29 fields (adds agent_identity) |
 | `CheckResult` | check_id, name, passed, severity, evidence, details | |
 | `Enforcement` | action, reason, failed_checks, enforcement_mode, timestamp | v0.13.0+ replaces HaltEvent |
 | `ConstitutionProvenance` | document_id, policy_hash, version, source | |
@@ -1376,9 +1376,9 @@ Source: `src/sanna/spec/receipt.schema.json`
 
 ```json
 {
-  "spec_version": "1.4",                     // REQUIRED (current); verifier accepts "1.3", "1.0" etc.
-  "tool_version": "1.4.0",                   // REQUIRED
-  "checks_version": "9",                     // REQUIRED (current); verifier dispatches by cv value
+  "spec_version": "1.5",                     // REQUIRED (current); verifier accepts "1.4", "1.3", "1.0" etc.
+  "tool_version": "1.5.0",                   // REQUIRED
+  "checks_version": "10",                    // REQUIRED (current); verifier dispatches by cv value
   "tool_name": "sanna",                      // REQUIRED at cv>=9 (v1.4+)
   "receipt_id": "uuid-v4",                   // REQUIRED
   "receipt_fingerprint": "hex16",            // REQUIRED — 16-char human-readable
@@ -1519,9 +1519,9 @@ Policy cascade: per-tool override > server `default_policy` > constitution autho
 
 | Constant | Location | Value | Purpose |
 |----------|----------|-------|---------|
-| `TOOL_VERSION` | `receipt.py` (from `version.py`) | `"1.4.0"` | Package version in receipts |
-| `SPEC_VERSION` | `receipt.py` | `"1.4"` | Receipt spec version |
-| `CHECKS_VERSION` | `receipt.py` | `"9"` | Check algorithm version (part of fingerprint); 20-field formula at cv=9 (v1.4) |
+| `TOOL_VERSION` | `receipt.py` (from `version.py`) | `"1.5.0"` | Package version in receipts |
+| `SPEC_VERSION` | `receipt.py` | `"1.5"` | Receipt spec version |
+| `CHECKS_VERSION` | `receipt.py` | `"10"` | Check algorithm version (part of fingerprint); 21-field formula at cv=10 (v1.5), 20-field at cv=9 (v1.4 legacy) |
 | `TOOL_NAME` | `receipt.py` | `"sanna"` | Canonical SDK identity constant; fingerprint field 17 at cv≥9 |
 | `_SCHEMA_VERSION` | `store.py` | `1` | SQLite schema version |
 | `BUNDLE_FORMAT_VERSION` | `bundle.py` | `"1.0.0"` | Evidence bundle format |
@@ -1531,12 +1531,13 @@ Policy cascade: per-tool override > server `default_policy` > constitution autho
 
 | cv | Fields | Version |
 |----|--------|---------|
-| ≥9 | 20 | v1.4 (adds `tool_name_hash`, `agent_model_hash`, `agent_model_provider_hash`, `agent_model_version_hash` at positions 17-20) |
+| >=10 | 21 | v1.5 (adds `agent_identity_hash` at position 21; SAN-370) |
+| >=9 | 20 | v1.4 (adds `tool_name_hash`, `agent_model_hash`, `agent_model_provider_hash`, `agent_model_version_hash` at positions 17-20) |
 | 8 | 16 | v1.3 (adds `enforcement_surface_hash`, `invariants_scope_hash` at positions 15-16) |
-| 6–7 | 14 | v1.0/v1.1 (adds `parent_receipts_hash`, `workflow_id_hash` at positions 13-14) |
-| ≤5 | 12 | pre-v1.0 |
+| 6-7 | 14 | v1.0/v1.1 (adds `parent_receipts_hash`, `workflow_id_hash` at positions 13-14) |
+| <=5 | 12 | pre-v1.0 |
 
-The verifier auto-detects formula via `checks_version`. Legacy receipts (cv≤5) use `_verify_fingerprint_legacy()`. `constitution_approval` is stripped before fingerprinting in all four emit sites.
+The verifier auto-detects formula via `checks_version`. Legacy receipts (cv<=5) use `_verify_fingerprint_legacy()`. `constitution_approval` is stripped before fingerprinting in all four emit sites.
 
 #### Size Guards
 
@@ -1590,7 +1591,7 @@ The verifier auto-detects formula via `checks_version`. Legacy receipts (cv≤5)
 
 ```python
 from sanna import (
-    __version__,              # "1.4.0"
+    __version__,              # "1.5.0"
     sanna_observe,            # Decorator for runtime enforcement
     SannaResult,              # Output + receipt wrapper
     SannaHaltError,           # Exception on enforcement halt
@@ -1915,4 +1916,4 @@ Note: The Langfuse adapter was removed in v0.12.4. Context extraction logic was 
 
 ---
 
-*Updated 2026-04-27 for sanna v1.4.0 (SAN-326). Generated from source.*
+*Updated 2026-04-30 for sanna v1.5.0 (SAN-370). Generated from source.*

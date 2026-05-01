@@ -17,8 +17,8 @@ from .hashing import hash_text, hash_obj, EMPTY_HASH
 # =============================================================================
 
 from .version import __version__ as TOOL_VERSION  # single source of truth
-SPEC_VERSION = "1.4"
-CHECKS_VERSION = "9"  # SAN-222 v1.4: tool_name + agent_model fields (positions 17-20)
+SPEC_VERSION = "1.5"
+CHECKS_VERSION = "10"  # SAN-370 v1.5: agent_identity_hash at field 21
 TOOL_NAME = "sanna"
 
 
@@ -111,6 +111,7 @@ class SannaReceipt:
     agent_model: Optional[str] = None  # v1.4+: LLM model identifier, null for opt-out
     agent_model_provider: Optional[str] = None  # v1.4+: model provider, null for opt-out
     agent_model_version: Optional[str] = None  # v1.4+: model revision, null for opt-out
+    agent_identity: Optional[dict] = None  # v1.5+: AARM R6 binding (Section 2.19)
     constitution_ref: Optional[dict] = None
     enforcement: Optional[dict] = None
     parent_receipts: Optional[List[str]] = None
@@ -596,6 +597,7 @@ def generate_receipt(
     agent_model: Optional[str] = None,
     agent_model_provider: Optional[str] = None,
     agent_model_version: Optional[str] = None,
+    agent_identity: Optional[dict] = None,
 ) -> SannaReceipt:
     """Generate a Sanna receipt from trace data.
 
@@ -768,22 +770,50 @@ def generate_receipt(
     agent_model_provider_hash = hash_text(agent_model_provider) if agent_model_provider else EMPTY_HASH
     agent_model_version_hash = hash_text(agent_model_version) if agent_model_version else EMPTY_HASH
 
-    fingerprint_input = (
-        f"{correlation_id}|{context_hash}|{output_hash}|{CHECKS_VERSION}|"
-        f"{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|"
-        f"{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|"
-        f"{parent_receipts_hash}|{workflow_id_hash}|"
-        f"{enforcement_surface_hash}|{invariants_scope_hash}|"
-        f"{tool_name_hash}|{agent_model_hash}|"
-        f"{agent_model_provider_hash}|{agent_model_version_hash}"
-    )
+    # SAN-370: cv-dispatch on agent_identity presence (Issue Y design lock)
+    if agent_identity is not None:
+        if not agent_identity.get("agent_session_id"):
+            raise ValueError(
+                "agent_identity must include agent_session_id at cv=10 (spec Section 2.19)"
+            )
+        _cv_emit = "10"
+        _sv_emit = "1.5"
+        _agent_identity_hash = hash_obj(agent_identity)
+    else:
+        # Legacy library middleware path: emit cv=9 receipt (spec Section 2.19 line 781-782)
+        _cv_emit = "9"
+        _sv_emit = "1.4"
+        _agent_identity_hash = None
+
+    if _cv_emit == "10":
+        fingerprint_input = (
+            f"{correlation_id}|{context_hash}|{output_hash}|{_cv_emit}|"
+            f"{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|"
+            f"{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|"
+            f"{parent_receipts_hash}|{workflow_id_hash}|"
+            f"{enforcement_surface_hash}|{invariants_scope_hash}|"
+            f"{tool_name_hash}|{agent_model_hash}|"
+            f"{agent_model_provider_hash}|{agent_model_version_hash}|"
+            f"{_agent_identity_hash}"
+        )
+    else:
+        # Legacy 20-field formula (cv=9, byte-equal with archive fixtures)
+        fingerprint_input = (
+            f"{correlation_id}|{context_hash}|{output_hash}|{_cv_emit}|"
+            f"{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|"
+            f"{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|"
+            f"{parent_receipts_hash}|{workflow_id_hash}|"
+            f"{enforcement_surface_hash}|{invariants_scope_hash}|"
+            f"{tool_name_hash}|{agent_model_hash}|"
+            f"{agent_model_provider_hash}|{agent_model_version_hash}"
+        )
     full_fp = hash_text(fingerprint_input)
     receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
 
     return SannaReceipt(
-        spec_version=SPEC_VERSION,
+        spec_version=_sv_emit,
         tool_version=TOOL_VERSION,
-        checks_version=CHECKS_VERSION,
+        checks_version=_cv_emit,
         receipt_id=str(uuid.uuid4()),
         receipt_fingerprint=receipt_fingerprint,
         full_fingerprint=full_fp,
@@ -803,6 +833,7 @@ def generate_receipt(
         agent_model=agent_model,
         agent_model_provider=agent_model_provider,
         agent_model_version=agent_model_version,
+        agent_identity=agent_identity,
         constitution_ref=constitution_dict,
         enforcement=enforcement_dict,
         parent_receipts=parent_receipts,

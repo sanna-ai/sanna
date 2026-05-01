@@ -100,6 +100,7 @@ def patch_http(
         "workflow_id": workflow_id,
         "parent_fingerprint": parent_fingerprint,
         "exclude_urls": all_exclusions,
+        "agent_session_id": None,
     })
 
     # Patch requests (if installed)
@@ -381,6 +382,12 @@ def _emit_http_receipt(
         "metadata": {},
     }
 
+    if _http_state.get("agent_session_id") is None:
+        import uuid as _uuid
+        _http_state["agent_session_id"] = _uuid.uuid4().hex
+
+    agent_identity_dict = {"agent_session_id": _http_state["agent_session_id"]}
+
     receipt = generate_receipt(
         trace_data=trace_data,
         constitution_ref_override=constitution_ref,
@@ -393,6 +400,7 @@ def _emit_http_receipt(
         enforcement=enforcement_dict,
         enforcement_surface="http_interceptor",
         invariants_scope="authority_only",
+        agent_identity=agent_identity_dict,
     )
 
     receipt_dict = asdict(receipt)

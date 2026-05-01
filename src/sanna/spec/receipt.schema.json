@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://sanna.dev/schemas/receipt/v1.4.json",
+  "$id": "https://sanna.dev/schemas/receipt/v1.5.json",
   "title": "Sanna Reasoning Receipt",
-  "description": "Schema for Sanna reasoning receipts v1.4 — artifacts that capture AI reasoning provenance, constitution enforcement, and consistency check results",
+  "description": "Schema for Sanna reasoning receipts v1.5 -- artifacts that capture AI reasoning provenance, constitution enforcement, and consistency check results",
   "type": "object",
   "required": [
     "spec_version",
@@ -25,9 +25,9 @@
   "properties": {
     "spec_version": {
       "type": "string",
-      "description": "Specification version. See spec/sanna-specification-v1.4.md",
+      "description": "Specification version. See spec/sanna-specification-v1.5.md",
       "pattern": "^[0-9]+\\.[0-9]+$",
-      "examples": ["1.3"]
+      "examples": ["1.5"]
     },
     "tool_version": {
       "type": "string",
@@ -39,7 +39,7 @@
       "type": "string",
       "description": "Version of check evaluation schema (increment when check semantics change)",
       "pattern": "^[0-9]+$",
-      "examples": ["8"]
+      "examples": ["10"]
     },
     "receipt_id": {
       "type": "string",

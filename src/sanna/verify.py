@@ -247,7 +247,11 @@ def verify_schema(receipt: dict, schema: dict | None) -> list:
         return []
     errors = []
     try:
-        validate(receipt, schema)
+        # Strip None-valued optional fields before schema validation: JSON has no null
+        # for absent optional properties; Python None from dataclass defaults maps to
+        # null and would incorrectly fail validation for non-nullable optional schema fields.
+        receipt_for_validation = {k: v for k, v in receipt.items() if v is not None}
+        validate(receipt_for_validation, schema)
     except ValidationError as e:
         errors.append(f"Schema validation failed: {e.message}")
         if e.path:
@@ -348,7 +352,41 @@ def _verify_fingerprint_v013(receipt: dict) -> tuple:
         cv_int = int(checks_version)
     except (ValueError, TypeError):
         cv_int = 5
-    if cv_int >= 9:
+    if cv_int >= 10:
+        # v1.5+: agent_identity required, 21-field formula (SAN-370)
+        tool_name = receipt.get("tool_name")
+        if not tool_name:
+            return (False, "", "")
+        tool_name_hash = hash_text(tool_name)
+
+        agent_model = receipt.get("agent_model")
+        agent_model_hash = hash_text(agent_model) if agent_model else EMPTY_HASH
+        agent_model_provider = receipt.get("agent_model_provider")
+        agent_model_provider_hash = hash_text(agent_model_provider) if agent_model_provider else EMPTY_HASH
+        agent_model_version = receipt.get("agent_model_version")
+        agent_model_version_hash = hash_text(agent_model_version) if agent_model_version else EMPTY_HASH
+
+        if not enforcement_surface or not invariants_scope:
+            return (False, "", "")
+        enforcement_surface_hash = hash_text(enforcement_surface)
+        invariants_scope_hash = hash_text(invariants_scope)
+
+        agent_identity = receipt.get("agent_identity")
+        if not agent_identity:
+            return (False, "", "")
+        agent_identity_hash = hash_obj(agent_identity)
+
+        fingerprint_input = (
+            f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|"
+            f"{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|"
+            f"{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|"
+            f"{parent_receipts_hash}|{workflow_id_hash}|"
+            f"{enforcement_surface_hash}|{invariants_scope_hash}|"
+            f"{tool_name_hash}|{agent_model_hash}|"
+            f"{agent_model_provider_hash}|{agent_model_version_hash}|"
+            f"{agent_identity_hash}"
+        )
+    elif cv_int >= 9:
         # v1.4+: tool_name required (agent_model* optional)
         tool_name = receipt.get("tool_name")
         if not tool_name:
@@ -1020,6 +1058,18 @@ def verify_receipt(
         _cv_int = int(_cv_str)
     except (ValueError, TypeError):
         _cv_int = 0
+    if _cv_int >= 10:
+        # v1.5+: agent_identity required (SAN-370 / AARM R6 binding)
+        agent_identity = receipt.get("agent_identity")
+        if not agent_identity:
+            errors.append(
+                "v1.5+ receipt (checks_version >= 10) is missing required field: agent_identity"
+            )
+        elif not agent_identity.get("agent_session_id"):
+            errors.append(
+                "v1.5+ receipt agent_identity missing required sub-field: agent_session_id"
+            )
+
     if _cv_int >= 9:
         # v1.4+: tool_name is required
         if not receipt.get("tool_name"):

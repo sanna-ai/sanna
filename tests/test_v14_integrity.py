@@ -12,10 +12,10 @@ RECEIPT_SCHEMA = load_schema()
 
 
 def test_version_constants():
-    assert SPEC_VERSION == "1.4"
-    assert CHECKS_VERSION == "9"
+    assert SPEC_VERSION == "1.5"
+    assert CHECKS_VERSION == "10"
     assert TOOL_NAME == "sanna"
-    assert __version__ == "1.4.0"
+    assert __version__ == "1.5.0"
 
 
 def test_20_field_fingerprint_basic():
