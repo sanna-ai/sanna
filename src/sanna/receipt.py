@@ -122,6 +122,22 @@ class SannaReceipt:
     context_limitation: Optional[str] = None  # "cli_execution", "cli_no_justification", etc.
 
 
+def receipt_to_dict(receipt: "SannaReceipt") -> dict:
+    """Convert SannaReceipt to wire dict, omitting agent_identity when None.
+
+    Per spec Section 2.19 line 780, agent_identity MUST be absent at cv<=9.
+    The schema (per SAN-204) defines agent_identity as type:"object" (non-nullable).
+    Python dataclass asdict() reflects the Optional[dict]=None default and
+    produces agent_identity:null for cv=9 receipts, violating both.
+    All other Optional fields use type:["...", "null"] in the schema and
+    preserve null correctly; only agent_identity requires this strip. SAN-385.
+    """
+    d = asdict(receipt)
+    if d.get("agent_identity") is None:
+        d.pop("agent_identity", None)
+    return d
+
+
 # =============================================================================
 # MULTI-STEP TRACE HANDLING
 # =============================================================================

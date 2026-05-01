@@ -14,6 +14,7 @@ from pathlib import Path
 
 from sanna.receipt import (
     generate_receipt,
+    receipt_to_dict,
     ConstitutionProvenance,
     HaltEvent,
     Enforcement,
@@ -105,7 +106,7 @@ class TestHaltEvent:
     def test_enforcement_receipt_validates(self):
         """Receipt with enforcement should pass schema + fingerprint verification."""
         receipt = generate_receipt(make_trace(), enforcement=make_enforcement())
-        receipt_dict = asdict(receipt)
+        receipt_dict = receipt_to_dict(receipt)
         result = verify_receipt(receipt_dict, SCHEMA)
         assert result.valid, f"Validation failed: {result.errors}"
         assert result.exit_code == 0
@@ -113,14 +114,14 @@ class TestHaltEvent:
     def test_enforcement_fingerprint_verification(self):
         """Fingerprint should verify correctly with enforcement included."""
         receipt = generate_receipt(make_trace(), enforcement=make_enforcement())
-        receipt_dict = asdict(receipt)
+        receipt_dict = receipt_to_dict(receipt)
         match, computed, expected = verify_fingerprint(receipt_dict)
         assert match, f"Fingerprint mismatch: {computed} != {expected}"
 
     def test_tampering_enforcement_invalidates_fingerprint(self):
         """Modifying enforcement after generation should fail verification."""
         receipt = generate_receipt(make_trace(), enforcement=make_enforcement())
-        receipt_dict = asdict(receipt)
+        receipt_dict = receipt_to_dict(receipt)
         receipt_dict["enforcement"]["action"] = "allowed"
         match, _, _ = verify_fingerprint(receipt_dict)
         assert not match
@@ -136,7 +137,7 @@ class TestHaltEvent:
         receipt = generate_receipt(
             make_trace(), constitution=constitution, enforcement=enforcement_obj,
         )
-        receipt_dict = asdict(receipt)
+        receipt_dict = receipt_to_dict(receipt)
         result = verify_receipt(receipt_dict, SCHEMA)
         assert result.valid, f"Validation failed: {result.errors}"
         assert receipt_dict["constitution_ref"] is not None
@@ -167,7 +168,7 @@ class TestVerifierEnforcementWarning:
         }
         receipt = generate_receipt(trace)
         assert receipt.status == "FAIL"
-        receipt_dict = asdict(receipt)
+        receipt_dict = receipt_to_dict(receipt)
         result = verify_receipt(receipt_dict, SCHEMA)
         assert result.valid  # Still valid, just warns
         assert any("enforcement" in w for w in result.warnings)
@@ -201,7 +202,7 @@ class TestVerifierEnforcementWarning:
         )
         receipt = generate_receipt(trace, enforcement=enforcement_obj)
         assert receipt.status == "FAIL"
-        receipt_dict = asdict(receipt)
+        receipt_dict = receipt_to_dict(receipt)
         result = verify_receipt(receipt_dict, SCHEMA)
         assert result.valid
         assert not any("enforcement" in w for w in result.warnings)

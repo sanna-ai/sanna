@@ -65,6 +65,7 @@ from ..constitution import load_constitution, constitution_to_receipt_ref
 from ..hashing import hash_obj, hash_text, EMPTY_HASH
 from ..receipt import (
     generate_receipt,
+    receipt_to_dict,
     SannaReceipt,
     SPEC_VERSION,
     TOOL_VERSION,
@@ -714,7 +715,7 @@ def _emit_receipt(
     )
 
     # Convert to dict for sink
-    receipt_dict = asdict(receipt)
+    receipt_dict = receipt_to_dict(receipt)
     receipt_dict["enforcement"] = enforcement_dict
     receipt_dict["extensions"] = receipt_extensions
 

@@ -10,7 +10,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from .receipt import generate_receipt, SannaReceipt, TOOL_VERSION
+from .receipt import generate_receipt, receipt_to_dict, SannaReceipt, TOOL_VERSION
 from .utils.safe_json import safe_json_load, safe_json_loads
 from .verify import verify_receipt, load_schema, VerificationResult
 
@@ -97,7 +97,7 @@ def main_generate():
 
     # Format output
     if args.format == "json":
-        output = json.dumps(asdict(receipt), indent=2)
+        output = json.dumps(receipt_to_dict(receipt), indent=2)
     else:
         output = format_receipt_summary(receipt)
 

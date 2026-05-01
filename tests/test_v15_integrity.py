@@ -3,7 +3,7 @@ import pytest
 from dataclasses import asdict
 from sanna.receipt import (
     SPEC_VERSION, CHECKS_VERSION, TOOL_NAME, EMPTY_HASH,
-    generate_receipt,
+    generate_receipt, receipt_to_dict,
 )
 from sanna import __version__
 from sanna.verify import verify_receipt, load_schema
@@ -33,7 +33,7 @@ def test_cv10_receipt_emitted_with_agent_identity():
         enforcement_surface="gateway",
         invariants_scope="full",
     )
-    d = asdict(receipt)
+    d = receipt_to_dict(receipt)
     assert d["checks_version"] == "10"
     assert d["spec_version"] == "1.5"
     assert d["agent_identity"] == AGENT_IDENTITY
@@ -48,7 +48,7 @@ def test_cv10_receipt_verifies():
         enforcement_surface="gateway",
         invariants_scope="full",
     )
-    d = asdict(receipt)
+    d = receipt_to_dict(receipt)
     result = verify_receipt(d, RECEIPT_SCHEMA)
     assert result.valid, result.errors
 
@@ -60,10 +60,10 @@ def test_cv9_legacy_emitted_without_agent_identity():
         enforcement_surface="middleware",
         invariants_scope="full",
     )
-    d = asdict(receipt)
+    d = receipt_to_dict(receipt)
     assert d["checks_version"] == "9"
     assert d["spec_version"] == "1.4"
-    assert d.get("agent_identity") is None
+    assert "agent_identity" not in d  # spec Section 2.19 line 780: MUST be absent at cv<=9
 
 
 def test_cv9_legacy_verifies():
@@ -73,7 +73,7 @@ def test_cv9_legacy_verifies():
         enforcement_surface="middleware",
         invariants_scope="full",
     )
-    d = asdict(receipt)
+    d = receipt_to_dict(receipt)
     result = verify_receipt(d, RECEIPT_SCHEMA)
     assert result.valid, result.errors
 
@@ -86,7 +86,7 @@ def test_verifier_rejects_cv10_missing_agent_identity():
         enforcement_surface="gateway",
         invariants_scope="full",
     )
-    d = asdict(receipt)
+    d = receipt_to_dict(receipt)
     d.pop("agent_identity")
     result = verify_receipt(d, RECEIPT_SCHEMA)
     assert not result.valid
@@ -102,7 +102,7 @@ def test_verifier_rejects_cv10_missing_agent_session_id():
         enforcement_surface="gateway",
         invariants_scope="full",
     )
-    d = asdict(receipt)
+    d = receipt_to_dict(receipt)
     d["agent_identity"] = {"role": "test-role"}
     result = verify_receipt(d, RECEIPT_SCHEMA)
     assert not result.valid
@@ -134,11 +134,11 @@ def test_generate_receipt_raises_if_agent_identity_session_id_empty():
 
 def test_cv_dispatch_parity():
     """Verifier accepts both cv=9 (legacy) and cv=10 (modern) receipts."""
-    r10 = asdict(generate_receipt(
+    r10 = receipt_to_dict(generate_receipt(
         TRACE, agent_identity=AGENT_IDENTITY,
         enforcement_surface="gateway", invariants_scope="full",
     ))
-    r9 = asdict(generate_receipt(
+    r9 = receipt_to_dict(generate_receipt(
         TRACE, enforcement_surface="middleware", invariants_scope="full",
     ))
     assert verify_receipt(r10, RECEIPT_SCHEMA).valid
