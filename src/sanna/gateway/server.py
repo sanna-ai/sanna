@@ -285,7 +285,33 @@ def _apply_redaction_markers(receipt: dict, redaction_fields: list[str]) -> tupl
     except (ValueError, TypeError):
         cv_int = 5
 
-    if cv_int >= 9:
+    if cv_int >= 10:
+        # Fields 15-21 (v1.5+, SAN-370)
+        enforcement_surface = receipt.get("enforcement_surface", "")
+        invariants_scope = receipt.get("invariants_scope", "")
+        enforcement_surface_hash = hash_text(enforcement_surface)
+        invariants_scope_hash = hash_text(invariants_scope)
+        tool_name_hash = hash_text(TOOL_NAME)
+        agent_model = receipt.get("agent_model")
+        agent_model_hash = hash_text(agent_model) if agent_model else EMPTY_HASH
+        agent_model_provider = receipt.get("agent_model_provider")
+        agent_model_provider_hash = hash_text(agent_model_provider) if agent_model_provider else EMPTY_HASH
+        agent_model_version = receipt.get("agent_model_version")
+        agent_model_version_hash = hash_text(agent_model_version) if agent_model_version else EMPTY_HASH
+        agent_identity = receipt.get("agent_identity")
+        agent_identity_hash = hash_obj(agent_identity) if agent_identity else EMPTY_HASH
+        fingerprint_input = (
+            f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}"
+            f"|{checks_hash}|{constitution_hash}|{enforcement_hash}"
+            f"|{coverage_hash}|{authority_hash}|{escalation_hash}"
+            f"|{trust_hash}|{extensions_hash}"
+            f"|{parent_receipts_hash}|{workflow_id_hash}"
+            f"|{enforcement_surface_hash}|{invariants_scope_hash}"
+            f"|{tool_name_hash}|{agent_model_hash}"
+            f"|{agent_model_provider_hash}|{agent_model_version_hash}"
+            f"|{agent_identity_hash}"
+        )
+    elif cv_int >= 9:
         # Fields 15-20 (v1.4+, SAN-222)
         enforcement_surface = receipt.get("enforcement_surface", "")
         invariants_scope = receipt.get("invariants_scope", "")
@@ -1200,6 +1226,7 @@ class SannaGateway:
         self._content_mode: str = ""  # v1.0.0: content mode metadata
         self._workflow_id: str | None = None  # v1.0.0: workflow grouping
         self._last_receipt_fingerprint: str | None = None  # for receipt chaining
+        self._agent_session_id: str = uuid.uuid4().hex  # SAN-370: AARM R6 session binding (Section 2.19)
         # SAN-202: session_manifest receipt emitted once per gateway lifecycle
         self._manifest_emitted: bool = False
         # SAN-206: full_fingerprint of the session_manifest receipt for anomaly chaining
@@ -3811,6 +3838,8 @@ class SannaGateway:
         elif self._last_receipt_fingerprint:
             parent_receipts_list = [self._last_receipt_fingerprint]
 
+        agent_identity_dict = {"agent_session_id": self._agent_session_id}
+
         receipt = generate_constitution_receipt(
             trace_data,
             check_configs=self._check_configs or [],
@@ -3829,6 +3858,7 @@ class SannaGateway:
             content_mode_source=getattr(self, '_content_mode_source', None),
             enforcement_surface="gateway",
             invariants_scope=invariants_scope,
+            agent_identity=agent_identity_dict,
         )
 
         # SEC-1: Apply redaction markers BEFORE signing so that the

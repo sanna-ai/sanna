@@ -585,7 +585,7 @@ class TestVerifierDispatch:
 
 class TestVersionConstants:
     def test_spec_version(self):
-        assert SPEC_VERSION == "1.4"
+        assert SPEC_VERSION == "1.5"
 
     def test_checks_version(self):
-        assert CHECKS_VERSION == "9"
+        assert CHECKS_VERSION == "10"

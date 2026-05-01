@@ -184,6 +184,7 @@ def patch_subprocess(
         "content_mode": content_mode,
         "workflow_id": workflow_id,
         "parent_fingerprint": parent_fingerprint,
+        "agent_session_id": None,
     })
 
     # Store originals
@@ -691,6 +692,12 @@ def _emit_receipt(
         "metadata": {},
     }
 
+    if _state.get("agent_session_id") is None:
+        import uuid as _uuid
+        _state["agent_session_id"] = _uuid.uuid4().hex
+
+    agent_identity_dict = {"agent_session_id": _state["agent_session_id"]}
+
     receipt = generate_receipt(
         trace_data=trace_data,
         constitution_ref_override=constitution_ref,
@@ -703,6 +710,7 @@ def _emit_receipt(
         enforcement=enforcement_dict,
         enforcement_surface="cli_interceptor",
         invariants_scope="authority_only",
+        agent_identity=agent_identity_dict,
     )
 
     # Convert to dict for sink

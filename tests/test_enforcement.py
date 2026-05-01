@@ -461,7 +461,8 @@ class TestReceiptFormat:
 
         result = agent(query="test", context=SIMPLE_CONTEXT)
         assert result.receipt["tool_version"] == TOOL_VERSION
-        assert result.receipt["checks_version"] == CHECKS_VERSION
+        # Library middleware (sanna_observe) emits cv=9 legacy per spec Section 2.19 line 781-782
+        assert result.receipt["checks_version"] == "9"
 
     def test_receipt_has_constitution_ref(self):
         """Receipt should include constitution_ref from constitution."""
@@ -782,4 +783,4 @@ class TestVersionConstants:
         assert TOOL_VERSION == __version__
 
     def test_checks_version(self):
-        assert CHECKS_VERSION == "9"
+        assert CHECKS_VERSION == "10"

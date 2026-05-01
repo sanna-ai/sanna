@@ -1,3 +1,34 @@
+## [Unreleased] -- 2026-04-30 (SAN-370 Prompt B)
+
+### Changed
+- `src/sanna/version.py`: `__version__` 1.4.0 -> 1.5.0 (TOOL_VERSION; v1.5 SHIPPED moment for Python SDK runtime).
+- `src/sanna/receipt.py`: SPEC_VERSION 1.4 -> 1.5; CHECKS_VERSION 9 -> 10. Added `agent_identity` field to `SannaReceipt` dataclass. `generate_receipt()` adds `agent_identity` keyword argument with cv-dispatch: when present (and non-empty `agent_session_id`), emits cv=10 with 21-field fingerprint formula adding `agent_identity_hash` at field 21 = `hash_obj(agent_identity)`; when None (library middleware path), emits cv=9 legacy with 20-field formula and hardcoded "1.4"/"9" overrides for byte-equal compatibility with archive fixtures.
+- `src/sanna/middleware.py`: same cv-dispatch in `_generate_constitution_receipt()` and `_generate_no_invariants_receipt()`. Both paths take `agent_identity` keyword.
+- `src/sanna/gateway/server.py`: added `MCPGateway._agent_session_id` (uuid4 hex, stable for instance lifetime). `_generate_receipt()` builds `agent_identity = {agent_session_id: self._agent_session_id}` and passes to `generate_constitution_receipt()`. `_apply_redaction_markers()` adds cv>=10 branch with 21-field fingerprint formula.
+- `src/sanna/interceptors/subprocess_interceptor.py`: lazy-init `_state['agent_session_id']` on first invocation; `_emit_receipt()` builds and passes agent_identity to generate_receipt.
+- `src/sanna/interceptors/http_interceptor.py`: same pattern with `_http_state['agent_session_id']` and `_emit_http_receipt()`.
+- `src/sanna/verify.py`: added cv>=10 branch in `_verify_fingerprint_v013()` (21-field formula with agent_identity_hash). `verify_receipt()` adds cv>=10 required-field check (`agent_identity` and sub-field `agent_session_id`). `verify_schema()` strips None-valued optional fields before jsonschema validation (prevents cv=9 legacy receipts from failing schema validation on absent `agent_identity`).
+- `spec/` submodule: bumped from 03160f1 (post-SAN-378 Prompt A) to 9ee7527 (post-SAN-370 Prompt A; v1.5 protocol artifact).
+- `src/sanna/spec/receipt.schema.json`: synced from spec/schemas/receipt.schema.json (operational copy; SAN-374 drift gate). Schema $id is now https://sanna.dev/schemas/receipt/v1.5.json.
+- `ARCHITECTURE.md`: v1.4 -> v1.5 references; cv=10 / 21-field row added to formula table; SannaReceipt field count 28 -> 29.
+- Tests: SDK constant assertions flipped to '10'/'1.5.0'; receipt-field assertions case-by-case per emission path; new `tests/test_v15_integrity.py` for cv=10 emission + verification + agent_identity round-trip; new `tests/test_cross_language_fixture_parity.py` validates Python recomputes spec/fixtures cv=10 fingerprint byte-equal.
+
+### Per-emission-site cv discipline (SAN-370 Issue Y)
+- gateway / cli_interceptor / http_interceptor surfaces emit cv=10 with populated agent_identity.
+- middleware surface (sanna-generate CLI, sanna_generate_receipt MCP tool, @sanna_observe decorator path) emits cv=9 legacy with no agent_identity, per spec Section 2.19 line 781-782.
+
+### Compatibility
+- **Receipt fingerprint compatibility:** Existing signed cv=9 receipts continue to verify via the 20-field formula; the verifier dispatches on `checks_version`. Re-emission post-upgrade from gateway/interceptor surfaces produces cv=10 receipts with new field 21; library middleware re-emission preserves cv=9 byte-equal output.
+- **TOOL_VERSION bumps to 1.5.0 globally** (no per-callsite override). All Python SDK emissions report tool_version=1.5.0 even when emitting cv=9 legacy receipts. The receipt's spec_version/checks_version reflect the per-emission cv decision; tool_version reflects the SDK runtime.
+- **pyproject.toml stays at 1.3.0** (PyPI publication is gated by a separate release ticket; pre-existing convention per CHANGELOG history).
+
+### Tickets
+- SAN-370 Prompt B (this entry)
+- Predecessor: SAN-370 Prompt A (sanna-protocol 9ee7527; v1.5 fixtures + schema $id flip).
+- Successor: SAN-370 Prompt C (sanna-ts mirror).
+- Forward-pointers: SAN-383 (cv<10 -> agent_identity-absent negative schema rule, Backlog), SAN-384 (apply content_mode redaction to agent_identity sub-fields, Backlog).
+- Out-of-scope: SAN-368 (AARM verifier R6 PASS/PARTIAL), SAN-369 (MODIFY parameter recording), SAN-371 (cv=10 cascade legacy warnings + customer notification).
+
 ## [Unreleased] -- 2026-04-30 (SAN-378 Prompt B)
 
 ### Changed
