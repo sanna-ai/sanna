@@ -6,7 +6,7 @@ generates portable cryptographic receipts proving governance was enforced.
 
 from .version import __version__
 from .middleware import sanna_observe, SannaResult, SannaHaltError
-from .receipt import generate_receipt, SannaReceipt
+from .receipt import generate_receipt, receipt_to_dict, SannaReceipt
 from .verify import verify_receipt, VerificationResult
 from .store import ReceiptStore
 from .drift import DriftAnalyzer
@@ -27,6 +27,7 @@ __all__ = [
     "SannaHaltError",
     "SannaResult",
     "generate_receipt",
+    "receipt_to_dict",
     "SannaReceipt",
     "verify_receipt",
     "VerificationResult",

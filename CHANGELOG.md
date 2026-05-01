@@ -1,3 +1,24 @@
+## [Unreleased] -- 2026-04-30 (SAN-385)
+
+### Fixed
+- **Wire-format regression (SAN-370 Prompt B fallout):** cv=9 legacy receipts emitted via the Python SDK now correctly OMIT the `agent_identity` field instead of emitting `agent_identity: null`. Per spec Section 2.19 line 780, `agent_identity` MUST be absent at cv<=9; the schema (per SAN-204) defines the field as `type: "object"` (non-nullable). SAN-370 Prompt B's `asdict(SannaReceipt)` produced `null` due to the new `Optional[dict] = None` field default. Fix: introduced `receipt_to_dict()` helper that strips `agent_identity` when None; replaced 3 production `asdict(receipt)` callers (cli.py, subprocess_interceptor.py, http_interceptor.py) plus test sites in test_pem_bytes_api, test_constitution, test_halt_event, test_constitution_lifecycle, test_v15_integrity.
+- **Verifier returned to strict schema validation:** SAN-370 Prompt B added a `None`-stripping pre-pass in `verify_schema` (verify.py:250-253) to mask the wire-format regression. SAN-385 reverts this to plain `validate(receipt, schema)`. Per CLAUDE.md governance principle, verifier-side enforcement is non-negotiable; the verifier should reject what the schema rejects.
+
+### Added
+- `src/sanna/receipt.py:receipt_to_dict(receipt)` -- convert `SannaReceipt` to wire dict, omitting `agent_identity` when None. Exported from `sanna` package (`sanna.__all__` grows from 21 to 22). Used at all 3 production emit sites (sanna-generate CLI, subprocess interceptor, http interceptor).
+- `tests/test_wire_format_no_nulls.py` -- asserts cv=9 wire JSON has no `agent_identity` key; cv=10 has the dict; both pass strict schema validation; cv=9 wire shape matches `spec/fixtures/receipts/archive/v1.4/`.
+
+### Compatibility
+- **Wire format alignment with TS Prompt C:** Python now emits `agent_identity` ABSENT for cv=9 (matching TS's natural `JSON.stringify` behavior for unset optional fields). Cross-SDK byte-equal contract for wire JSON restored ahead of SAN-370 Prompt C.
+- **Pre-Prompt-B receipts (deployed pre-2026-04-30):** unaffected. They never had `agent_identity` field at all (cv=9 archive shape).
+- **Receipt fingerprints unchanged:** the cv-dispatch fingerprint formula (SAN-370 Prompt B) computes from pipe-joined fields, not from canonical JSON of the receipt body. Wire-format change does not affect fingerprint values; existing signed receipts continue to verify their fingerprints.
+
+### Tickets
+- SAN-385 (this entry)
+- Predecessor: SAN-370 Prompt B (sanna-repo a0ee706, MERGED) -- introduced the regression
+- Unblocks: SAN-370 Prompt C (sanna-ts) -- TS Prompt C will mirror Python's now-correct wire shape
+- Cross-SDK contract: SAN-355 G1
+
 ## [Unreleased] -- 2026-04-30 (SAN-370 Prompt B)
 
 ### Changed

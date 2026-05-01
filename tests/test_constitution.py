@@ -8,6 +8,7 @@ from dataclasses import asdict
 
 from sanna.receipt import (
     generate_receipt,
+    receipt_to_dict,
     ConstitutionProvenance,
     SannaReceipt,
 )
@@ -94,7 +95,7 @@ class TestConstitutionProvenance:
     def test_constitution_receipt_validates(self):
         """Receipt with constitution should pass schema + fingerprint verification."""
         receipt = generate_receipt(make_trace(), constitution=make_constitution())
-        receipt_dict = asdict(receipt)
+        receipt_dict = receipt_to_dict(receipt)
         result = verify_receipt(receipt_dict, SCHEMA)
         assert result.valid, f"Validation failed: {result.errors}"
         assert result.exit_code == 0
@@ -102,14 +103,14 @@ class TestConstitutionProvenance:
     def test_constitution_fingerprint_verification(self):
         """Fingerprint should verify correctly with constitution included."""
         receipt = generate_receipt(make_trace(), constitution=make_constitution())
-        receipt_dict = asdict(receipt)
+        receipt_dict = receipt_to_dict(receipt)
         match, computed, expected = verify_fingerprint(receipt_dict)
         assert match, f"Fingerprint mismatch: {computed} != {expected}"
 
     def test_tampering_constitution_invalidates_fingerprint(self):
         """Modifying constitution_ref after generation should fail verification."""
         receipt = generate_receipt(make_trace(), constitution=make_constitution())
-        receipt_dict = asdict(receipt)
+        receipt_dict = receipt_to_dict(receipt)
         receipt_dict["constitution_ref"]["document_id"] = "tampered-id"
         match, _, _ = verify_fingerprint(receipt_dict)
         assert not match
@@ -123,6 +124,6 @@ class TestConstitutionProvenance:
         receipt = generate_receipt(make_trace(), constitution=constitution)
         assert receipt.constitution_ref["version"] is None
         assert receipt.constitution_ref["source"] is None
-        receipt_dict = asdict(receipt)
+        receipt_dict = receipt_to_dict(receipt)
         result = verify_receipt(receipt_dict, SCHEMA)
         assert result.valid, f"Validation failed: {result.errors}"

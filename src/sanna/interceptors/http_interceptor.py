@@ -24,7 +24,7 @@ from typing import Optional
 
 from ..constitution import load_constitution, constitution_to_receipt_ref
 from ..hashing import hash_obj, hash_text, EMPTY_HASH
-from ..receipt import generate_receipt
+from ..receipt import generate_receipt, receipt_to_dict
 from ..sinks.sink import ReceiptSink
 from .api_authority import evaluate_api_authority, check_api_invariants, ApiAuthorityDecision
 
@@ -403,7 +403,7 @@ def _emit_http_receipt(
         agent_identity=agent_identity_dict,
     )
 
-    receipt_dict = asdict(receipt)
+    receipt_dict = receipt_to_dict(receipt)
     receipt_dict["enforcement"] = enforcement_dict
     receipt_dict["extensions"] = receipt_extensions
     receipt_dict["input_hash"] = input_hash

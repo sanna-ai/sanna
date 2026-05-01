@@ -42,7 +42,7 @@ from sanna.constitution import (
     CONSTITUTION_SCHEMA_VERSION,
 )
 from sanna.crypto import generate_keypair
-from sanna.receipt import generate_receipt, ConstitutionProvenance, SannaReceipt
+from sanna.receipt import generate_receipt, receipt_to_dict, ConstitutionProvenance, SannaReceipt
 from sanna.hashing import hash_text, hash_obj
 from sanna.verify import verify_receipt, load_schema, verify_fingerprint
 from sanna.middleware import sanna_observe, SannaResult, SannaHaltError
@@ -488,7 +488,7 @@ class TestReceiptRefOverride:
         signed = _signed_constitution()
         ref = constitution_to_receipt_ref(signed)
         receipt = generate_receipt(_make_trace(), constitution_ref_override=ref)
-        receipt_dict = asdict(receipt)
+        receipt_dict = receipt_to_dict(receipt)
         match, computed, expected = verify_fingerprint(receipt_dict)
         assert match, f"Fingerprint mismatch: {computed} != {expected}"
 
@@ -497,7 +497,7 @@ class TestReceiptRefOverride:
         signed = _signed_constitution()
         ref = constitution_to_receipt_ref(signed)
         receipt = generate_receipt(_make_trace(), constitution_ref_override=ref)
-        receipt_dict = asdict(receipt)
+        receipt_dict = receipt_to_dict(receipt)
         result = verify_receipt(receipt_dict, RECEIPT_SCHEMA)
         assert result.valid, f"Validation failed: {result.errors}"
 
@@ -515,7 +515,7 @@ class TestReceiptRefOverride:
         signed = _signed_constitution()
         ref = constitution_to_receipt_ref(signed)
         receipt = generate_receipt(_make_trace(), constitution_ref_override=ref)
-        receipt_dict = asdict(receipt)
+        receipt_dict = receipt_to_dict(receipt)
         receipt_dict["constitution_ref"]["policy_hash"] = "a" * 64
         match, _, _ = verify_fingerprint(receipt_dict)
         assert not match

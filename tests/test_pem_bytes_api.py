@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives.asymmetric.rsa import generate_private_key a
 
 from sanna.crypto import sign_receipt_from_pem
 from sanna.verify import verify_receipt, load_schema
-from sanna.receipt import generate_receipt
+from sanna.receipt import generate_receipt, receipt_to_dict
 
 SCHEMA = load_schema()
 
@@ -60,7 +60,7 @@ def _make_receipt_dict():
         ],
     }
     receipt = generate_receipt(trace_data)
-    return asdict(receipt)
+    return receipt_to_dict(receipt)
 
 
 # =============================================================================

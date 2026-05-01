@@ -247,11 +247,7 @@ def verify_schema(receipt: dict, schema: dict | None) -> list:
         return []
     errors = []
     try:
-        # Strip None-valued optional fields before schema validation: JSON has no null
-        # for absent optional properties; Python None from dataclass defaults maps to
-        # null and would incorrectly fail validation for non-nullable optional schema fields.
-        receipt_for_validation = {k: v for k, v in receipt.items() if v is not None}
-        validate(receipt_for_validation, schema)
+        validate(receipt, schema)
     except ValidationError as e:
         errors.append(f"Schema validation failed: {e.message}")
         if e.path:
