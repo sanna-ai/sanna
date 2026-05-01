@@ -988,7 +988,10 @@ class TestVerifyReporting:
         result = agent(query="test?", context="Context here.")
         schema = load_schema()
         vr = verify_receipt(result.receipt, schema)
-        assert not any("identity" in w.lower() for w in vr.warnings)
+        # Exclude CV9_LEGACY informational warnings (SAN-371); they are not
+        # identity-claim warnings and are expected on cv=9 middleware receipts.
+        claim_warnings = [w for w in vr.warnings if not w.startswith("CV9_LEGACY:")]
+        assert not any("identity" in w.lower() for w in claim_warnings)
 
 
 # =============================================================================
