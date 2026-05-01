@@ -1,3 +1,21 @@
+## [Unreleased] -- 2026-05-01 (SAN-392)
+
+### Changed
+- **Bumped `spec/` submodule pin** from 9ee7527 (pre-SAN-389) to e58ed3e (post-SAN-389 sanna-protocol self-consistency fix). Brings sanna-repo's bundled keypair (`fixtures/keypairs/test-author.pub` key_id = 6edb993...) into lockstep with sanna-ts at the same pin.
+- **Synced operational schema copies** (`src/sanna/spec/receipt.schema.json`, `src/sanna/spec/constitution.schema.json`) from the new submodule snapshot per SAN-374 drift gate. Schema content unchanged (no v1.5 schema edits between 9ee7527 and e58ed3e); files refreshed for byte-identical match with submodule.
+
+### Compatibility
+- **Cross-SDK keypair lockstep restored.** Pre-SAN-392, sanna-repo and sanna-ts at v1.5 bundled different keypairs; cross-SDK signature verification failed for receipts crossing the SDK boundary. Post-SAN-392, both repos pin spec/ at e58ed3e; bundled keypairs match.
+- **Receipt fingerprints unchanged** (formula uses pipe-joined receipt fields, not signing key). Existing tests pass without modification.
+- **Receipt signatures from cv=10 fixtures** in the new submodule snapshot were rotated by SAN-389 (re-signed with the bundled keypair). cv=9 archive signatures unchanged.
+- **No code changes.** Pure submodule + operational schema sync.
+
+### Tickets
+- SAN-392 (this entry)
+- Predecessor: SAN-389 (sanna-protocol e58ed3e + sanna-ts 8e769ec, MERGED) -- only bumped sanna-protocol + sanna-ts; missed sanna-repo
+- Unblocks: SAN-386 (v1.5 release-gate verification matrix)
+- Cross-SDK contract: SAN-355
+
 ## [Unreleased] -- 2026-04-30 (SAN-385)
 
 ### Fixed
