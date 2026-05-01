@@ -1073,6 +1073,19 @@ def verify_receipt(
                 "v1.4+ receipt (checks_version >= 9) is missing required field: tool_name"
             )
 
+    # SAN-371: cv=9 receipts pass with informational warning indicating
+    # partial R6 conformance only (agent_identity absent at cv<10 per spec
+    # Section 2.19 line 780). cv=10 binds agent_identity for full R6.
+    if _cv_int == 9:
+        warnings.append(
+            "CV9_LEGACY: Receipt at checks_version=9 (v1.4) verified successfully "
+            "with the 20-field fingerprint formula. cv=9 receipts indicate partial "
+            "R6 conformance only; agent_identity is absent. Receipts emitted at "
+            "cv=10 (v1.5) bind agent_identity for full R6 conformance per spec "
+            "Section 2.19. No re-emission required: existing signed cv=9 receipts "
+            "remain cryptographically valid indefinitely."
+        )
+
     if _cv_int >= 8:
         if not receipt.get("enforcement_surface"):
             errors.append(

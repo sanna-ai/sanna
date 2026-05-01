@@ -1,3 +1,18 @@
+## [Unreleased] -- 2026-05-01 (SAN-371)
+
+### Added
+- **Verifier emits CV9_LEGACY-prefixed warning on cv=9 receipts.** When `verify_receipt(...)` processes a receipt with `checks_version=9`, the warnings list now includes a string starting with `CV9_LEGACY:` indicating partial R6 conformance only (agent_identity is absent at cv<10 per spec Section 2.19). Receipt remains valid; the warning is informational. Existing signed cv=9 receipts continue to verify successfully without re-emission.
+- New test coverage in `tests/test_san371_cv9_legacy.py` validating: cv=9 receipts emit exactly one CV9_LEGACY warning; cv=10 receipts emit no CV9_LEGACY warning; pre-v1.5 archive cv=9 fixtures verify cleanly with the warning.
+
+### Compatibility
+- **No-action-required for existing signed cv=9 receipts.** Pre-v1.5 receipts remain cryptographically valid; their 20-field fingerprints continue to verify. Verification output now includes the CV9_LEGACY informational warning.
+- **Warning format:** flat string with `CV9_LEGACY:` prefix in `VerificationResult.warnings`. Pattern matches existing pre-v1.3 legacy warnings at `verify.py:1093-1103`.
+
+### Tickets
+- SAN-371 (this entry; sanna-repo Python portion)
+- Predecessor: SAN-371 sanna-protocol portion (migration memo at `docs/migration/cv9-to-cv10.md`, MERGED at sanna-protocol a684a33)
+- Companion: sanna-ts SAN-371 portion (TS verifier parity, separate PR)
+
 ## [Unreleased] -- 2026-05-01 (SAN-392)
 
 ### Changed
