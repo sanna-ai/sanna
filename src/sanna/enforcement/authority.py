@@ -349,3 +349,100 @@ def _resolve_escalation_target(
         )
 
     return EscalationTarget(type=target_type)
+
+
+# =============================================================================
+# MODIFY DECISION RECORDING INFRASTRUCTURE (SAN-369)
+# =============================================================================
+
+def build_modify_authority_decision(
+    action: str,
+    original: object,
+    transformed: object,
+    transformations: list[dict],
+    *,
+    reason: str = None,
+    timestamp: str = None,
+) -> dict:
+    """Construct an authority_decisions[i] record with decision=modify_with_constraints.
+
+    Returns a dict matching AuthorityDecisionRecord in the receipt schema,
+    populated with the three MODIFY recording fields (tool_input_original,
+    tool_input_transformed, transformations_applied) per spec Section 2.7.
+
+    Validates at construction time:
+    - transformations is a non-empty list
+    - each transformation dict has exactly {type, target_field, rationale}
+    - original and transformed are string or dict
+
+    boundary_type is "can_execute": MODIFY proceeds with the action (transformed
+    input) so it sits under the can_execute boundary. The decision field carries
+    the MODIFY granularity. Schema enum on boundary_type does not include a
+    separate MODIFY value (spec line 870).
+
+    SAN-369 ships this recording infrastructure. Constitution-rule-driven
+    emission (evaluate_authority returning modify_with_constraints) is a
+    separate follow-up ticket.
+
+    Args:
+        action: Action name (e.g., tool name) being modified.
+        original: The agent-submitted input before transformation. String or dict.
+        transformed: The input actually passed to the tool after transformation.
+        transformations: List of transformation descriptors, each with keys
+            {type: str, target_field: str, rationale: str}.
+        reason: Optional human-readable reason for the MODIFY decision.
+        timestamp: Optional ISO 8601 timestamp; defaults to now in UTC.
+
+    Returns:
+        A dict that schema-validates as an AuthorityDecisionRecord with
+        decision=modify_with_constraints and the three required MODIFY fields.
+
+    Raises:
+        ValueError: if transformations is empty, transformations items are
+            malformed, or original/transformed are not string or dict.
+    """
+    if not isinstance(transformations, list) or len(transformations) == 0:
+        raise ValueError(
+            "transformations must be a non-empty list of "
+            "{type, target_field, rationale} dicts"
+        )
+    for i, t in enumerate(transformations):
+        if not isinstance(t, dict):
+            raise ValueError(f"transformations[{i}] must be a dict, got {type(t).__name__}")
+        required = {"type", "target_field", "rationale"}
+        missing = required - set(t.keys())
+        if missing:
+            raise ValueError(
+                f"transformations[{i}] missing required keys: {sorted(missing)}"
+            )
+        extra = set(t.keys()) - required
+        if extra:
+            raise ValueError(
+                f"transformations[{i}] has unexpected keys: {sorted(extra)} "
+                f"(only {sorted(required)} permitted)"
+            )
+    if not isinstance(original, (str, dict)):
+        raise ValueError(
+            f"original must be string or dict, got {type(original).__name__}"
+        )
+    if not isinstance(transformed, (str, dict)):
+        raise ValueError(
+            f"transformed must be string or dict, got {type(transformed).__name__}"
+        )
+
+    if timestamp is None:
+        from datetime import datetime, timezone
+        timestamp = datetime.now(timezone.utc).isoformat()
+    if reason is None:
+        reason = f"MODIFY: action {action!r} parameters transformed"
+
+    return {
+        "action": action,
+        "decision": "modify_with_constraints",
+        "reason": reason,
+        "boundary_type": "can_execute",
+        "timestamp": timestamp,
+        "tool_input_original": original,
+        "tool_input_transformed": transformed,
+        "transformations_applied": transformations,
+    }

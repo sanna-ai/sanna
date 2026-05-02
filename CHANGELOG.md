@@ -1,3 +1,19 @@
+## [Unreleased] -- 2026-05-02 (SAN-369)
+
+### Added
+- **MODIFY authority decision recording infrastructure (Python).** `sanna.enforcement.authority.build_modify_authority_decision(action, original, transformed, transformations, ...)` constructs a dict matching `AuthorityDecisionRecord` with `decision=modify_with_constraints` and the three required MODIFY recording fields (`tool_input_original`, `tool_input_transformed`, `transformations_applied`) per spec Section 2.7. Helper validates at construction time: transformations is a non-empty list of `{type, target_field, rationale}` dicts; `original` and `transformed` are string or dict. Records produced by the helper satisfy the A1' conditional rule in `receipt.schema.json` (decision=modify_with_constraints requires the three fields).
+- New test coverage in `tests/test_san369_modify_recording.py` validating: helper output schema-validates inside a full receipt; receipts missing any of the three MODIFY fields are schema-rejected; transformation items with missing/extra keys are construction-rejected; non-string-non-dict `original`/`transformed` raise ValueError; deterministic construction (two calls with identical inputs produce byte-equal records).
+
+### Out of scope
+- **Constitution-rule-driven MODIFY emission.** `evaluate_authority` does NOT yet return `modify_with_constraints`. The rule engine (constitution boundary type for transformations + dispatch in `evaluate_authority`) is conceptually a separate ticket; SAN-369 ships only the recording-infrastructure half.
+- **Cross-SDK fixture (SAN-369 AC #4).** Lands in the sanna-protocol SAN-369 portion (hand-constructed + signed with the committed e58ed3e keypair). Not generated via `generate_fixtures.py` until SAN-391 lands.
+
+### Tickets
+- SAN-369 (this entry; sanna-repo Python portion)
+- Predecessor: SAN-204 (schema text + A1' conditional rule, MERGED)
+- Companions: sanna-ts SAN-369 portion (TypeScript parity, separate Opus prompt) + sanna-protocol SAN-369 portion (implementer's guide example + cross-SDK fixture, separate Opus prompt)
+- Verifier rejection of MODIFY receipts missing the three fields: SAN-368 (sanna-verify aarm)
+
 ## [Unreleased] -- 2026-05-01 (SAN-371)
 
 ### Added
