@@ -4,6 +4,7 @@ Legacy aliases: c3m-receipt, c3m-verify
 """
 
 import argparse
+import glob as _glob
 import json
 import os
 import sys
@@ -117,6 +118,70 @@ def main_generate():
 # =============================================================================
 
 VERIFIER_VERSION = "0.3.0"
+
+
+# =============================================================================
+# AARM VERIFIER CLI (SAN-368)
+# =============================================================================
+
+def main_verify_aarm():
+    """Entry point for `sanna-verify aarm <files-glob>` subcommand."""
+    from .aarm import aggregate_aarm_report, format_aarm_report
+
+    parser = argparse.ArgumentParser(
+        prog="sanna-verify aarm",
+        description="Mechanically verify AARM Core (R1-R6) conformance on a receipt set",
+    )
+    parser.add_argument("files", help="Glob pattern matching receipt JSON files")
+    parser.add_argument(
+        "--format",
+        choices=["json", "human"],
+        default="human",
+        help="Output format (default: human)",
+    )
+    parser.add_argument("--output", "-o", help="Output file (default: stdout)")
+    parser.add_argument(
+        "--public-key",
+        help="Path to Ed25519 public key for signature verification",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"sanna-verify-aarm {VERIFIER_VERSION}",
+    )
+    args = parser.parse_args()
+
+    # Glob expand
+    files = sorted(_glob.glob(args.files))
+    if not files:
+        print(f"Error: no files matched '{args.files}'", file=sys.stderr)
+        return 2
+
+    # Load receipts
+    receipts = []
+    for fp in files:
+        try:
+            with open(fp) as f:
+                receipts.append(json.load(f))
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"Error loading {fp}: {e}", file=sys.stderr)
+            return 2
+
+    # Run verifier
+    try:
+        report = aggregate_aarm_report(receipts, public_key_path=args.public_key)
+    except Exception as e:
+        print(f"Internal error: {e}", file=sys.stderr)
+        return 3
+
+    output = format_aarm_report(report, fmt=args.format)
+    if args.output:
+        Path(args.output).write_text(output)
+        print(f"Report written to {args.output}", file=sys.stderr)
+    else:
+        print(output)
+
+    return 0 if report.aggregate_status in ("PASS", "PARTIAL") else 1
 
 
 def format_verify_summary(result: VerificationResult, receipt: dict, signature_status: dict = None) -> str:
@@ -295,6 +360,11 @@ def format_verify_json(result: VerificationResult, receipt: dict) -> str:
 
 def main_verify():
     """Entry point for sanna-verify command."""
+    # Dispatch to aarm subcommand when invoked as `sanna-verify aarm ...`
+    if len(sys.argv) > 1 and sys.argv[1] == "aarm":
+        sys.argv = [sys.argv[0] + " aarm"] + sys.argv[2:]
+        return main_verify_aarm()
+
     parser = argparse.ArgumentParser(
         description="Verify Sanna reasoning receipts",
         epilog="Exit codes: 0=valid, 2=schema invalid, 3=fingerprint mismatch, 4=consistency error, 5=other"

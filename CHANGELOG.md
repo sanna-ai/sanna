@@ -1,3 +1,23 @@
+## [Unreleased] -- 2026-05-02 (SAN-368)
+
+### Added
+- **`sanna-verify aarm` CLI subcommand** mechanically verifies AARM Core (R1-R6) conformance on a receipt set. Per spec Section 14, this CLI makes the public conformance claim mechanically verifiable: `sanna-verify aarm <files-glob> [--format json|human] [--public-key <path>]`. Exit 0 on PASS or PARTIAL, exit 1 on FAIL.
+- **`src/sanna/aarm.py`** module with: `SANNA_TO_AARM` decision-enum mapping table (code primitive per SAN-356 G2); six per-requirement check functions (`check_r1_pre_execution_interception`, `check_r2_context_accumulation`, `check_r3_policy_evaluation`, `check_r4_decisions` with STEP_UP chain check, `check_r5_tamper_evident` with redacted-receipt acceptance, `check_r6_identity_binding` with cv-aware PASS/PARTIAL/FAIL dispatch); `aggregate_aarm_report` aggregator; `format_aarm_report` for JSON and human-readable output.
+- **R6 dispatch** per SAN-371 + SAN-370: cv=10 receipts with `agent_identity.agent_session_id` -> PASS contribution; cv=9 receipts -> PARTIAL contribution (consistent with the CV9_LEGACY warning); cv=10 receipts missing `agent_identity` -> FAIL (hard error).
+- New tests in `tests/test_san368_aarm_verifier.py` covering per-check unit tests for PASS/FAIL/PARTIAL/N/A cases, STEP_UP chain check, R6 dispatch, redacted-receipt R5 acceptance, fixture-set integration, and CLI smoke test.
+
+### Out of scope
+- **TypeScript parity.** Lands in sanna-ts SAN-368 portion (separate Opus prompt).
+- **Spec section 'How to verify AARM conformance with sanna-verify aarm'.** Lands in sanna-protocol SAN-368 portion.
+- **SARIF output format.** Marked optional in SAN-368 ACs; deferred.
+- **Cross-language fixture parity test.** Achievable once TS parity ships; deferred to TS portion.
+
+### Tickets
+- SAN-368 (this entry; sanna-repo Python portion)
+- Predecessor: SAN-361 (Section 14 AARM Conformance and Mapping spec section, MERGED)
+- Companions: sanna-ts SAN-368 (TypeScript parity, separate PR), sanna-protocol SAN-368 (operational docs, separate PR)
+- Cross-references: SAN-356 G2 (locked decision-enum mapping), SAN-369 (MODIFY recording infrastructure), SAN-371 (CV9_LEGACY warning + cv-aware dispatch)
+
 ## [Unreleased] -- 2026-05-02 (SAN-369)
 
 ### Added
