@@ -202,6 +202,9 @@ class VerificationResult:
     computed_status: Optional[str] = None
     expected_status: Optional[str] = None
 
+    # SAN-358: structured per-check results (session_manifest + invocation_anomaly)
+    checks: list = _field(default_factory=list)
+
 
 # =============================================================================
 # SCHEMA LOADING
@@ -1030,6 +1033,31 @@ def verify_receipt(
             errors=schema_errors, warnings=[]
         )
 
+    # 1b. SAN-358: event_type semantic checks (session_manifest).
+    # Runs after schema validation (structural validity confirmed) but before
+    # other checks so FAIL messages surface with the correct exit_code context.
+    # Receipts without event_type (cv=9 / pre-v1.5 legacy) skip entirely.
+    _manifest_checks: list = []
+    _event_type = receipt.get("event_type")
+    if _event_type == "session_manifest":
+        from .verify_manifest import verify_session_manifest_receipt
+        _manifest_checks = verify_session_manifest_receipt(receipt)
+        for _chk in _manifest_checks:
+            if _chk.status == "FAIL":
+                errors.append(_chk.message)
+            elif _chk.status == "WARN":
+                warnings.append(_chk.message)
+    # invocation_anomaly checks (check 11+12) require the receipt_set; single-receipt
+    # mode emits WARN via verify_invocation_anomaly_receipt() with receipt_set=None.
+    elif _event_type in ("invocation_anomaly", "cli_invocation_anomaly", "api_invocation_anomaly"):
+        from .verify_manifest import verify_invocation_anomaly_receipt
+        _manifest_checks = verify_invocation_anomaly_receipt(receipt, receipt_set=None)
+        for _chk in _manifest_checks:
+            if _chk.status == "FAIL":
+                errors.append(_chk.message)
+            elif _chk.status == "WARN":
+                warnings.append(_chk.message)
+
     # 2. Hash format validation
     hash_errors = verify_hash_format(receipt)
     errors.extend(hash_errors)
@@ -1041,7 +1069,8 @@ def verify_receipt(
         errors.extend(content_hash_errors)
         return VerificationResult(
             valid=False, exit_code=3,
-            errors=errors, warnings=warnings
+            errors=errors, warnings=warnings,
+            checks=_manifest_checks,
         )
 
     # 2c. Constitution hash format check
@@ -1099,6 +1128,7 @@ def verify_receipt(
             return VerificationResult(
                 valid=False, exit_code=5,
                 errors=errors, warnings=warnings,
+                checks=_manifest_checks,
             )
     elif _cv_int in (6, 7):
         if not receipt.get("enforcement_surface"):
@@ -1123,6 +1153,7 @@ def verify_receipt(
             valid=False, exit_code=3,
             errors=[f"Fingerprint computation failed ({type(e).__name__}: {e}). Non-JSON-serializable data?"],
             warnings=warnings,
+            checks=_manifest_checks,
         )
 
     # 4. Status consistency
@@ -1193,7 +1224,8 @@ def verify_receipt(
             valid=False, exit_code=3,
             errors=errors, warnings=warnings,
             computed_fingerprint=fp_computed,
-            expected_fingerprint=fp_expected
+            expected_fingerprint=fp_expected,
+            checks=_manifest_checks,
         )
 
     if not status_match or count_errors:
@@ -1217,13 +1249,15 @@ def verify_receipt(
             valid=False, exit_code=4,
             errors=errors, warnings=warnings,
             computed_status=status_computed,
-            expected_status=status_expected
+            expected_status=status_expected,
+            checks=_manifest_checks,
         )
 
     if errors:
         return VerificationResult(
             valid=False, exit_code=5,
-            errors=errors, warnings=warnings
+            errors=errors, warnings=warnings,
+            checks=_manifest_checks,
         )
 
     return VerificationResult(
@@ -1232,5 +1266,88 @@ def verify_receipt(
         computed_fingerprint=fp_computed,
         expected_fingerprint=fp_expected,
         computed_status=status_computed,
-        expected_status=status_expected
+        expected_status=status_expected,
+        checks=_manifest_checks,
     )
+
+
+def verify_receipt_set(
+    receipts: list[dict],
+    schema: dict | None = None,
+    public_key: object | None = None,
+) -> dict[str, "VerificationResult"]:
+    """Verify a set of receipts with cross-receipt checks (SAN-358).
+
+    Each receipt is verified individually via verify_receipt(); additionally,
+    receipts with anomaly event_types get cross-receipt parent-resolution
+    checks (checks 11 and 12) against the full receipt set.
+
+    Args:
+        receipts: List of receipt dicts.
+        schema: JSON schema dict (optional; loaded from default path if None).
+        public_key: Unused placeholder for signature verification (optional).
+
+    Returns:
+        Mapping from receipt_id to VerificationResult. Each result includes
+        any cross-receipt checks merged into its checks list.
+    """
+    from .verify_manifest import verify_invocation_anomaly_receipt
+
+    if schema is None:
+        schema = load_schema()
+
+    _ANOMALY_TYPES = frozenset({
+        "invocation_anomaly", "cli_invocation_anomaly", "api_invocation_anomaly"
+    })
+
+    results: dict[str, VerificationResult] = {}
+
+    for receipt in receipts:
+        receipt_id = receipt.get("receipt_id", "")
+        result = verify_receipt(receipt, schema)
+
+        event_type = receipt.get("event_type")
+        if event_type in _ANOMALY_TYPES:
+            # Run cross-receipt checks with the full receipt set.
+            cross_checks = verify_invocation_anomaly_receipt(receipt, receipt_set=receipts)
+            # Merge cross-receipt checks into the result, replacing the WARN
+            # placeholders that verify_receipt() emitted for checks 11 and 12.
+            _CROSS_NAMES = {
+                "anomaly_parent_receipts_resolves_to_session_manifest",
+                "anomaly_attempted_capability_in_parent_suppressed_or_absent",
+            }
+            retained = [c for c in result.checks if c.name not in _CROSS_NAMES]
+            merged_checks = retained + cross_checks
+
+            # Re-derive errors and warnings from the merged check list.
+            extra_errors = [c.message for c in cross_checks if c.status == "FAIL"]
+            extra_warnings = [c.message for c in cross_checks if c.status == "WARN"]
+            # Remove the original WARN placeholders from warnings (they were
+            # added by verify_receipt's single-receipt anomaly dispatch).
+            from .verify_manifest import _CROSS_RECEIPT_SKIP_MSG
+            filtered_warnings = [
+                w for w in result.warnings if w != _CROSS_RECEIPT_SKIP_MSG
+            ]
+
+            new_errors = result.errors + extra_errors
+            new_warnings = filtered_warnings + extra_warnings
+            new_valid = result.valid and not extra_errors
+            new_exit_code = result.exit_code
+            if extra_errors and new_exit_code == 0:
+                new_exit_code = 5
+
+            result = VerificationResult(
+                valid=new_valid,
+                exit_code=new_exit_code,
+                errors=new_errors,
+                warnings=new_warnings,
+                computed_fingerprint=result.computed_fingerprint,
+                expected_fingerprint=result.expected_fingerprint,
+                computed_status=result.computed_status,
+                expected_status=result.expected_status,
+                checks=merged_checks,
+            )
+
+        results[receipt_id] = result
+
+    return results

@@ -1,3 +1,25 @@
+## [Unreleased] -- 2026-05-02 (SAN-358)
+
+### Added
+- New module `src/sanna/verify_manifest.py` with `verify_session_manifest_receipt()` (9 checks) and `verify_invocation_anomaly_receipt()` (3 checks). Implements verifier-side semantic enforcement of v1.5 Section 2.20 (com.sanna.manifest extension shape + determinism), Section 2.21 (suppression_reason enum), and Section 2.12 (parent_receipts binding for invocation_anomaly).
+- New public function `verify_receipt_set(receipts, schema, public_key) -> dict[receipt_id, VerificationResult]` in `src/sanna/verify.py`. Per-receipt verification + cross-receipt parent-resolution for anomaly receipts. Backward-compat: existing `verify_receipt()` signature unchanged.
+- `verify_receipt()` dispatches on `event_type` to invoke session_manifest checks. Receipts without event_type (cv=9 / pre-v1.5) skip the new dispatch entirely.
+- CLI: `sanna verify --receipt-set <pattern>` invokes verify_receipt_set. `--json-detailed` flag emits per-check machine-actionable verdict output for customer-equipping reproducibility.
+
+### Compatibility
+- `verify_receipt(receipt)` signature unchanged; external callers continue to work.
+- cv=9 receipts: no behavior change (no event_type field, dispatch skipped).
+- AARM report (`aggregate_aarm_report` from SAN-368) unchanged. SAN-358 checks are downstream of AARM Core (R1-R6) and live in verify_receipt(), preserving the public AARM Conformance claim boundary per spec Section 14.
+
+### Cross-SDK
+- Check.message text is stable and intended for byte-equal mirror in TS verifier (companion ticket SAN-358 Prompt B).
+- Cross-language verdict fixture authored in companion ticket SAN-358 Prompt C (sanna-protocol).
+
+### Tickets
+- SAN-358 Prompt A (this entry; Python half).
+- Companion: SAN-358 Prompt B (TS mirror), SAN-358 Prompt C (sanna-protocol verdict fixture).
+- Adjacent: SAN-394 (TS schema-validator gap; orthogonal; tracked separately).
+
 ## [Unreleased] -- 2026-05-02 (SAN-368)
 
 ### Added

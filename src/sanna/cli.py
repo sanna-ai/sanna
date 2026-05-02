@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .receipt import generate_receipt, receipt_to_dict, SannaReceipt, TOOL_VERSION
 from .utils.safe_json import safe_json_load, safe_json_loads
-from .verify import verify_receipt, load_schema, VerificationResult
+from .verify import verify_receipt, verify_receipt_set, load_schema, VerificationResult
 
 
 # =============================================================================
@@ -369,7 +369,7 @@ def main_verify():
         description="Verify Sanna reasoning receipts",
         epilog="Exit codes: 0=valid, 2=schema invalid, 3=fingerprint mismatch, 4=consistency error, 5=other"
     )
-    parser.add_argument("receipt", help="Path to receipt JSON file")
+    parser.add_argument("receipt", nargs="?", help="Path to receipt JSON file (omit when using --receipt-set)")
     parser.add_argument("--format", choices=["summary", "json"], default="summary",
                        help="Output format (default: summary)")
     parser.add_argument("--schema", help="Path to schema file (optional, auto-detected)")
@@ -379,9 +379,26 @@ def main_verify():
     parser.add_argument("--approver-public-key", help="Path to Ed25519 public key for approval signature verification")
     parser.add_argument("--strict", action="store_true",
                        help="Require receipt signature verification (fail if unsigned or no key)")
+    parser.add_argument("--receipt-set", metavar="PATTERN",
+                       help="Directory or glob pattern of receipt JSON files; invokes verify_receipt_set() for cross-receipt checks (SAN-358)")
+    parser.add_argument("--json-detailed", action="store_true",
+                       help="Emit per-check machine-actionable JSON verdict (SAN-358 customer-equipping)")
     parser.add_argument("--version", action="version", version=f"sanna-verify {VERIFIER_VERSION}")
 
     args = parser.parse_args()
+
+    # ------------------------------------------------------------------
+    # --receipt-set mode: cross-receipt verification (SAN-358)
+    # ------------------------------------------------------------------
+    if args.receipt_set:
+        return _main_verify_receipt_set(args)
+
+    # ------------------------------------------------------------------
+    # Single-receipt mode (existing behaviour)
+    # ------------------------------------------------------------------
+    if not args.receipt:
+        print("Error: Provide a receipt file path or use --receipt-set", file=sys.stderr)
+        return 5
 
     # Load receipt
     try:
@@ -425,6 +442,7 @@ def main_verify():
                 expected_fingerprint=result.expected_fingerprint,
                 computed_status=result.computed_status,
                 expected_status=result.expected_status,
+                checks=result.checks,
             )
         elif not args.public_key:
             result = VerificationResult(
@@ -436,6 +454,7 @@ def main_verify():
                 expected_fingerprint=result.expected_fingerprint,
                 computed_status=result.computed_status,
                 expected_status=result.expected_status,
+                checks=result.checks,
             )
     elif has_signature and not args.public_key:
         result = VerificationResult(
@@ -447,10 +466,13 @@ def main_verify():
             expected_fingerprint=result.expected_fingerprint,
             computed_status=result.computed_status,
             expected_status=result.expected_status,
+            checks=result.checks,
         )
 
     # Output
-    if args.format == "json":
+    if getattr(args, "json_detailed", False):
+        _print_json_detailed(result, receipt)
+    elif args.format == "json":
         output = format_verify_json(result, receipt)
         # Add signature status to JSON output
         import json as _json
@@ -467,6 +489,85 @@ def main_verify():
         }))
 
     return result.exit_code
+
+
+def _print_json_detailed(result: VerificationResult, receipt: dict) -> None:
+    """Emit per-check machine-actionable JSON verdict (SAN-358 --json-detailed)."""
+    import json as _json
+    from dataclasses import asdict as _asdict
+
+    overall = "FAIL" if not result.valid else (
+        "WARN" if result.warnings else "PASS"
+    )
+    checks_out = []
+    for chk in result.checks:
+        checks_out.append({
+            "name": chk.name,
+            "status": chk.status,
+            "message": chk.message,
+        })
+
+    output = {
+        "receipt_id": receipt.get("receipt_id", ""),
+        "verification_result": overall,
+        "checks": checks_out,
+        "fingerprint": receipt.get("full_fingerprint", ""),
+        "schema_version": receipt.get("spec_version", ""),
+    }
+    print(_json.dumps(output, indent=2))
+
+
+def _main_verify_receipt_set(args) -> int:
+    """Handle --receipt-set mode: cross-receipt verification (SAN-358)."""
+    import json as _json
+    import glob as _glob_mod
+
+    pattern = args.receipt_set
+    # Treat as a directory glob or an explicit glob pattern.
+    if Path(pattern).is_dir():
+        paths = sorted(Path(pattern).glob("*.json"))
+    else:
+        paths = sorted(Path(p) for p in _glob_mod.glob(pattern))
+
+    if not paths:
+        print(f"Error: No JSON files found matching: {pattern}", file=sys.stderr)
+        return 5
+
+    receipts = []
+    for path in paths:
+        try:
+            with open(path) as f:
+                receipts.append(safe_json_load(f))
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Error: Invalid JSON in {path}: {e}", file=sys.stderr)
+            return 5
+
+    try:
+        schema = load_schema(args.schema)
+    except FileNotFoundError as e:
+        print(f"Error: Schema not found: {e}", file=sys.stderr)
+        return 5
+
+    results = verify_receipt_set(receipts, schema=schema)
+
+    worst_exit = 0
+    for receipt_id, result in results.items():
+        if getattr(args, "json_detailed", False):
+            receipt = next(
+                (r for r in receipts if r.get("receipt_id") == receipt_id), {}
+            )
+            _print_json_detailed(result, receipt)
+        else:
+            overall = "PASS" if result.valid else "FAIL"
+            print(f"{receipt_id}: {overall}")
+            for err in result.errors:
+                print(f"  ERROR: {err}")
+            for warn in result.warnings:
+                print(f"  WARN:  {warn}")
+        if result.exit_code > worst_exit:
+            worst_exit = result.exit_code
+
+    return worst_exit
 
 
 # =============================================================================
