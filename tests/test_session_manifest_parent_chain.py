@@ -7,6 +7,8 @@ import pytest
 
 pytest.importorskip("mcp", reason="mcp extra not installed")
 
+from sanna.verify_manifest import verify_session_manifest_receipt, verify_invocation_anomaly_receipt
+
 from sanna.constitution import (
     AgentIdentity,
     AuthorityBoundaries,
@@ -41,6 +43,7 @@ def _con(cannot_execute=None) -> Constitution:
 def _make_gateway(constitution, captured_receipts):
     """Build a minimal SannaGateway stub for parent-chain testing."""
     from sanna.gateway.server import SannaGateway, DownstreamSpec, _DownstreamState
+    from sanna.constitution import sign_constitution, constitution_to_receipt_ref
 
     gw = object.__new__(SannaGateway)
 
@@ -55,12 +58,17 @@ def _make_gateway(constitution, captured_receipts):
 
     ds_state.connection = _FakeConn()
     gw._downstream_states = {"mock": ds_state}
-    gw._constitution = constitution
+
+    # SAN-396: sign constitution so _constitution_ref.policy_hash is present in
+    # emitted receipts (constitution_ref is required by the SAN-358 verifier).
+    signed_con = sign_constitution(constitution)
+    gw._constitution = signed_con
+    gw._constitution_ref = constitution_to_receipt_ref(signed_con)
+
     gw._reasoning_evaluator = None
     gw._manifest_emitted = False
     gw._manifest_full_fingerprint = None
     gw._suppressed_tool_names = set()
-    gw._constitution_ref = None
     gw._signing_key_path = None
     gw._content_mode = ""
     gw._tool_to_downstream = {}
@@ -103,6 +111,17 @@ class TestSessionManifestParentChain:
             assert anomaly["extensions"]["com.sanna.anomaly"]["attempted_tool"] == "mock_delete_all"
             assert anomaly["extensions"]["com.sanna.anomaly"]["suppression_basis"] == "session_manifest"
 
+            # SAN-396: bidirectional emission-verifier integration
+            for r in manifest_receipts:
+                checks = verify_session_manifest_receipt(r)
+                fails = [c for c in checks if c.status == "FAIL"]
+                assert not fails, f"Emitted manifest fails verifier: {[(c.name, c.message) for c in fails]}"
+
+            for r in anomaly_receipts:
+                checks = verify_invocation_anomaly_receipt(r, receipt_set=captured)
+                fails = [c for c in checks if c.status == "FAIL"]
+                assert not fails, f"Emitted anomaly fails verifier: {[(c.name, c.message) for c in fails]}"
+
         asyncio.run(_run())
 
     def test_forward_call_suppressed_tool_emits_anomaly(self):
@@ -122,6 +141,18 @@ class TestSessionManifestParentChain:
             anomaly_receipts = [r for r in captured if r.get("event_type") == "invocation_anomaly"]
             assert len(anomaly_receipts) == 1
             assert anomaly_receipts[0]["parent_receipts"] == [manifest_fp]
+
+            # SAN-396: bidirectional emission-verifier integration
+            manifest_receipts = [r for r in captured if r.get("event_type") == "session_manifest"]
+            for r in manifest_receipts:
+                checks = verify_session_manifest_receipt(r)
+                fails = [c for c in checks if c.status == "FAIL"]
+                assert not fails, f"Emitted manifest fails verifier: {[(c.name, c.message) for c in fails]}"
+
+            for r in anomaly_receipts:
+                checks = verify_invocation_anomaly_receipt(r, receipt_set=captured)
+                fails = [c for c in checks if c.status == "FAIL"]
+                assert not fails, f"Emitted anomaly fails verifier: {[(c.name, c.message) for c in fails]}"
 
         asyncio.run(_run())
 
@@ -187,3 +218,30 @@ class TestSessionManifestParentChain:
         gw._constitution = None
         gw._build_tool_list()
         assert gw._suppressed_tool_names == set()
+
+    def test_emitted_receipts_pass_verifier(self):
+        """SAN-396: all captured emission outputs pass SAN-358 verifier (zero FAIL)."""
+        captured = []
+        cons = _con(cannot_execute=["delete_all"])
+        gw = _make_gateway(cons, captured)
+
+        async def run():
+            tool_list = gw._build_tool_list()
+            await gw._emit_session_manifest(tool_list)
+            await gw._emit_invocation_anomaly("mock_delete_all", {})
+
+        asyncio.run(run())
+
+        for r in captured:
+            et = r.get("event_type")
+            if et == "session_manifest":
+                checks = verify_session_manifest_receipt(r)
+            elif et == "invocation_anomaly":
+                checks = verify_invocation_anomaly_receipt(r, receipt_set=captured)
+            else:
+                continue
+            fails = [c for c in checks if c.status == "FAIL"]
+            assert not fails, (
+                f"Emitted {et} receipt fails verifier check(s): "
+                f"{[(c.name, c.message) for c in fails]}"
+            )
