@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import errno
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import jsonschema
 
 import pytest
 
@@ -33,6 +36,10 @@ from sanna.sinks.sink import ReceiptSink, SinkResult
 CONSTITUTIONS_DIR = Path(__file__).parent / "constitutions"
 CLI_TEST_CONSTITUTION = str(CONSTITUTIONS_DIR / "cli-test.yaml")
 CLI_PERMISSIVE_CONSTITUTION = str(CONSTITUTIONS_DIR / "cli-permissive.yaml")
+
+RECEIPT_SCHEMA = json.loads(
+    (Path(__file__).parent.parent / "src" / "sanna" / "spec" / "receipt.schema.json").read_text()
+)
 
 # A constitution with no cli_permissions block
 NO_CLI_CONSTITUTION = str(CONSTITUTIONS_DIR / "with_authority.yaml")
@@ -1071,3 +1078,68 @@ class TestEnvPathResolution:
         )
         proc.communicate()
         assert proc.returncode == 0
+
+
+# =============================================================================
+# 15. RECEIPT SCHEMA CONFORMANCE (SAN-379)
+# =============================================================================
+
+class TestReceiptSchemaConformance:
+    """All CLI interceptor receipts validate against receipt.schema.json."""
+
+    def test_enforce_mode_allowed_receipt_validates(self, patched):
+        """Allowed receipt in enforce mode passes full schema validation."""
+        subprocess.run(["echo", "hello"])
+        receipt = patched.last
+        jsonschema.validate(receipt, RECEIPT_SCHEMA)
+
+    def test_enforce_mode_halted_receipt_validates(self, patched):
+        """Halted receipt in enforce mode passes full schema validation."""
+        with pytest.raises(FileNotFoundError):
+            subprocess.run(["rm", "something"])
+        receipt = patched.last
+        jsonschema.validate(receipt, RECEIPT_SCHEMA)
+
+    def test_audit_mode_receipt_validates(self, patched_audit):
+        """Receipt from audit mode passes full schema validation."""
+        subprocess.run(["rm", "--version"], capture_output=True)
+        receipt = patched_audit.last
+        jsonschema.validate(receipt, RECEIPT_SCHEMA)
+
+    def test_passthrough_mode_receipt_validates(self, patched_passthrough):
+        """Receipt from passthrough mode passes full schema validation."""
+        subprocess.run(["echo", "hello"])
+        receipt = patched_passthrough.last
+        jsonschema.validate(receipt, RECEIPT_SCHEMA)
+
+    def test_enforcement_mode_mapping_enforce(self, patched):
+        """enforce mode -> enforcement_mode='halt'."""
+        subprocess.run(["echo", "hello"])
+        assert patched.last["enforcement"]["enforcement_mode"] == "halt"
+
+    def test_enforcement_mode_mapping_audit(self, patched_audit):
+        """audit mode -> enforcement_mode='warn'."""
+        subprocess.run(["echo", "hello"])
+        assert patched_audit.last["enforcement"]["enforcement_mode"] == "warn"
+
+    def test_enforcement_mode_mapping_passthrough(self, patched_passthrough):
+        """passthrough mode -> enforcement_mode='log'."""
+        subprocess.run(["echo", "hello"])
+        assert patched_passthrough.last["enforcement"]["enforcement_mode"] == "log"
+
+    def test_enforcement_mode_is_schema_conformant_all_modes(self, sink):
+        """enforcement_mode is in ['halt','warn','log'] for all three modes."""
+        valid = {"halt", "warn", "log"}
+        for mode in ("enforce", "audit", "passthrough"):
+            unpatch_subprocess()
+            patch_subprocess(
+                constitution_path=CLI_TEST_CONSTITUTION,
+                sink=sink,
+                agent_id="test-agent",
+                mode=mode,
+            )
+            sink.receipts.clear()
+            subprocess.run(["echo", "hello"])
+            em = sink.last["enforcement"]["enforcement_mode"]
+            assert em in valid, f"mode={mode!r} produced enforcement_mode={em!r}"
+        unpatch_subprocess()

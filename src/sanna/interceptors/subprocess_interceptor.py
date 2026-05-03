@@ -76,6 +76,12 @@ from .cli_authority import evaluate_cli_authority, CliAuthorityDecision
 
 logger = logging.getLogger("sanna.interceptor.subprocess")
 
+_MODE_TO_ENFORCEMENT_LEVEL = {
+    "enforce": "halt",
+    "audit": "warn",
+    "passthrough": "log",
+}
+
 
 # =============================================================================
 # MODULE STATE
@@ -659,7 +665,7 @@ def _emit_receipt(
         "action": enforcement_action,
         "reason": decision.reason,
         "failed_checks": [],
-        "enforcement_mode": _state["mode"],
+        "enforcement_mode": _MODE_TO_ENFORCEMENT_LEVEL.get(_state["mode"], "halt"),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 

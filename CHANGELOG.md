@@ -1,3 +1,15 @@
+## [Unreleased] -- 2026-05-03 (SAN-379)
+
+### Fixed
+- CLI + HTTP interceptors: enforcement.enforcement_mode now emits
+  schema-conformant values (halt/warn/log) instead of interceptor
+  mode values (enforce/audit/passthrough). Mapping: enforce->halt,
+  audit->warn, passthrough->log.
+- Added jsonschema validation to interceptor tests (regression gate).
+
+### Tickets
+- SAN-379 (this entry).
+
 ## [Unreleased] -- 2026-05-02 (SAN-397)
 
 ### Added
