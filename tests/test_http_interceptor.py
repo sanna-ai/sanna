@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch, PropertyMock
 
+import jsonschema
 import pytest
 
 from sanna.constitution import (
@@ -32,6 +33,10 @@ from sanna.sinks.sink import ReceiptSink, SinkResult
 CONSTITUTIONS_DIR = Path(__file__).parent / "constitutions"
 API_TEST_CONSTITUTION = str(CONSTITUTIONS_DIR / "api-test.yaml")
 API_PERMISSIVE_CONSTITUTION = str(CONSTITUTIONS_DIR / "api-permissive.yaml")
+
+RECEIPT_SCHEMA = json.loads(
+    (Path(__file__).parent.parent / "src" / "sanna" / "spec" / "receipt.schema.json").read_text()
+)
 
 # A constitution with no api_permissions block
 NO_API_CONSTITUTION = str(CONSTITUTIONS_DIR / "with_authority.yaml")
@@ -776,3 +781,78 @@ class TestApiAuthorityEvaluator:
         constitution = load_constitution(API_TEST_CONSTITUTION)
         inv = check_api_invariants("https://example.com/clean", constitution)
         assert inv is None
+
+
+# =============================================================================
+# 15. RECEIPT SCHEMA CONFORMANCE (SAN-379)
+# =============================================================================
+
+class TestReceiptSchemaConformance:
+    """All HTTP interceptor receipts validate against receipt.schema.json."""
+
+    def test_enforce_mode_allowed_receipt_validates(self, sink):
+        """Allowed receipt in enforce mode passes full schema validation."""
+        mod = _patch_and_mock(sink)
+        _mock_orig(mod, "requests.get")
+
+        requests.get("https://api.example.com/data")
+        jsonschema.validate(sink.last, RECEIPT_SCHEMA)
+
+    def test_enforce_mode_halted_receipt_validates(self, sink):
+        """Halted receipt in enforce mode passes full schema validation."""
+        mod = _patch_and_mock(sink)
+        _mock_orig(mod, "requests.get")
+
+        with pytest.raises(ConnectionError):
+            requests.get("https://internal.evil.com/data")
+        jsonschema.validate(sink.last, RECEIPT_SCHEMA)
+
+    def test_audit_mode_receipt_validates(self, sink):
+        """Receipt from audit mode passes full schema validation."""
+        mod = _patch_and_mock(sink, mode="audit")
+        _mock_orig(mod, "requests.get")
+
+        requests.get("https://internal.evil.com/data")
+        jsonschema.validate(sink.last, RECEIPT_SCHEMA)
+
+    def test_passthrough_mode_receipt_validates(self, sink):
+        """Receipt from passthrough mode passes full schema validation."""
+        mod = _patch_and_mock(sink, mode="passthrough")
+        _mock_orig(mod, "requests.get")
+
+        requests.get("https://api.example.com/data")
+        jsonschema.validate(sink.last, RECEIPT_SCHEMA)
+
+    def test_enforcement_mode_mapping_enforce(self, sink):
+        """enforce mode -> enforcement_mode='halt'."""
+        mod = _patch_and_mock(sink, mode="enforce")
+        _mock_orig(mod, "requests.get")
+
+        requests.get("https://api.example.com/data")
+        assert sink.last["enforcement"]["enforcement_mode"] == "halt"
+
+    def test_enforcement_mode_mapping_audit(self, sink):
+        """audit mode -> enforcement_mode='warn'."""
+        mod = _patch_and_mock(sink, mode="audit")
+        _mock_orig(mod, "requests.get")
+
+        requests.get("https://api.example.com/data")
+        assert sink.last["enforcement"]["enforcement_mode"] == "warn"
+
+    def test_enforcement_mode_mapping_passthrough(self, sink):
+        """passthrough mode -> enforcement_mode='log'."""
+        mod = _patch_and_mock(sink, mode="passthrough")
+        _mock_orig(mod, "requests.get")
+
+        requests.get("https://api.example.com/data")
+        assert sink.last["enforcement"]["enforcement_mode"] == "log"
+
+    def test_enforcement_mode_is_schema_conformant_all_modes(self, sink):
+        """enforcement_mode is in ['halt','warn','log'] for all three modes."""
+        valid = {"halt", "warn", "log"}
+        for mode in ("enforce", "audit", "passthrough"):
+            mod = _patch_and_mock(sink, mode=mode)
+            _mock_orig(mod, "requests.get")
+            requests.get("https://api.example.com/data")
+            em = sink.last["enforcement"]["enforcement_mode"]
+            assert em in valid, f"mode={mode!r} produced enforcement_mode={em!r}"

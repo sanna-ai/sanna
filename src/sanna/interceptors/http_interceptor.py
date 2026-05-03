@@ -30,6 +30,12 @@ from .api_authority import evaluate_api_authority, check_api_invariants, ApiAuth
 
 logger = logging.getLogger("sanna.interceptor.http")
 
+_MODE_TO_ENFORCEMENT_LEVEL = {
+    "enforce": "halt",
+    "audit": "warn",
+    "passthrough": "log",
+}
+
 
 # =============================================================================
 # MODULE STATE
@@ -352,7 +358,7 @@ def _emit_http_receipt(
         "action": enforcement_action,
         "reason": decision.reason,
         "failed_checks": [],
-        "enforcement_mode": _http_state["mode"],
+        "enforcement_mode": _MODE_TO_ENFORCEMENT_LEVEL.get(_http_state["mode"], "halt"),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
