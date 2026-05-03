@@ -1,3 +1,15 @@
+## [Unreleased] -- 2026-05-03 (SAN-396)
+
+### Added
+- Bidirectional emission-verifier integration: test_session_manifest_
+  parent_chain.py now runs SAN-358 verify_session_manifest_receipt and
+  verify_invocation_anomaly_receipt on captured gateway emission outputs.
+  Asserts zero FAIL checks. Catches emission-shape drift that hand-
+  crafted fixtures would miss.
+
+### Tickets
+- SAN-396 (this entry).
+
 ## [Unreleased] -- 2026-05-03 (SAN-380)
 
 ### Fixed
