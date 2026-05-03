@@ -758,6 +758,24 @@ def _enforce_decision(
         return
 
     if decision.decision == "halt" and _state["mode"] == "enforce":
+        # SAN-397: substitute cli_invocation_anomaly for suppressed commands
+        # when constitution opts in via anomaly_tracking.cli
+        constitution = _state.get("constitution")
+        ab = getattr(constitution, "authority_boundaries", None) if constitution else None
+        anomaly_tracking = getattr(ab, "anomaly_tracking", None) if ab else None
+        if (
+            anomaly_tracking is not None
+            and anomaly_tracking.cli
+            and binary_name in _state.get("suppressed_patterns", set())
+            and _state.get("manifest_full_fingerprint")
+        ):
+            _emit_cli_invocation_anomaly(binary_name)
+            raise FileNotFoundError(
+                errno.ENOENT,
+                os.strerror(errno.ENOENT),
+                binary_name,
+            )
+
         action_obj = {"exit_code": None, "stderr": "", "stdout": ""}
         action_hash = hash_obj(action_obj)
 
@@ -1775,6 +1793,9 @@ def _emit_cli_session_manifest() -> None:
             content_mode=content_mode,
         )
         status_override = "PASS"
+        # SAN-397: capture suppressed patterns for anomaly emission
+        cli_surface = manifest_ext.get("surfaces", {}).get("cli", {})
+        _state["suppressed_patterns"] = set(cli_surface.get("patterns_suppressed", []))
     except Exception as exc:
         logger.error("CLI session_manifest generate_manifest failed: %s", exc)
         manifest_ext = {
@@ -1783,6 +1804,7 @@ def _emit_cli_session_manifest() -> None:
             "surfaces": {},
         }
         status_override = "FAIL"
+        _state["suppressed_patterns"] = set()
 
     correlation_id = f"manifest-cli-{uuid.uuid4().hex[:12]}"
     trace_data = build_trace_data(
@@ -1820,6 +1842,10 @@ def _emit_cli_session_manifest() -> None:
         receipt["content_mode"] = content_mode
         receipt["content_mode_source"] = "local_config"
 
+    # SAN-397: capture manifest fingerprint for anomaly chaining (before signing,
+    # matching gateway pattern at server.py:2542)
+    _state["manifest_full_fingerprint"] = receipt.get("full_fingerprint")
+
     signing_key = _state.get("signing_key")
     if signing_key is not None:
         from ..crypto import sign_receipt_from_pem
@@ -1828,3 +1854,86 @@ def _emit_cli_session_manifest() -> None:
     result = sink.store(receipt)
     if not result.ok:
         raise RuntimeError(f"CLI manifest sink reported failures: {result.errors}")
+
+
+def _emit_cli_invocation_anomaly(binary_name: str) -> None:
+    """Emit cli_invocation_anomaly receipt for a suppressed command attempt (SAN-397).
+
+    Mirrors gateway _emit_invocation_anomaly (server.py:2561).
+    Extension namespace: com.sanna.anomaly with attempted_command field
+    per SAN-395 Section 2.22.2.
+    """
+    from ..manifest import generate_manifest  # noqa: F401 (kept for future use)
+    from ..middleware import generate_constitution_receipt, build_trace_data
+    from ..receipt import HaltEvent
+
+    constitution = _state["constitution"]
+    sink = _state["sink"]
+    content_mode = _state.get("content_mode") or None
+
+    # Ensure agent_session_id is set (mirrors _emit_receipt lazy init)
+    if _state.get("agent_session_id") is None:
+        _state["agent_session_id"] = uuid.uuid4().hex
+
+    correlation_id = f"anomaly-cli-{uuid.uuid4().hex[:12]}"
+    trace_data = build_trace_data(
+        correlation_id=correlation_id,
+        query=f"subprocess name={binary_name}",
+        context="",
+        output="",
+    )
+
+    constitution_ref = None
+    try:
+        constitution_ref = constitution_to_receipt_ref(constitution)
+    except Exception:
+        logger.debug("Could not build constitution_ref for cli_invocation_anomaly", exc_info=True)
+
+    enforcement_obj = HaltEvent(
+        halted=True,
+        reason="command_suppressed_by_constitution",
+        failed_checks=[],
+        enforcement_mode="halt",
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+
+    receipt = generate_constitution_receipt(
+        trace_data,
+        check_configs=[],
+        custom_records=[],
+        constitution_ref=constitution_ref,
+        constitution_version=(
+            constitution.schema_version if constitution else ""
+        ),
+        extensions={
+            "com.sanna.anomaly": {
+                "attempted_command": binary_name,
+                "suppression_basis": "session_manifest",
+            },
+        },
+        enforcement=enforcement_obj,
+        authority_decisions=None,
+        enforcement_surface="cli_interceptor",
+        invariants_scope="authority_only",
+        parent_receipts=[_state["manifest_full_fingerprint"]],
+    )
+    receipt["event_type"] = "cli_invocation_anomaly"
+    receipt["status"] = "FAIL"
+
+    # content_mode on envelope only (Section 2.22.5 field-level redaction is
+    # spec-ahead-of-impl; consistent with gateway server.py:2508 + SAN-397 scope)
+    if content_mode:
+        receipt["content_mode"] = content_mode
+        receipt["content_mode_source"] = "local_config"
+
+    receipt["agent_identity"] = {"agent_session_id": _state["agent_session_id"]}
+
+    signing_key = _state.get("signing_key")
+    if signing_key is not None:
+        from ..crypto import sign_receipt_from_pem
+        receipt = sign_receipt_from_pem(receipt, signing_key)
+
+    try:
+        sink.store(receipt)
+    except Exception as exc:
+        logger.error("cli_invocation_anomaly receipt persistence failed: %s", exc)
