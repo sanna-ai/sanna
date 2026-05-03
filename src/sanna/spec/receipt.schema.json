@@ -482,7 +482,7 @@
     },
     "extensions": {
       "type": "object",
-      "description": "Reverse-domain-namespaced vendor metadata. Verifiers MUST ignore unknown extensions.",
+      "description": "Reverse-domain-namespaced vendor metadata. The com.sanna.* namespace is reserved for protocol use (com.sanna.manifest per Section 2.20; com.sanna.anomaly per Section 2.22). Verifiers MUST validate known com.sanna.* extensions per their respective section rules. Verifiers MUST ignore extensions outside the com.sanna.* namespace.",
       "additionalProperties": true
     },
     "identity_verification": {
@@ -682,6 +682,58 @@
           "event_type": {"const": "session_manifest"}
         },
         "required": ["event_type"]
+      }
+    },
+    {
+      "$comment": "B3: com.sanna.anomaly extension implies event_type is an anomaly variant. Spec Section 2.22. SAN-395.",
+      "if": {
+        "properties": {
+          "extensions": {
+            "type": "object",
+            "required": ["com.sanna.anomaly"]
+          }
+        },
+        "required": ["extensions"]
+      },
+      "then": {
+        "properties": {
+          "event_type": {
+            "enum": ["invocation_anomaly", "cli_invocation_anomaly", "api_invocation_anomaly"]
+          }
+        },
+        "required": ["event_type"]
+      }
+    },
+    {
+      "$comment": "B4: anomaly event_type requires com.sanna.anomaly extension with suppression_basis. Spec Section 2.22. SAN-395.",
+      "if": {
+        "properties": {
+          "event_type": {
+            "enum": ["invocation_anomaly", "cli_invocation_anomaly", "api_invocation_anomaly"]
+          }
+        },
+        "required": ["event_type"]
+      },
+      "then": {
+        "properties": {
+          "extensions": {
+            "type": "object",
+            "properties": {
+              "com.sanna.anomaly": {
+                "type": "object",
+                "required": ["suppression_basis"],
+                "properties": {
+                  "suppression_basis": {"type": "string"},
+                  "attempted_tool": {"type": "string"},
+                  "attempted_command": {"type": "string"},
+                  "attempted_endpoint": {"type": "string"}
+                }
+              }
+            },
+            "required": ["com.sanna.anomaly"]
+          }
+        },
+        "required": ["extensions"]
       }
     },
     {

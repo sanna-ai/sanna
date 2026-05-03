@@ -211,6 +211,24 @@
           "description": "Visibility of must_escalate tools at discovery time (v1.5+). 'visible' = listed and visible to agent (default; backward compatible). 'suppressed' = hidden from tool listing.",
           "enum": ["visible", "suppressed"],
           "default": "visible"
+        },
+        "anomaly_tracking": {
+          "type": "object",
+          "description": "Per-surface opt-in for invocation_anomaly receipt emission (v1.5+). When enabled for a surface, the interceptor emits cli_invocation_anomaly or api_invocation_anomaly receipts when the agent attempts a suppressed command/endpoint. Default: disabled for both (backward compatible).",
+          "properties": {
+            "cli": {
+              "type": "boolean",
+              "description": "When true, CLI interceptor emits cli_invocation_anomaly receipts on suppressed-command attempts.",
+              "default": false
+            },
+            "http": {
+              "type": "boolean",
+              "description": "When true, HTTP interceptor emits api_invocation_anomaly receipts on suppressed-endpoint attempts.",
+              "default": false
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
         }
       },
       "additionalProperties": false
