@@ -127,3 +127,71 @@ class TestConstitutionProvenance:
         receipt_dict = receipt_to_dict(receipt)
         result = verify_receipt(receipt_dict, SCHEMA)
         assert result.valid, f"Validation failed: {result.errors}"
+
+
+# =============================================================================
+# SAN-397: AnomalyTracking hash backward compatibility
+# =============================================================================
+
+class TestAnomalyTrackingHashBackwardCompat:
+    """Constitution hashes must be stable across AnomalyTracking addition (SAN-397)."""
+
+    def test_anomaly_tracking_hash_backward_compat(self):
+        """Constitution without anomaly_tracking hashes identically before and after SAN-397."""
+        from sanna.constitution import load_constitution, compute_constitution_hash, AnomalyTracking
+
+        c = load_constitution("tests/constitutions/with_authority.yaml")
+        hash_before = compute_constitution_hash(c)
+
+        assert c.authority_boundaries.anomaly_tracking.cli is False
+        assert c.authority_boundaries.anomaly_tracking.http is False
+
+        hash_after = compute_constitution_hash(c)
+        assert hash_before == hash_after
+
+    def test_anomaly_tracking_at_defaults_hash_unchanged(self):
+        """anomaly_tracking={cli:False, http:False} hashes same as without field."""
+        from sanna.constitution import load_constitution, compute_constitution_hash, AnomalyTracking
+        from dataclasses import replace
+
+        c = load_constitution("tests/constitutions/with_authority.yaml")
+        hash_baseline = compute_constitution_hash(c)
+
+        c_explicit = replace(
+            c,
+            authority_boundaries=replace(
+                c.authority_boundaries,
+                anomaly_tracking=AnomalyTracking(cli=False, http=False),
+            ),
+        )
+        hash_explicit = compute_constitution_hash(c_explicit)
+        assert hash_baseline == hash_explicit
+
+    def test_anomaly_tracking_non_default_changes_hash(self):
+        """anomaly_tracking={cli:True} produces a different hash than without."""
+        from sanna.constitution import load_constitution, compute_constitution_hash, AnomalyTracking
+        from dataclasses import replace
+
+        c = load_constitution("tests/constitutions/with_authority.yaml")
+        hash_baseline = compute_constitution_hash(c)
+
+        c_cli_on = replace(
+            c,
+            authority_boundaries=replace(
+                c.authority_boundaries,
+                anomaly_tracking=AnomalyTracking(cli=True),
+            ),
+        )
+        hash_cli_on = compute_constitution_hash(c_cli_on)
+        assert hash_baseline != hash_cli_on
+
+        c_http_on = replace(
+            c,
+            authority_boundaries=replace(
+                c.authority_boundaries,
+                anomaly_tracking=AnomalyTracking(http=True),
+            ),
+        )
+        hash_http_on = compute_constitution_hash(c_http_on)
+        assert hash_baseline != hash_http_on
+        assert hash_cli_on != hash_http_on

@@ -1,0 +1,54 @@
+sanna_constitution: "1.0"
+identity:
+  agent_name: api-anomaly-test-agent
+  domain: testing
+  description: HTTP interceptor anomaly_tracking test fixture (SAN-397)
+provenance:
+  authored_by: tester@test.com
+  approved_by:
+    - approver@test.com
+  approval_date: "2026-05-02"
+  approval_method: test-approval
+  change_history: []
+boundaries:
+  - id: B001
+    description: Test boundary
+    category: scope
+    severity: info
+trust_tiers:
+  autonomous:
+    - Answer questions
+  requires_approval: []
+  prohibited: []
+halt_conditions: []
+invariants:
+  - id: INV_NO_FABRICATION
+    rule: Do not claim facts absent from provided sources.
+    enforcement: warn
+authority_boundaries:
+  can_execute:
+    - Answer questions
+  cannot_execute: []
+  must_escalate: []
+  anomaly_tracking:
+    cli: false
+    http: true
+api_permissions:
+  mode: strict
+  justification_required: false
+  endpoints:
+    - id: api-001
+      url_pattern: "https://api.example.com/*"
+      methods: [GET, POST]
+      authority: can_execute
+      description: "Example API allowed"
+    - id: api-002
+      url_pattern: "https://internal.evil.com/*"
+      methods: ["*"]
+      authority: cannot_execute
+      description: "Blocked domain (anomaly_tracking)"
+    - id: api-003
+      url_pattern: "https://blocked.example.com/api/*"
+      methods: ["*"]
+      authority: cannot_execute
+      description: "Second blocked domain (anomaly_tracking)"
