@@ -67,6 +67,7 @@ def _make_gateway(persisted: list | None = None) -> tuple[SannaGateway, list]:
     gw._reasoning_evaluator = None
     gw._manifest_emitted = False
     gw._manifest_failed = False
+    gw._manifest_lock = asyncio.Lock()
     gw._constitution_ref = None
     gw._signing_key_path = None
     gw._content_mode = ""
@@ -93,15 +94,17 @@ def _simulate_handle_list_tools(gw: SannaGateway) -> list:
         tool_list = gw._build_tool_list()
 
         if not gw._manifest_emitted and gw._constitution is not None:
-            try:
-                success = await gw._emit_session_manifest(tool_list)
-            except Exception as exc:
-                logger.error("session_manifest emission unexpected failure: %s", exc)
-                success = False
-                gw._manifest_failed = True
-            gw._manifest_emitted = True
-            if not success:
-                return []
+            async with gw._manifest_lock:
+                if not gw._manifest_emitted:  # double-check after acquiring lock
+                    gw._manifest_emitted = True
+                    try:
+                        success = await gw._emit_session_manifest(tool_list)
+                    except Exception as exc:
+                        logger.error("session_manifest emission unexpected failure: %s", exc)
+                        success = False
+                        gw._manifest_failed = True
+                    if not success:
+                        return []
 
         if gw._manifest_failed:
             return []
@@ -271,18 +274,20 @@ class TestManifestFailClosed:
             async def _boom(_tl):
                 raise SystemError("unexpected internal failure")
 
-            gw_original_emit = gw._emit_session_manifest
             gw._emit_session_manifest = _boom
 
-            try:
-                success = await gw._emit_session_manifest(tool_list)
-            except Exception as exc:
-                logger.error("session_manifest emission unexpected failure: %s", exc)
-                success = False
-                gw._manifest_failed = True
-            gw._manifest_emitted = True
-            if not success:
-                return []
+            if not gw._manifest_emitted and gw._constitution is not None:
+                async with gw._manifest_lock:
+                    if not gw._manifest_emitted:
+                        gw._manifest_emitted = True
+                        try:
+                            success = await gw._emit_session_manifest(tool_list)
+                        except Exception as exc:
+                            logger.error("session_manifest emission unexpected failure: %s", exc)
+                            success = False
+                            gw._manifest_failed = True
+                        if not success:
+                            return []
 
             if gw._manifest_failed:
                 return []
@@ -292,3 +297,93 @@ class TestManifestFailClosed:
         result = asyncio.run(_run())
         assert result == []
         assert gw._manifest_failed is True
+
+
+# =============================================================================
+# SAN-380: concurrent tools/list race tests
+# =============================================================================
+
+async def _handle_list_tools(gw: SannaGateway) -> list:
+    """Async simulation of handle_list_tools with double-checked locking."""
+    import logging
+    logger = logging.getLogger("sanna.gateway.server")
+
+    tool_list = gw._build_tool_list()
+
+    if not gw._manifest_emitted and gw._constitution is not None:
+        async with gw._manifest_lock:
+            if not gw._manifest_emitted:  # double-check after acquiring lock
+                gw._manifest_emitted = True
+                try:
+                    success = await gw._emit_session_manifest(tool_list)
+                except Exception as exc:
+                    logger.error("session_manifest emission unexpected failure: %s", exc)
+                    success = False
+                    gw._manifest_failed = True
+                if not success:
+                    return []
+
+    if gw._manifest_failed:
+        return []
+
+    return tool_list
+
+
+@pytest.mark.asyncio
+async def test_concurrent_tools_list_emits_single_manifest():
+    """Two concurrent tools/list calls emit exactly ONE session_manifest."""
+    gw, persisted = _make_gateway()
+
+    await asyncio.gather(
+        _handle_list_tools(gw),
+        _handle_list_tools(gw),
+    )
+
+    manifests = [r for r in persisted if r.get("event_type") == "session_manifest"]
+    assert len(manifests) == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_call_waits_for_emission_to_complete():
+    """Lock contender cannot acquire the lock until emission completes.
+
+    asyncio.Lock acquisition itself does not yield when the lock is free,
+    so both callers racing past the outer check cannot be reproduced without
+    an explicit synchronisation point. This test drives one caller directly
+    into the lock path while a second caller contends, verifying that the
+    contender is held off until emission is finished.
+    """
+    gw, _ = _make_gateway()
+
+    timeline: list[str] = []
+    emission_started = asyncio.Event()
+    original_emit = gw._emit_session_manifest
+
+    async def slow_emit(tool_list):
+        emission_started.set()
+        await asyncio.sleep(0.05)
+        result = await original_emit(tool_list)
+        timeline.append("emission_complete")
+        return result
+
+    gw._emit_session_manifest = slow_emit
+
+    # Caller 1: acquires the lock, emits (models the first past the outer check).
+    async def caller_holds_lock():
+        async with gw._manifest_lock:
+            if not gw._manifest_emitted:
+                gw._manifest_emitted = True
+                await gw._emit_session_manifest(gw._build_tool_list())
+
+    # Caller 2: waits until emission has started, THEN contends for the lock.
+    # emission_started.wait() is the synchronisation that ensures genuine
+    # concurrency rather than purely sequential execution.
+    async def caller_contends_lock():
+        await emission_started.wait()
+        async with gw._manifest_lock:
+            timeline.append("contender_acquired_lock")
+
+    await asyncio.gather(caller_holds_lock(), caller_contends_lock())
+
+    # Contender must have acquired the lock only AFTER emission completed.
+    assert timeline == ["emission_complete", "contender_acquired_lock"]

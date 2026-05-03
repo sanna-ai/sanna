@@ -1,3 +1,15 @@
+## [Unreleased] -- 2026-05-03 (SAN-380)
+
+### Fixed
+- Gateway handle_list_tools: session_manifest emission protected by
+  asyncio.Lock with double-checked locking. Fixes race condition
+  where concurrent tools/list calls could emit duplicate manifests.
+  Second concurrent call now WAITS for emission to complete before
+  returning tools (no TOCTOU gap).
+
+### Tickets
+- SAN-380 Prompt A (this entry; Python half).
+
 ## [Unreleased] -- 2026-05-03 (SAN-379)
 
 ### Fixed

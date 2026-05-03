@@ -1231,6 +1231,8 @@ class SannaGateway:
         self._manifest_emitted: bool = False
         # SAN-359: fail-closed state; sticky once set for gateway lifecycle
         self._manifest_failed: bool = False
+        # SAN-380: guards emission block against concurrent tools/list calls
+        self._manifest_lock: _asyncio.Lock = _asyncio.Lock()
         # SAN-206: full_fingerprint of the session_manifest receipt for anomaly chaining
         self._manifest_full_fingerprint: Optional[str] = None
         # SAN-206: tool names suppressed by authority filtering (prefixed), for anomaly detection
@@ -1807,15 +1809,17 @@ class SannaGateway:
             tool_list = gateway._build_tool_list()
 
             if not gateway._manifest_emitted and gateway._constitution is not None:
-                try:
-                    success = await gateway._emit_session_manifest(tool_list)
-                except Exception as exc:  # Belt-and-suspenders: catch anything that escapes internal handling
-                    logger.error("session_manifest emission unexpected failure: %s", exc)
-                    success = False
-                    gateway._manifest_failed = True
-                gateway._manifest_emitted = True
-                if not success:
-                    return []
+                async with gateway._manifest_lock:
+                    if not gateway._manifest_emitted:  # double-check after acquiring lock
+                        gateway._manifest_emitted = True
+                        try:
+                            success = await gateway._emit_session_manifest(tool_list)
+                        except Exception as exc:  # Belt-and-suspenders: catch anything that escapes internal handling
+                            logger.error("session_manifest emission unexpected failure: %s", exc)
+                            success = False
+                            gateway._manifest_failed = True
+                        if not success:
+                            return []
 
             # SAN-359: sticky fail-closed; once manifest fails, all subsequent
             # tools/list calls return empty. Gateway must be restarted to recover.
