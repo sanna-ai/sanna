@@ -1,0 +1,58 @@
+sanna_constitution: "1.0"
+identity:
+  agent_name: cli-anomaly-test-agent
+  domain: testing
+  description: CLI interceptor anomaly_tracking test fixture (SAN-397)
+provenance:
+  authored_by: tester@test.com
+  approved_by:
+    - approver@test.com
+  approval_date: "2026-05-02"
+  approval_method: test-approval
+  change_history: []
+boundaries:
+  - id: B001
+    description: Test boundary
+    category: scope
+    severity: info
+trust_tiers:
+  autonomous:
+    - Answer questions
+  requires_approval: []
+  prohibited: []
+halt_conditions: []
+invariants:
+  - id: INV_NO_FABRICATION
+    rule: Do not claim facts absent from provided sources.
+    enforcement: warn
+authority_boundaries:
+  can_execute:
+    - echo
+    - cat
+  cannot_execute:
+    - rm
+  must_escalate:
+    - condition: "deploy"
+  anomaly_tracking:
+    cli: true
+    http: false
+cli_permissions:
+  mode: strict
+  justification_required: false
+  commands:
+    - id: cli-001
+      binary: echo
+      authority: can_execute
+      description: "Echo is allowed"
+    - id: cli-002
+      binary: cat
+      authority: can_execute
+      description: "Cat is allowed"
+    - id: cli-003
+      binary: rm
+      authority: cannot_execute
+      description: "Remove is suppressed (anomaly_tracking)"
+    - id: cli-004
+      binary: curl
+      authority: cannot_execute
+      description: "Curl is suppressed (anomaly_tracking)"

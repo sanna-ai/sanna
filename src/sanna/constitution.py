@@ -203,6 +203,18 @@ class EscalationRule:
 
 
 @dataclass
+class AnomalyTracking:
+    """Per-surface opt-in for invocation_anomaly receipt emission (v1.5+, SAN-397).
+
+    Default: both False (backward compatible). When enabled, suppressed-command
+    (CLI) or suppressed-endpoint (HTTP) halt events emit surface-specific
+    anomaly receipts instead of the generic halted receipt.
+    """
+    cli: bool = False
+    http: bool = False
+
+
+@dataclass
 class AuthorityBoundaries:
     """Authority boundary definitions from a constitution.
 
@@ -215,6 +227,7 @@ class AuthorityBoundaries:
       to the agent at discovery time. 'visible' (default, backward compatible)
       lists the tool and triggers escalation on attempted invocation.
       'suppressed' hides the tool from tools/list (anti-enumeration).
+    - **anomaly_tracking** (v1.5+, SAN-397): Per-surface anomaly emission opt-in.
 
     Attributes:
         cannot_execute: List of forbidden action descriptions.
@@ -223,12 +236,14 @@ class AuthorityBoundaries:
         default_escalation: Fallback escalation target type when a
             must_escalate rule has no explicit target.
         escalation_visibility: 'visible' or 'suppressed'. Default 'visible'.
+        anomaly_tracking: Per-surface anomaly emission opt-in. Default: both off.
     """
     cannot_execute: list[str] = field(default_factory=list)
     must_escalate: list[EscalationRule] = field(default_factory=list)
     can_execute: list[str] = field(default_factory=list)
     default_escalation: str = "log"
     escalation_visibility: str = "visible"
+    anomaly_tracking: AnomalyTracking = field(default_factory=AnomalyTracking)
 
 
 @dataclass
@@ -1097,12 +1112,20 @@ def parse_constitution(data: dict) -> Constitution:
                 target=target,
             ))
 
+        # SAN-397: anomaly_tracking opt-in (per-surface, default both False)
+        anomaly_tracking_data = ab_data.get("anomaly_tracking") or {}
+        anomaly_tracking = AnomalyTracking(
+            cli=bool(anomaly_tracking_data.get("cli", False)),
+            http=bool(anomaly_tracking_data.get("http", False)),
+        )
+
         authority_boundaries = AuthorityBoundaries(
             cannot_execute=cannot_execute,
             must_escalate=must_escalate,
             can_execute=can_execute,
             default_escalation=default_esc,
             escalation_visibility=ab_data.get("escalation_visibility", "visible"),
+            anomaly_tracking=anomaly_tracking,
         )
 
     # Composition (optional, v1.5+)
@@ -1445,6 +1468,14 @@ def compute_constitution_hash(constitution: Constitution) -> str:
         }
         if ab.escalation_visibility != "visible":
             ab_dict["escalation_visibility"] = ab.escalation_visibility
+        # SAN-397: include anomaly_tracking only at non-default (hash backward compat)
+        if ab.anomaly_tracking.cli or ab.anomaly_tracking.http:
+            at: dict = {}
+            if ab.anomaly_tracking.cli:
+                at["cli"] = True
+            if ab.anomaly_tracking.http:
+                at["http"] = True
+            ab_dict["anomaly_tracking"] = at
         hashable["authority_boundaries"] = ab_dict
 
     # Include trusted_sources only if present (backward compat)
@@ -1526,6 +1557,14 @@ def constitution_to_signable_dict(constitution: Constitution) -> dict:
         }
         if ab.escalation_visibility != "visible":
             ab_sig_dict["escalation_visibility"] = ab.escalation_visibility
+        # SAN-397: include anomaly_tracking only at non-default (hash backward compat)
+        if ab.anomaly_tracking.cli or ab.anomaly_tracking.http:
+            at_sig: dict = {}
+            if ab.anomaly_tracking.cli:
+                at_sig["cli"] = True
+            if ab.anomaly_tracking.http:
+                at_sig["http"] = True
+            ab_sig_dict["anomaly_tracking"] = at_sig
         result["authority_boundaries"] = ab_sig_dict
         result["escalation_targets"] = {
             "default": ab.default_escalation,

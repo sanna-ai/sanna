@@ -451,6 +451,21 @@ def _enforce_http_call(method: str, url: str, kwargs: dict, justification: Optio
     ctx_limit = "api_no_justification" if not justification else "api_execution"
 
     if decision.decision == "halt" and _http_state["mode"] == "enforce":
+        # SAN-397: substitute api_invocation_anomaly for suppressed endpoints
+        # when constitution opts in via anomaly_tracking.http
+        constitution = _http_state.get("constitution")
+        ab = getattr(constitution, "authority_boundaries", None) if constitution else None
+        anomaly_tracking = getattr(ab, "anomaly_tracking", None) if ab else None
+        if anomaly_tracking is not None and anomaly_tracking.http and _http_state.get("manifest_full_fingerprint"):
+            matched_pattern = next(
+                (p for p in _http_state.get("suppressed_patterns", set())
+                 if fnmatch.fnmatch(url, p)),
+                None,
+            )
+            if matched_pattern is not None:
+                _emit_http_invocation_anomaly(matched_pattern)
+                raise ConnectionError(f"Connection refused: {url}")
+
         action_hash = _halted_action_hash()
         _emit_http_receipt(
             event_type="api_invocation_halted",
@@ -910,6 +925,9 @@ def _emit_http_session_manifest() -> None:
             content_mode=content_mode,
         )
         status_override = "PASS"
+        # SAN-397: capture suppressed patterns for anomaly emission
+        http_surface = manifest_ext.get("surfaces", {}).get("http", {})
+        _http_state["suppressed_patterns"] = set(http_surface.get("patterns_suppressed", []))
     except Exception as exc:
         logger.error("HTTP session_manifest generate_manifest failed: %s", exc)
         manifest_ext = {
@@ -918,6 +936,7 @@ def _emit_http_session_manifest() -> None:
             "surfaces": {},
         }
         status_override = "FAIL"
+        _http_state["suppressed_patterns"] = set()
 
     correlation_id = f"manifest-http-{uuid.uuid4().hex[:12]}"
     trace_data = build_trace_data(
@@ -955,6 +974,9 @@ def _emit_http_session_manifest() -> None:
         receipt["content_mode"] = content_mode
         receipt["content_mode_source"] = "local_config"
 
+    # SAN-397: capture manifest fingerprint for anomaly chaining (before signing)
+    _http_state["manifest_full_fingerprint"] = receipt.get("full_fingerprint")
+
     signing_key = _http_state.get("signing_key")
     if signing_key is not None:
         from ..crypto import sign_receipt_from_pem
@@ -963,3 +985,85 @@ def _emit_http_session_manifest() -> None:
     result = sink.store(receipt)
     if not result.ok:
         raise RuntimeError(f"HTTP manifest sink reported failures: {result.errors}")
+
+
+def _emit_http_invocation_anomaly(endpoint_pattern: str) -> None:
+    """Emit api_invocation_anomaly receipt for a suppressed endpoint attempt (SAN-397).
+
+    Mirrors gateway _emit_invocation_anomaly (server.py:2561) and CLI counterpart.
+    Extension namespace: com.sanna.anomaly with attempted_endpoint field
+    per SAN-395 Section 2.22.2. endpoint_pattern is the matched suppressed URL glob.
+    """
+    from ..middleware import generate_constitution_receipt, build_trace_data
+    from ..receipt import HaltEvent
+
+    constitution = _http_state["constitution"]
+    sink = _http_state["sink"]
+    content_mode = _http_state.get("content_mode") or None
+
+    # Ensure agent_session_id is set (mirrors _emit_http_receipt lazy init)
+    if _http_state.get("agent_session_id") is None:
+        _http_state["agent_session_id"] = uuid.uuid4().hex
+
+    correlation_id = f"anomaly-http-{uuid.uuid4().hex[:12]}"
+    trace_data = build_trace_data(
+        correlation_id=correlation_id,
+        query=f"http endpoint={endpoint_pattern}",
+        context="",
+        output="",
+    )
+
+    constitution_ref = None
+    try:
+        constitution_ref = constitution_to_receipt_ref(constitution)
+    except Exception:
+        logger.debug("Could not build constitution_ref for api_invocation_anomaly", exc_info=True)
+
+    enforcement_obj = HaltEvent(
+        halted=True,
+        reason="endpoint_suppressed_by_constitution",
+        failed_checks=[],
+        enforcement_mode="halt",
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+
+    receipt = generate_constitution_receipt(
+        trace_data,
+        check_configs=[],
+        custom_records=[],
+        constitution_ref=constitution_ref,
+        constitution_version=(
+            constitution.schema_version if constitution else ""
+        ),
+        extensions={
+            "com.sanna.anomaly": {
+                "attempted_endpoint": endpoint_pattern,
+                "suppression_basis": "session_manifest",
+            },
+        },
+        enforcement=enforcement_obj,
+        authority_decisions=None,
+        enforcement_surface="http_interceptor",
+        invariants_scope="authority_only",
+        parent_receipts=[_http_state["manifest_full_fingerprint"]],
+    )
+    receipt["event_type"] = "api_invocation_anomaly"
+    receipt["status"] = "FAIL"
+
+    # content_mode on envelope only (Section 2.22.5 field-level redaction is
+    # spec-ahead-of-impl; consistent with gateway server.py:2508 + SAN-397 scope)
+    if content_mode:
+        receipt["content_mode"] = content_mode
+        receipt["content_mode_source"] = "local_config"
+
+    receipt["agent_identity"] = {"agent_session_id": _http_state["agent_session_id"]}
+
+    signing_key = _http_state.get("signing_key")
+    if signing_key is not None:
+        from ..crypto import sign_receipt_from_pem
+        receipt = sign_receipt_from_pem(receipt, signing_key)
+
+    try:
+        sink.store(receipt)
+    except Exception as exc:
+        logger.error("api_invocation_anomaly receipt persistence failed: %s", exc)
