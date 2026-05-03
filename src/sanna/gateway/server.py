@@ -1229,6 +1229,8 @@ class SannaGateway:
         self._agent_session_id: str = uuid.uuid4().hex  # SAN-370: AARM R6 session binding (Section 2.19)
         # SAN-202: session_manifest receipt emitted once per gateway lifecycle
         self._manifest_emitted: bool = False
+        # SAN-359: fail-closed state; sticky once set for gateway lifecycle
+        self._manifest_failed: bool = False
         # SAN-206: full_fingerprint of the session_manifest receipt for anomaly chaining
         self._manifest_full_fingerprint: Optional[str] = None
         # SAN-206: tool names suppressed by authority filtering (prefixed), for anomaly detection
@@ -1803,9 +1805,23 @@ class SannaGateway:
         @self._server.list_tools()
         async def handle_list_tools() -> list[types.Tool]:
             tool_list = gateway._build_tool_list()
+
             if not gateway._manifest_emitted and gateway._constitution is not None:
-                await gateway._emit_session_manifest(tool_list)
+                try:
+                    success = await gateway._emit_session_manifest(tool_list)
+                except Exception as exc:  # Belt-and-suspenders: catch anything that escapes internal handling
+                    logger.error("session_manifest emission unexpected failure: %s", exc)
+                    success = False
+                    gateway._manifest_failed = True
                 gateway._manifest_emitted = True
+                if not success:
+                    return []
+
+            # SAN-359: sticky fail-closed; once manifest fails, all subsequent
+            # tools/list calls return empty. Gateway must be restarted to recover.
+            if gateway._manifest_failed:
+                return []
+
             return tool_list
 
         @self._server.call_tool()
@@ -2440,13 +2456,17 @@ class SannaGateway:
 
     async def _emit_session_manifest(
         self, tool_list: list[types.Tool],
-    ) -> None:
+    ) -> bool:
         """Emit a session_manifest receipt at the first tools/list call.
 
         Per v1.5 Section 2.16.3 + 2.20: enforcement field absent,
         invariants_scope="none", status="PASS" on success / "FAIL"
         on fail-closed-emit. The receipt flows through the existing
         sink chain via _persist_receipt_async.
+
+        Returns True on success, False on failure. Caller MUST check the
+        return value and fail-closed (return empty tools) when False.
+        SAN-359: gateway is always enforce-mode.
         """
         from sanna.manifest import generate_manifest
         from sanna.middleware import (
@@ -2481,6 +2501,7 @@ class SannaGateway:
                 "surfaces": {},
             }
             status_override = "FAIL"
+            self._manifest_failed = True  # SAN-359
 
         trace_data = build_trace_data(
             correlation_id=correlation_id,
@@ -2530,8 +2551,12 @@ class SannaGateway:
                 receipt["status"],
                 len(mcp_tool_names),
             )
-        except Exception as exc:
+        except Exception as exc:  # Broad catch: receipt build/persist must not lose fail-closed state
             logger.error("session_manifest receipt emission failed: %s", exc)
+            self._manifest_failed = True  # SAN-359
+            return False
+
+        return status_override == "PASS"
 
     async def _emit_invocation_anomaly(
         self,

@@ -1,3 +1,28 @@
+## [Unreleased] -- 2026-05-02 (SAN-359)
+
+### Fixed
+- Gateway `handle_list_tools` now returns empty tools list when
+  `_emit_session_manifest` fails (generation or persistence). Previously
+  the gateway caught manifest failures silently and still returned the
+  full filtered tool list -- a governance leak where the agent could
+  discover and invoke tools without a valid manifest on record.
+- `_manifest_failed` state is sticky: once manifest fails, ALL subsequent
+  `tools/list` calls return empty for the gateway lifecycle. Gateway must
+  be restarted with a working constitution/sink to recover.
+- FAIL-status session_manifest receipt still emitted on best-effort basis
+  (audit trail of the failure), but the agent-facing response is empty.
+- Belt-and-suspenders: `handle_list_tools` wraps `_emit_session_manifest`
+  in try/except as catch-all for unexpected failures.
+
+### Security
+- Per PRD CT-7 (fail-closed) and Codex addendum: 'If manifest persistence
+  fails in enforce mode, fail closed.' No tool-name data leaks to the agent
+  on manifest failure; the response is an empty tools array.
+
+### Tickets
+- SAN-359 Prompt A (this entry; Python half).
+- Companion: SAN-359 Prompt B (TypeScript mirror).
+
 ## [Unreleased] -- 2026-05-02 (SAN-358)
 
 ### Added
