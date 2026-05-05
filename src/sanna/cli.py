@@ -1029,8 +1029,13 @@ def main_verify_bundle():
             except (OSError, ValueError) as e:
                 print(f"Error: {e}", file=sys.stderr)
                 return 1
+            # SAN-403: do not echo trust_anchor_path or its contents in the
+            # informational log. CodeQL flags clear-text logging of values
+            # flowing from `args.trusted_key_ids` / `SANNA_TRUSTED_KEY_IDS`
+            # because the variable name pattern matches its sensitive-data
+            # heuristic. The count alone is sufficient for operator confirmation.
             print(
-                f"Loaded trust anchor: {len(trusted_key_ids)} key_id(s) from {trust_anchor_path}",
+                f"Loaded trust anchor: {len(trusted_key_ids)} key_id(s)",
                 file=sys.stderr,
             )
 
