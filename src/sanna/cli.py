@@ -7,6 +7,7 @@ import argparse
 import glob as _glob
 import json
 import os
+import re
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -970,6 +971,29 @@ def main_create_bundle():
         return 1
 
 
+_KEY_ID_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _load_trusted_key_ids(path: str) -> set[str]:
+    """Parse a trust anchor file; raise ValueError on any malformed line."""
+    keys: set[str] = set()
+    with open(path) as f:
+        for lineno, raw in enumerate(f, start=1):
+            line = raw.split("#", 1)[0].strip().lower()
+            if not line:
+                continue
+            if not _KEY_ID_RE.match(line):
+                raise ValueError(
+                    f"{path}:{lineno}: not a 64-hex key_id: {line[:32]!r}"
+                )
+            keys.add(line)
+    if not keys:
+        raise ValueError(
+            f"{path}: trust anchor file is empty after stripping comments/blanks"
+        )
+    return keys
+
+
 def main_verify_bundle():
     """Entry point for sanna-verify-bundle command."""
     parser = argparse.ArgumentParser(
@@ -980,6 +1004,16 @@ def main_verify_bundle():
     parser.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     parser.add_argument("--verbose", "-v", action="store_true",
                        help="Show detail for each verification step")
+    parser.add_argument(
+        "--trusted-key-ids",
+        metavar="FILE",
+        help=(
+            "Path to a file of trusted Ed25519 key_ids (one per line, "
+            "64-hex chars; '#' comments allowed). Without this flag (or "
+            "SANNA_TRUSTED_KEY_IDS env var), verification is "
+            "self-consistent only and a warning is shown."
+        ),
+    )
     parser.add_argument("--version", action="version", version=f"sanna-verify-bundle {TOOL_VERSION}")
 
     args = parser.parse_args()
@@ -987,11 +1021,41 @@ def main_verify_bundle():
     try:
         from .bundle import verify_bundle
 
-        result = verify_bundle(args.bundle)
+        trusted_key_ids: set[str] | None = None
+        trust_anchor_path = args.trusted_key_ids or os.environ.get("SANNA_TRUSTED_KEY_IDS")
+        if trust_anchor_path:
+            try:
+                trusted_key_ids = _load_trusted_key_ids(trust_anchor_path)
+            except (OSError, ValueError) as e:
+                print(f"Error: {e}", file=sys.stderr)
+                return 1
+            print(
+                f"Loaded trust anchor: {len(trusted_key_ids)} key_id(s) from {trust_anchor_path}",
+                file=sys.stderr,
+            )
+
+        result = verify_bundle(args.bundle, trusted_key_ids=trusted_key_ids)
+
+        if not result.trust_anchored and not args.json:
+            print(
+                "\n"
+                "============================================================\n"
+                "WARNING: BUNDLE VERIFIED SELF-CONSISTENTLY ONLY\n"
+                "------------------------------------------------------------\n"
+                "No trust anchor was supplied. The bundle internally agrees\n"
+                "but no external authority confirms the key_id belongs to who\n"
+                "the receipt claims it does. An attacker who re-signs a forged\n"
+                "bundle with their own key would still pass this check.\n"
+                "Supply --trusted-key-ids <FILE> or SANNA_TRUSTED_KEY_IDS env\n"
+                "var for an authoritative verdict.\n"
+                "============================================================\n",
+                file=sys.stderr,
+            )
 
         if args.json:
             output = {
                 "valid": result.valid,
+                "trust_anchored": result.trust_anchored,
                 "checks": [
                     {"name": c.name, "passed": c.passed, "detail": c.detail}
                     for c in result.checks
