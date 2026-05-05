@@ -1,3 +1,34 @@
+## [Unreleased] -- 2026-05-05 (SAN-403)
+
+### Added
+- `verify_bundle(..., trusted_key_ids=...)` parameter. When provided, the
+  bundle's receipt key_id and every constitution signature key_id must
+  appear in the supplied set or verification fails closed. Empty set is
+  the explicit "trust nothing" signal.
+- `--trusted-key-ids <FILE>` CLI flag and `SANNA_TRUSTED_KEY_IDS`
+  environment variable on `sanna bundle-verify`. File format:
+  newline-separated 64-hex key_ids, lowercase, `#` comments allowed.
+  Malformed lines reject with line number; empty file rejects.
+- `BundleVerificationResult.trust_anchored` boolean indicating whether the
+  verdict was evaluated against an external anchor (regardless of pass/fail).
+- Warning banner printed to stderr when no anchor is supplied (and
+  `trust_anchored: false` in `--json` output). Operators see that the
+  verdict is self-consistent only -- the bundle internally agrees but no
+  external authority confirms the key_id's identity claim.
+
+### Security
+- Closes the bundle-forge attack vector at the verifier level. An adversary
+  who re-signs a genuine receipt + constitution with their own key and
+  repackages the bundle would, prior to this change, get a `valid=true`
+  verdict. With a trust anchor, the forgery is now caught. Without an
+  anchor, the warning makes the limitation visible. Approval signature
+  key_ids are NOT yet checked against the trust anchor (known limitation).
+
+### Tickets
+- SAN-403 PR 1 of 3 (this entry). PR 2 (TypeScript SDK in sanna-ts) and
+  PR 3 (sanna-protocol cross-SDK forged-bundle fixture + spec/SECURITY.md
+  updates) follow.
+
 ## [Unreleased] -- 2026-05-03 (SAN-396)
 
 ### Added
