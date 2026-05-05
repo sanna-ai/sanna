@@ -203,7 +203,7 @@ class TestVerifyBundle:
     def test_verify_valid_bundle(self, valid_bundle):
         result = verify_bundle(valid_bundle)
         assert result.valid is True
-        assert len(result.checks) == 7  # 6 original + approval verification
+        assert len(result.checks) == 8  # 7 original + trust anchor (SAN-403)
         assert all(c.passed for c in result.checks)
         assert result.errors == []
 
@@ -427,7 +427,7 @@ class TestBundleCLI:
         json_str = json.dumps(output, indent=2)
         parsed = json.loads(json_str)
         assert parsed["valid"] is True
-        assert len(parsed["checks"]) == 7  # 6 original + approval verification
+        assert len(parsed["checks"]) == 8  # 7 original + trust anchor (SAN-403)
 
     def test_bundle_check_dataclass(self):
         check = BundleCheck(name="Test", passed=True, detail="OK")

@@ -57,6 +57,11 @@ class BundleVerificationResult:
     checks: list[BundleCheck]
     receipt_summary: Optional[dict]
     errors: list[str] = field(default_factory=list)
+    trust_anchored: bool = False
+    """True iff the verdict was evaluated against an externally supplied trust
+    anchor (regardless of whether the bundle's key_ids passed the anchor
+    check). False when no anchor was supplied (verdict is self-consistent
+    only)."""
 
 
 # =============================================================================
@@ -241,26 +246,46 @@ def create_bundle(
 def verify_bundle(
     bundle_path: str | Path,
     strict: bool = True,
+    trusted_key_ids: set[str] | None = None,
 ) -> BundleVerificationResult:
     """Verify an evidence bundle's integrity.
 
-    Runs seven verification steps:
+    Runs seven verification steps plus an optional trust anchor check:
 
-    1. **Bundle structure** — required files present in the zip.
-    2. **Receipt schema** — receipt validates against JSON schema.
-    3. **Receipt fingerprint** — deterministic fingerprint matches.
-    4. **Constitution signature** — Ed25519 signature valid.
-    5. **Provenance chain** — receipt→constitution binding intact.
-    6. **Receipt signature** — Ed25519 signature valid.
-    7. **Approval verification** — approval content hash and signature.
+    1. **Bundle structure** - required files present in the zip.
+    2. **Receipt schema** - receipt validates against JSON schema.
+    3. **Receipt fingerprint** - deterministic fingerprint matches.
+    4. **Constitution signature** - Ed25519 signature valid.
+    5. **Provenance chain** - receipt->constitution binding intact.
+    6. **Receipt signature** - Ed25519 signature valid.
+    7. **Approval verification** - approval content hash and signature.
+    8. **Trust anchor** - key_ids validated against out-of-band allowlist
+       (only when ``trusted_key_ids`` is supplied).
 
     Args:
         bundle_path: Path to the bundle zip file.
         strict: If True (default), all checks must pass for
             ``valid=True``.  If False, returns partial results.
+        trusted_key_ids: Optional out-of-band allowlist of trusted Ed25519
+            key_ids. Semantics:
+
+            - ``None``: no anchor; verdict is self-consistent only;
+              ``trust_anchored=False`` on the result.
+            - ``frozenset()`` / ``set()`` (empty): explicit "trust nothing"
+              signal; all bundles fail the trust check;
+              ``trust_anchored=True``.
+            - non-empty set: receipt key_id AND the constitution signature
+              key_id must appear in the set; otherwise the trust check
+              fails. ``trust_anchored=True``.
+
+            Approval signature key_ids are NOT checked against the trust
+            anchor in the current implementation; this is a known
+            limitation tracked under SAN-403 PR 1.
 
     Returns:
         BundleVerificationResult with per-step checks and summary.
+        ``trust_anchored`` is True iff an anchor was evaluated (regardless
+        of pass/fail).
     """
     bundle_path = Path(bundle_path)
     if not bundle_path.exists():
@@ -269,6 +294,7 @@ def verify_bundle(
     checks: list[BundleCheck] = []
     errors: list[str] = []
     receipt_summary: Optional[dict] = None
+    trust_anchored: bool = False
 
     # ---- Open zip safely ----
     try:
@@ -585,6 +611,52 @@ def verify_bundle(
             )
             checks.append(approval_check)
 
+        # ---- Step 8: Trust anchor (SAN-403) ----
+        # receipt_key_id is set earlier during key resolution (may be "").
+        # Constitution is single-sig; collect its key_id if available.
+        # Approval signature key_ids are NOT checked against the trust anchor
+        # (known limitation; tracked under SAN-403 PR 1).
+        constitution_key_ids: list[str] = []
+        if constitution is not None:
+            const_sig = constitution.provenance.signature
+            if const_sig and const_sig.key_id:
+                constitution_key_ids.append(const_sig.key_id)
+
+        if trusted_key_ids is not None:
+            trust_anchored = True
+            untrusted: list[tuple[str, str]] = []
+            if receipt_key_id and receipt_key_id not in trusted_key_ids:
+                untrusted.append(("receipt", receipt_key_id))
+            for cid in constitution_key_ids:
+                if cid not in trusted_key_ids:
+                    untrusted.append(("constitution", cid))
+
+            if untrusted:
+                detail = "; ".join(
+                    f"{role} key_id {kid[:16]}... not in trust anchor"
+                    for role, kid in untrusted
+                )
+                checks.append(BundleCheck("Trust anchor", False, detail))
+                errors.extend(
+                    f"Trust anchor: {role} key_id {kid[:16]}... not in trust anchor"
+                    for role, kid in untrusted
+                )
+            else:
+                n_const = len(constitution_key_ids)
+                n_anchor = len(trusted_key_ids)
+                checks.append(BundleCheck(
+                    "Trust anchor", True,
+                    f"Receipt + {n_const} constitution key_id(s) all in trust anchor "
+                    f"({n_anchor} keys total)",
+                ))
+        else:
+            checks.append(BundleCheck(
+                "Trust anchor", True,
+                "WARNING: no trust anchor supplied; verdict is self-consistent only. "
+                "Pass trusted_key_ids or set SANNA_TRUSTED_KEY_IDS for an authoritative verdict.",
+            ))
+            # trust_anchored stays False (initialized above)
+
     # ---- Compute verdict ----
     if strict:
         valid = all(c.passed for c in checks)
@@ -600,6 +672,7 @@ def verify_bundle(
         checks=checks,
         receipt_summary=receipt_summary,
         errors=errors,
+        trust_anchored=trust_anchored,
     )
 
 

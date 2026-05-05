@@ -576,3 +576,151 @@ class TestAuthorityMatchingSeparatorNormalization:
         assert _matches_action("billing", "modify billing data") is False
         assert _matches_action("send email", "send email") is True
         assert _matches_action("delete records", "query database") is False
+
+
+# =============================================================================
+# 8. BUNDLE VERIFY TRUST ANCHOR (SAN-403)
+# =============================================================================
+
+class TestBundleVerifyTrustAnchor:
+    def test_no_anchor_succeeds_with_self_consistent_signal(self, valid_bundle):
+        """Without an anchor, valid bundle passes but trust_anchored is False."""
+        result = verify_bundle(valid_bundle)
+        assert result.valid is True
+        assert result.trust_anchored is False
+        anchor_checks = [c for c in result.checks if c.name == "Trust anchor"]
+        assert len(anchor_checks) == 1
+        assert anchor_checks[0].passed is True
+        assert "self-consistent only" in anchor_checks[0].detail
+
+    def test_anchor_with_matching_key_id_succeeds(self, valid_bundle, signed_receipt_and_path):
+        """Anchor containing the bundle's key_id produces trust_anchored=True, valid=True."""
+        receipt, _ = signed_receipt_and_path
+        key_id = receipt["receipt_signature"]["key_id"]
+        result = verify_bundle(valid_bundle, trusted_key_ids={key_id})
+        assert result.valid is True
+        assert result.trust_anchored is True
+
+    def test_anchor_excluding_key_id_fails(self, valid_bundle):
+        """Anchor that does not contain the bundle's key_id produces valid=False."""
+        result = verify_bundle(valid_bundle, trusted_key_ids={"deadbeef" * 8})
+        assert result.valid is False
+        assert result.trust_anchored is True
+        failed = [c for c in result.checks if c.name == "Trust anchor" and not c.passed]
+        assert len(failed) == 1
+        assert "trust anchor" in failed[0].detail.lower()
+
+    def test_empty_anchor_set_fails_closed(self, valid_bundle):
+        """Empty set is the explicit 'trust nothing' signal: fails even a valid bundle."""
+        result = verify_bundle(valid_bundle, trusted_key_ids=set())
+        assert result.valid is False
+        assert result.trust_anchored is True
+
+    def test_forged_bundle_caught_by_anchor(
+        self, tmp_path, signed_receipt_and_path, signed_const_path, keypair
+    ):
+        """Re-signed bundle with attacker key: passes without anchor, fails with genuine anchor."""
+        genuine_receipt, _ = signed_receipt_and_path
+        genuine_key_id = genuine_receipt["receipt_signature"]["key_id"]
+
+        # Create attacker keypair and a complete attacker-signed bundle
+        attacker_priv, attacker_pub = generate_keypair(tmp_path / "attacker_keys", signed_by="attacker")
+
+        attacker_const = load_constitution(str(signed_const_path))
+        attacker_signed_const = sign_constitution(
+            attacker_const, private_key_path=str(attacker_priv), signed_by="attacker"
+        )
+        attacker_const_path = tmp_path / "attacker_constitution.yaml"
+        save_constitution(attacker_signed_const, attacker_const_path)
+
+        const_ref = constitution_to_receipt_ref(attacker_signed_const)
+        check_configs, custom_records = configure_checks(attacker_signed_const)
+        trace_data = _build_trace_data(
+            correlation_id="forge-test",
+            query="forged query",
+            context="forged context",
+            output="forged output",
+        )
+        attacker_receipt = _generate_constitution_receipt(
+            trace_data,
+            check_configs=check_configs,
+            custom_records=custom_records,
+            constitution_ref=const_ref,
+            constitution_version=attacker_signed_const.schema_version,
+        )
+        from sanna.crypto import sign_receipt as _sign_receipt
+        attacker_receipt = _sign_receipt(attacker_receipt, str(attacker_priv))
+        attacker_receipt_path = tmp_path / "attacker_receipt.json"
+        attacker_receipt_path.write_text(json.dumps(attacker_receipt, indent=2))
+
+        attacker_bundle = tmp_path / "attacker.zip"
+        create_bundle(attacker_receipt_path, attacker_const_path, attacker_pub, attacker_bundle)
+
+        # Without anchor: self-consistent forge passes
+        result_no_anchor = verify_bundle(attacker_bundle)
+        assert result_no_anchor.valid is True
+        assert result_no_anchor.trust_anchored is False
+
+        # With genuine anchor: attacker bundle fails
+        result_with_anchor = verify_bundle(attacker_bundle, trusted_key_ids={genuine_key_id})
+        assert result_with_anchor.valid is False
+        assert result_with_anchor.trust_anchored is True
+
+    @pytest.mark.xfail(
+        reason=(
+            "Constitution loader uses single-sig only (Provenance.signature: "
+            "Optional[ConstitutionSignature]). Multi-sig support is out of scope for "
+            "SAN-403 PR 1; when multi-sig lands, this test should verify that ALL "
+            "signer key_ids must appear in the trust anchor."
+        )
+    )
+    def test_constitution_multi_sig_all_must_be_trusted(self, valid_bundle):
+        raise NotImplementedError("Multi-sig not yet supported by constitution loader")
+
+
+class TestBundleVerifyTrustAnchorCLI:
+    def test_warning_banner_appears_when_no_anchor(self, valid_bundle, capsys):
+        """Without --trusted-key-ids, stderr shows the self-consistent-only warning."""
+        from sanna.cli import main_verify_bundle
+        with patch("sys.argv", ["sanna-verify-bundle", str(valid_bundle)]):
+            main_verify_bundle()
+        captured = capsys.readouterr()
+        assert "BUNDLE VERIFIED SELF-CONSISTENTLY ONLY" in captured.err
+
+    def test_env_var_path_works(self, valid_bundle, signed_receipt_and_path, monkeypatch, tmp_path, capsys):
+        """SANNA_TRUSTED_KEY_IDS env var is accepted as the anchor source."""
+        from sanna.cli import main_verify_bundle
+        receipt, _ = signed_receipt_and_path
+        key_id = receipt["receipt_signature"]["key_id"]
+        anchor_file = tmp_path / "trusted.txt"
+        anchor_file.write_text(f"# comment\n{key_id}\n")
+        monkeypatch.setenv("SANNA_TRUSTED_KEY_IDS", str(anchor_file))
+        with patch("sys.argv", ["sanna-verify-bundle", "--json", str(valid_bundle)]):
+            rc = main_verify_bundle()
+        captured = capsys.readouterr()
+        assert rc == 0
+        data = json.loads(captured.out)
+        assert data["trust_anchored"] is True
+
+    def test_malformed_trust_anchor_file_errors(self, valid_bundle, tmp_path, capsys):
+        """File with non-hex line rejects with exit code 1 and line number in stderr."""
+        from sanna.cli import main_verify_bundle
+        anchor_file = tmp_path / "bad.txt"
+        anchor_file.write_text("not-hex\n")
+        with patch("sys.argv", ["sanna-verify-bundle", "--trusted-key-ids", str(anchor_file), str(valid_bundle)]):
+            rc = main_verify_bundle()
+        captured = capsys.readouterr()
+        assert rc == 1
+        assert "not a 64-hex key_id" in captured.err
+        assert ":1:" in captured.err
+
+    def test_empty_trust_anchor_file_errors(self, valid_bundle, tmp_path, capsys):
+        """File with only comments rejects with exit code 1."""
+        from sanna.cli import main_verify_bundle
+        anchor_file = tmp_path / "empty.txt"
+        anchor_file.write_text("# only comments\n\n")
+        with patch("sys.argv", ["sanna-verify-bundle", "--trusted-key-ids", str(anchor_file), str(valid_bundle)]):
+            rc = main_verify_bundle()
+        captured = capsys.readouterr()
+        assert rc == 1
+        assert "empty after stripping comments" in captured.err
