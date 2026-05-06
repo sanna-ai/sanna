@@ -104,7 +104,14 @@ def test_plain_asdict_includes_agent_identity_null_regression():
     # Helper strips
     assert "agent_identity" not in d_via_helper
     # Strict schema rejects the plain version
-    with pytest.raises(ValidationError, match="None is not of type 'object'"):
+    # SAN-485: SAN-383 A1' rule restructured the cv<10 agent_identity constraint
+    # from `type=object` (rejection: "None is not of type 'object'") to `if cv<10
+    # then agent_identity: false` (rejection: "False schema does not allow None").
+    # Semantic enforcement is identical; jsonschema's error message format changed.
+    # Match on "None" -- substring of both old and new phrasings; robust to future
+    # jsonschema phrasing drift while still asserting the receipt's null
+    # agent_identity is what trips the validator.
+    with pytest.raises(ValidationError, match="None"):
         jsonschema_validate(d_plain, SCHEMA)
     # Strict schema accepts the helper version
     jsonschema_validate(d_via_helper, SCHEMA)

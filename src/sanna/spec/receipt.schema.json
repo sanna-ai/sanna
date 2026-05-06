@@ -667,6 +667,22 @@
       }
     },
     {
+      "$comment": "A1': cv<10 receipts must NOT include agent_identity. Spec Section 2.19. SAN-383.",
+      "if": {
+        "properties": {
+          "checks_version": {
+            "enum": ["6", "7", "8", "9"]
+          }
+        },
+        "required": ["checks_version"]
+      },
+      "then": {
+        "properties": {
+          "agent_identity": false
+        }
+      }
+    },
+    {
       "$comment": "A3: com.sanna.manifest extension implies event_type=session_manifest. Spec Section 2.15.1. SAN-204.",
       "if": {
         "properties": {
@@ -785,6 +801,13 @@
                     "type": "object",
                     "additionalProperties": {
                       "type": "object",
+                      "if": {
+                        "anyOf": [
+                          {"properties": {"tools_suppressed": {"minItems": 1}}, "required": ["tools_suppressed"]},
+                          {"properties": {"patterns_suppressed": {"minItems": 1}}, "required": ["patterns_suppressed"]}
+                        ]
+                      },
+                      "then": {"required": ["aggregate_suppression_reasons"]},
                       "properties": {
                         "tools_delivered":      {"type": "array", "items": {"const": "<redacted>"}},
                         "tools_suppressed":     {"type": "array", "items": {"const": "<redacted>"}},
