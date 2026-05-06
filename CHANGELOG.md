@@ -1,3 +1,39 @@
+## [Unreleased] -- 2026-05-06 (SAN-485)
+
+### Added
+- `tests/test_bundle_trust_anchor_vectors.py`: consumes the cross-SDK fixture
+  `spec/fixtures/bundle-trust-vectors.json` (added to sanna-protocol in SAN-403
+  PR 3 of 3 at commit 6795979). Asserts every vector's expected `valid` and
+  `trust_anchored` against the actual `verify_bundle()` verdict. 12 tests:
+  fixture-presence canary, well-formedness, bidirectional vector-ID-set
+  contract, 2 bundle internal-reference sanity assertions, and 7 parametrized
+  vector cases.
+
+### Changed
+- Bumped `spec` submodule pin from baa517f to 6795979. The bump pulls in
+  sanna-protocol commits SAN-381 (R1 aggregate_suppression_reasons schema
+  rule), SAN-383 (A1' cv<10 forbids agent_identity schema rule), SAN-372
+  (archive escalated.json regression guard), SAN-373 (spec Section 2.17.2 ->
+  2.18.4 cross-reference), in addition to SAN-403 PR 3. Runtime already
+  implements these rules; the bump is a schema-resync, not a behavior change.
+  Verified by full test suite green post-bump with no new failures vs
+  pre-bump baseline.
+- Synced operational schema copies in `src/sanna/spec/` to match the bumped
+  submodule.
+- `tests/test_wire_format_no_nulls.py::test_plain_asdict_includes_agent_identity_null_regression`:
+  relaxed the `pytest.raises(ValidationError, match=...)` regex from the
+  old jsonschema phrasing ("None is not of type 'object'") to a stable
+  substring match ("None") that holds across the SAN-383 A1' rule's
+  if/then/false restructuring. Semantic enforcement is unchanged
+  (cv<10 + agent_identity=null is still rejected); only the library's error
+  message format changed. The relaxed match is also robust to future
+  jsonschema phrasing drift.
+
+### Tickets
+- SAN-485 (this entry). Closes the "run by both SDK CIs" acceptance criterion
+  of SAN-403 on the Python side. SAN-486 lands the same consumption in
+  TypeScript.
+
 ## [Unreleased] -- 2026-05-05 (SAN-403)
 
 ### Added
