@@ -918,12 +918,18 @@ def _emit_http_session_manifest() -> None:
     surfaces=['http'], event_type='session_manifest', invariants_scope='none',
     enforcement=null, enforcement_surface='http_interceptor'.
     """
-    from ..manifest import generate_manifest
+    from ..manifest import generate_manifest, get_suppressed_patterns
     from ..middleware import generate_constitution_receipt, build_trace_data
 
     constitution = _http_state["constitution"]
     sink = _http_state["sink"]
     content_mode = _http_state.get("content_mode") or None
+
+    # SAN-487: source enforcement state directly from constitution. Do NOT read
+    # from manifest_ext -- that's subject to content_mode redaction. Population
+    # happens BEFORE generate_manifest so the cache is populated even if
+    # manifest generation fails.
+    _http_state["suppressed_patterns"] = get_suppressed_patterns(constitution, "http")
 
     try:
         manifest_ext = generate_manifest(
@@ -932,9 +938,6 @@ def _emit_http_session_manifest() -> None:
             content_mode=content_mode,
         )
         status_override = "PASS"
-        # SAN-397: capture suppressed patterns for anomaly emission
-        http_surface = manifest_ext.get("surfaces", {}).get("http", {})
-        _http_state["suppressed_patterns"] = set(http_surface.get("patterns_suppressed", []))
     except Exception as exc:
         logger.error("HTTP session_manifest generate_manifest failed: %s", exc)
         manifest_ext = {
@@ -943,7 +946,6 @@ def _emit_http_session_manifest() -> None:
             "surfaces": {},
         }
         status_override = "FAIL"
-        _http_state["suppressed_patterns"] = set()
 
     correlation_id = f"manifest-http-{uuid.uuid4().hex[:12]}"
     trace_data = build_trace_data(

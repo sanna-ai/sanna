@@ -231,16 +231,6 @@ class TestCliInvocationAnomaly:
         assert exc.filename == "rm"
 
 
-@pytest.mark.skip(
-    reason=(
-        "SAN-487: blocked on authority-bypass design gap fix. "
-        "CLI/HTTP interceptor enforcement state populated from redacted "
-        "manifest under content_mode=redacted, so the anomaly emission "
-        "path is unreachable in tests. Re-enable when SAN-487 fixes the "
-        "state-population to read from constitution (raw) instead of "
-        "manifest (redacted)."
-    )
-)
 class TestCliAnomalyRedaction:
     """SAN-406: Section 2.22.5 field-level redaction at subprocess_interceptor emission site."""
 

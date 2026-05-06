@@ -227,12 +227,6 @@ class TestHttpInvocationAnomaly:
         assert ext.get("attempted_endpoint") == "https://blocked.example.com/api/*"
 
 
-@pytest.mark.skip(
-    reason=(
-        "SAN-487: blocked on authority-bypass design gap fix. "
-        "(Same reason as TestCliAnomalyRedaction.)"
-    )
-)
 class TestHttpAnomalyRedaction:
     """SAN-406: Section 2.22.5 field-level redaction at http_interceptor emission site."""
 

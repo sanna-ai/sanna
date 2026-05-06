@@ -575,3 +575,111 @@ class TestManifestEmittedFlag:
         gw._build_tool_list()
         # The condition "gateway._constitution is not None" should block emission
         assert gw._manifest_emitted is False
+
+
+# =============================================================================
+# SAN-487: get_suppressed_patterns helper unit tests
+# =============================================================================
+
+class TestGetSuppressedPatterns:
+    """SAN-487: unit tests for the get_suppressed_patterns helper.
+
+    Validates the helper returns the RAW (unredacted) set of suppressed
+    patterns directly from constitution data, regardless of content_mode.
+    The integration tests in test_cli_anomaly.py and test_http_anomaly.py
+    cover the end-to-end path; these tests cover the helper in isolation.
+    """
+
+    def test_cli_cannot_execute_returns_binary(self):
+        from sanna.manifest import get_suppressed_patterns
+        constitution = _bare_constitution(
+            cli_permissions=CliPermissions(
+                commands=[CliCommand(id="c1", binary="rm", authority="cannot_execute")]
+            ),
+            escalation_visibility="visible",
+        )
+        result = get_suppressed_patterns(constitution, "cli")
+        assert result == {"rm"}
+
+    def test_cli_must_escalate_visible_NOT_suppressed(self):
+        from sanna.manifest import get_suppressed_patterns
+        constitution = _bare_constitution(
+            cli_permissions=CliPermissions(
+                commands=[CliCommand(id="c1", binary="sudo", authority="must_escalate")]
+            ),
+            escalation_visibility="visible",
+        )
+        result = get_suppressed_patterns(constitution, "cli")
+        assert result == set(), "must_escalate + visibility=visible should NOT suppress"
+
+    def test_cli_must_escalate_suppressed_visibility_IS_suppressed(self):
+        from sanna.manifest import get_suppressed_patterns
+        constitution = _bare_constitution(
+            cli_permissions=CliPermissions(
+                commands=[CliCommand(id="c1", binary="curl", authority="must_escalate")]
+            ),
+            escalation_visibility="suppressed",
+        )
+        result = get_suppressed_patterns(constitution, "cli")
+        assert result == {"curl"}, "must_escalate + visibility=suppressed MUST suppress"
+
+    def test_cli_can_execute_NOT_suppressed(self):
+        from sanna.manifest import get_suppressed_patterns
+        constitution = _bare_constitution(
+            cli_permissions=CliPermissions(
+                commands=[CliCommand(id="c1", binary="ls", authority="can_execute")]
+            ),
+            escalation_visibility="visible",
+        )
+        result = get_suppressed_patterns(constitution, "cli")
+        assert result == set()
+
+    def test_cli_no_permissions_returns_empty(self):
+        from sanna.manifest import get_suppressed_patterns
+        constitution = _bare_constitution()
+        result = get_suppressed_patterns(constitution, "cli")
+        assert result == set()
+
+    def test_http_cannot_execute_returns_url_pattern(self):
+        from sanna.manifest import get_suppressed_patterns
+        constitution = _bare_constitution(
+            api_permissions=ApiPermissions(
+                endpoints=[ApiEndpoint(
+                    id="e1",
+                    url_pattern="https://internal.evil.com/*",
+                    authority="cannot_execute",
+                )]
+            ),
+            escalation_visibility="visible",
+        )
+        result = get_suppressed_patterns(constitution, "http")
+        assert result == {"https://internal.evil.com/*"}
+
+    def test_http_no_permissions_returns_empty(self):
+        from sanna.manifest import get_suppressed_patterns
+        constitution = _bare_constitution()
+        result = get_suppressed_patterns(constitution, "http")
+        assert result == set()
+
+    def test_invalid_surface_raises(self):
+        from sanna.manifest import get_suppressed_patterns
+        constitution = _bare_constitution()
+        with pytest.raises(ValueError, match="unknown surface"):
+            get_suppressed_patterns(constitution, "mcp")  # type: ignore
+
+    def test_no_content_mode_parameter(self):
+        """SAN-487 design: helper does NOT take content_mode. Enforcement state
+        is content-mode-independent. This test guards against accidentally
+        adding a content_mode parameter in a future refactor.
+        """
+        import inspect
+        from sanna.manifest import get_suppressed_patterns
+        sig = inspect.signature(get_suppressed_patterns)
+        params = set(sig.parameters.keys())
+        assert "content_mode" not in params, (
+            "SAN-487: get_suppressed_patterns MUST NOT take content_mode -- "
+            "enforcement state is content-mode-independent"
+        )
+        assert params == {"constitution", "surface"}, (
+            f"unexpected parameters: {params}"
+        )

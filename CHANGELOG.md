@@ -1,3 +1,66 @@
+## [Unreleased] -- 2026-05-06 (SAN-487)
+
+### Fixed
+- **CRITICAL authority bypass** (AUDIT-008-derived): under
+  `content_mode=redacted` (or `hashes_only`), CLI and HTTP interceptors
+  populated their enforcement state cache (`_state["suppressed_patterns"]`)
+  from the manifest's `patterns_suppressed` list -- which had been redacted
+  to `["<redacted>"]`. The enforcement check `binary_name in
+  suppressed_patterns` returned False for any actual binary, the suppressed
+  binary executed, and no anomaly fired. Operators who configured redacted
+  or hashes_only mode for privacy got ZERO ENFORCEMENT (not just leaking
+  receipts -- complete authority bypass).
+- The fix mirrors the gateway's pattern (server.py:2079-2111 sources
+  `_suppressed_tool_names` directly from constitution policies). New helper
+  `sanna.manifest.get_suppressed_patterns(constitution, surface)` returns
+  the raw set of suppressed patterns from constitution data, bypassing
+  `generate_manifest()` entirely. Both CLI and HTTP interceptors now use
+  this helper for enforcement state population. The manifest is still
+  emitted with redaction for the receipt; only the internal enforcement
+  cache is now sourced from raw constitution data.
+
+### Added
+- `sanna.manifest.get_suppressed_patterns(constitution, surface)` helper:
+  returns `set[str]` of binaries (cli) or URL patterns (http) that are
+  suppressed under the constitution's authority rules. Mirrors the
+  suppression semantics in `_generate_cli_surface` / `_generate_http_surface`
+  (cannot_execute + must_escalate-with-suppressed-visibility) but operates
+  directly on constitution data, NOT on (potentially redacted) manifest
+  output. Helper does NOT take content_mode -- enforcement state is
+  content-mode-independent (the entire point of this fix).
+- 9 unit tests for the new helper in `tests/test_manifest.py::TestGetSuppressedPatterns`:
+  cli + http surface coverage of all 4 authority outcomes
+  (cannot_execute, must_escalate-visible, must_escalate-suppressed,
+  can_execute), empty-permissions edge cases, invalid-surface ValueError,
+  plus a guard test that asserts the function signature does NOT accept
+  content_mode (regression guard against future refactor that would
+  reintroduce the bug).
+
+### Changed
+- `tests/test_cli_anomaly.py::TestCliAnomalyRedaction` and
+  `tests/test_http_anomaly.py::TestHttpAnomalyRedaction`: removed the
+  class-level `@pytest.mark.skip(reason=("SAN-487: ..."))` decorators
+  added in SAN-406 PR 1. The 6 integration tests now execute and pass
+  end-to-end: under `content_mode=redacted`, the suppressed binary triggers
+  enforcement (per this fix), the anomaly fires, and the receipt emits
+  `attempted_command="<redacted>"` (per SAN-406 PR 1 emission redaction).
+  With both fixes in place, the customer-facing toggle now works as
+  documented.
+
+### Tickets
+- SAN-487 PR 1 of 2 (this entry; sanna-repo enforcement state fix). PR 2
+  mirrors in sanna-ts. SAN-487 closes when PR 2 merges.
+- Discovered during SAN-406 PR 1 implementation; SAN-406 closed at
+  817bf1a/77acc44/95e87e5/0809568/cc75579 (5 PRs across 3 repos).
+
+### Security
+- Closes the AUDIT-008-derived authority bypass on the Python side.
+  Operators relying on enforcement under content_mode=redacted/hashes_only
+  now get the enforcement they expected. Customer-facing impact: zero
+  production customers in beta (per April 2026 stance), so no SAN-218-style
+  proactive outreach needed. Once beta accepts customers, this fix MUST be
+  in place before any customer touches content_mode=redacted/hashes_only.
+
 ## [Unreleased] -- 2026-05-06 (SAN-406)
 
 ### Added
