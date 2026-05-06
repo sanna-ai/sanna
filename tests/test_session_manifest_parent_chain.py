@@ -71,6 +71,7 @@ def _make_gateway(constitution, captured_receipts):
     gw._suppressed_tool_names = set()
     gw._signing_key_path = None
     gw._content_mode = ""
+    gw._content_mode_source = None
     gw._tool_to_downstream = {}
 
     async def _fake_persist(receipt):
@@ -243,5 +244,96 @@ class TestSessionManifestParentChain:
             fails = [c for c in checks if c.status == "FAIL"]
             assert not fails, (
                 f"Emitted {et} receipt fails verifier check(s): "
+                f"{[(c.name, c.message) for c in fails]}"
+            )
+
+
+class TestGatewayAnomalyRedaction:
+    """SAN-406: Section 2.22.5 field-level redaction at gateway/server.py emission site."""
+
+    def test_redacted_mode_masks_attempted_tool(self):
+        captured = []
+        cons = _con(cannot_execute=["delete_all"])
+        gw = _make_gateway(cons, captured)
+        gw._content_mode = "redacted"
+
+        async def run():
+            tool_list = gw._build_tool_list()
+            await gw._emit_session_manifest(tool_list)
+            await gw._emit_invocation_anomaly("mock_delete_all", {})
+
+        asyncio.run(run())
+
+        anomaly_receipts = [r for r in captured if r.get("event_type") == "invocation_anomaly"]
+        assert len(anomaly_receipts) == 1
+        ext = anomaly_receipts[0].get("extensions", {}).get("com.sanna.anomaly", {})
+        assert ext.get("attempted_tool") == "<redacted>"
+
+    def test_hashes_only_mode_hashes_attempted_tool(self):
+        import re
+        _SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+        captured = []
+        cons = _con(cannot_execute=["delete_all"])
+        gw = _make_gateway(cons, captured)
+        gw._content_mode = "hashes_only"
+
+        async def run():
+            tool_list = gw._build_tool_list()
+            await gw._emit_session_manifest(tool_list)
+            await gw._emit_invocation_anomaly("mock_delete_all", {})
+
+        asyncio.run(run())
+
+        anomaly_receipts = [r for r in captured if r.get("event_type") == "invocation_anomaly"]
+        assert len(anomaly_receipts) == 1
+        ext = anomaly_receipts[0].get("extensions", {}).get("com.sanna.anomaly", {})
+        val = ext.get("attempted_tool")
+        assert _SHA256_HEX_RE.match(val), f"{val!r} not 64-hex lowercase"
+
+    def test_hashes_only_is_deterministic_across_calls(self):
+        captured = []
+        cons = _con(cannot_execute=["delete_all"])
+        gw = _make_gateway(cons, captured)
+        gw._content_mode = "hashes_only"
+
+        async def run():
+            tool_list = gw._build_tool_list()
+            await gw._emit_session_manifest(tool_list)
+            await gw._emit_invocation_anomaly("mock_delete_all", {})
+            await gw._emit_invocation_anomaly("mock_delete_all", {})
+
+        asyncio.run(run())
+
+        anomaly_receipts = [r for r in captured if r.get("event_type") == "invocation_anomaly"]
+        assert len(anomaly_receipts) == 2
+        hash1 = anomaly_receipts[0]["extensions"]["com.sanna.anomaly"]["attempted_tool"]
+        hash2 = anomaly_receipts[1]["extensions"]["com.sanna.anomaly"]["attempted_tool"]
+        assert hash1 == hash2, "Same tool name should hash to same value"
+
+    def test_redacted_mode_passes_verifier(self):
+        """SAN-406: redacted receipt passes verifier redaction_markers_correct check."""
+        captured = []
+        cons = _con(cannot_execute=["delete_all"])
+        gw = _make_gateway(cons, captured)
+        gw._content_mode = "redacted"
+
+        async def run():
+            tool_list = gw._build_tool_list()
+            await gw._emit_session_manifest(tool_list)
+            await gw._emit_invocation_anomaly("mock_delete_all", {})
+
+        asyncio.run(run())
+
+        for r in captured:
+            et = r.get("event_type")
+            if et == "session_manifest":
+                checks = verify_session_manifest_receipt(r)
+            elif et == "invocation_anomaly":
+                checks = verify_invocation_anomaly_receipt(r, receipt_set=captured)
+            else:
+                continue
+            fails = [c for c in checks if c.status == "FAIL"]
+            assert not fails, (
+                f"Emitted {et} receipt (redacted mode) fails verifier: "
                 f"{[(c.name, c.message) for c in fails]}"
             )

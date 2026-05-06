@@ -22,6 +22,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Optional
 
+from ..anomaly import redact_attempted_field
 from ..constitution import load_constitution, constitution_to_receipt_ref
 from ..hashing import hash_obj, hash_text, EMPTY_HASH
 from ..receipt import generate_receipt, receipt_to_dict
@@ -1043,7 +1044,7 @@ def _emit_http_invocation_anomaly(endpoint_pattern: str) -> None:
         ),
         extensions={
             "com.sanna.anomaly": {
-                "attempted_endpoint": endpoint_pattern,
+                "attempted_endpoint": redact_attempted_field(endpoint_pattern, content_mode),
                 "suppression_basis": "session_manifest",
             },
         },
@@ -1056,8 +1057,8 @@ def _emit_http_invocation_anomaly(endpoint_pattern: str) -> None:
     receipt["event_type"] = "api_invocation_anomaly"
     receipt["status"] = "FAIL"
 
-    # content_mode on envelope only (Section 2.22.5 field-level redaction is
-    # spec-ahead-of-impl; consistent with gateway server.py:2508 + SAN-397 scope)
+    # content_mode on envelope; field-level redaction at attempted_endpoint
+    # emission site applies Section 2.22.5 (SAN-406).
     if content_mode:
         receipt["content_mode"] = content_mode
         receipt["content_mode_source"] = "local_config"

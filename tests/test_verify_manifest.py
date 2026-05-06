@@ -786,3 +786,127 @@ class TestVerifyReceiptDispatch:
             assert chk.name not in manifest_names, (
                 f"Unexpected manifest check '{chk.name}' on legacy receipt without event_type"
             )
+
+
+class TestRedactionMarkersCorrect:
+    """SAN-406: redaction_markers_correct check coverage.
+
+    Extends SAN-439 scope to com.sanna.anomaly (this ticket absorbed SAN-439).
+    Verifier check covers BOTH com.sanna.manifest lists and com.sanna.anomaly
+    attempted_* fields under content_mode=redacted/hashes_only.
+    """
+
+    def _make_anomaly_receipt(self, content_mode, attempted_value, event_type="invocation_anomaly"):
+        field = {
+            "invocation_anomaly": "attempted_tool",
+            "cli_invocation_anomaly": "attempted_command",
+            "api_invocation_anomaly": "attempted_endpoint",
+        }[event_type]
+        return {
+            "event_type": event_type,
+            "content_mode": content_mode,
+            "extensions": {"com.sanna.anomaly": {field: attempted_value, "suppression_basis": "constitution"}},
+        }
+
+    def test_full_mode_no_constraint(self):
+        receipt = self._make_anomaly_receipt("full", "rm")
+        checks = verify_invocation_anomaly_receipt(receipt)
+        names = [c.name for c in checks]
+        assert "redaction_markers_correct" not in names
+
+    def test_none_mode_no_constraint(self):
+        receipt = self._make_anomaly_receipt(None, "rm")
+        checks = verify_invocation_anomaly_receipt(receipt)
+        names = [c.name for c in checks]
+        assert "redaction_markers_correct" not in names
+
+    def test_redacted_correct_passes(self):
+        receipt = self._make_anomaly_receipt("redacted", "<redacted>")
+        checks = verify_invocation_anomaly_receipt(receipt)
+        marker_check = next(c for c in checks if c.name == "redaction_markers_correct")
+        assert marker_check.status == "PASS"
+
+    def test_redacted_with_raw_value_fails(self):
+        receipt = self._make_anomaly_receipt("redacted", "rm")  # leaks raw
+        checks = verify_invocation_anomaly_receipt(receipt)
+        marker_check = next(c for c in checks if c.name == "redaction_markers_correct")
+        assert marker_check.status == "FAIL"
+
+    def test_hashes_only_64_hex_passes(self):
+        from sanna.hashing import hash_text
+        hashed = hash_text("rm")
+        receipt = self._make_anomaly_receipt("hashes_only", hashed)
+        checks = verify_invocation_anomaly_receipt(receipt)
+        marker_check = next(c for c in checks if c.name == "redaction_markers_correct")
+        assert marker_check.status == "PASS"
+
+    def test_hashes_only_with_raw_value_fails(self):
+        receipt = self._make_anomaly_receipt("hashes_only", "rm")
+        checks = verify_invocation_anomaly_receipt(receipt)
+        marker_check = next(c for c in checks if c.name == "redaction_markers_correct")
+        assert marker_check.status == "FAIL"
+
+    def test_cli_anomaly_redacted_correct(self):
+        receipt = self._make_anomaly_receipt("redacted", "<redacted>", event_type="cli_invocation_anomaly")
+        checks = verify_invocation_anomaly_receipt(receipt)
+        marker_check = next(c for c in checks if c.name == "redaction_markers_correct")
+        assert marker_check.status == "PASS"
+
+    def test_api_anomaly_redacted_correct(self):
+        receipt = self._make_anomaly_receipt("redacted", "<redacted>", event_type="api_invocation_anomaly")
+        checks = verify_invocation_anomaly_receipt(receipt)
+        marker_check = next(c for c in checks if c.name == "redaction_markers_correct")
+        assert marker_check.status == "PASS"
+
+    def test_manifest_extension_redacted_correct(self):
+        receipt = {
+            "event_type": "session_manifest",
+            "content_mode": "redacted",
+            "extensions": {
+                "com.sanna.manifest": {
+                    "surfaces": {
+                        "cli": {
+                            "tools_delivered": ["<redacted>"],
+                            "tools_suppressed": ["<redacted>", "<redacted>"],
+                            "aggregate_suppression_reasons": ["constitution", "constitution"],
+                        }
+                    }
+                }
+            },
+        }
+        checks = verify_session_manifest_receipt(receipt)
+        marker_check = next(c for c in checks if c.name == "redaction_markers_correct")
+        assert marker_check.status == "PASS"
+
+    def test_manifest_extension_redacted_with_raw_value_fails(self):
+        receipt = {
+            "event_type": "session_manifest",
+            "content_mode": "redacted",
+            "extensions": {
+                "com.sanna.manifest": {
+                    "surfaces": {
+                        "cli": {
+                            "tools_delivered": ["bash"],  # raw leaks
+                            "tools_suppressed": [],
+                        }
+                    }
+                }
+            },
+        }
+        checks = verify_session_manifest_receipt(receipt)
+        marker_check = next(c for c in checks if c.name == "redaction_markers_correct")
+        assert marker_check.status == "FAIL"
+
+    def test_redaction_check_runs_without_receipt_set(self):
+        """SAN-406 placement: marker check runs in verify_invocation_anomaly_receipt
+        BEFORE the receipt_set=None early-return branch. This regression test
+        guards the placement (Phase 3.3 of SAN-406 PR 1)."""
+        receipt = self._make_anomaly_receipt("redacted", "rm")  # mode set + raw value
+        # No receipt_set passed -> early-return branch fires for cross-receipt
+        # checks (11, 12) but the redaction marker check MUST still run.
+        checks = verify_invocation_anomaly_receipt(receipt)
+        names = [c.name for c in checks]
+        assert "redaction_markers_correct" in names, (
+            "redaction_markers_correct must run before receipt_set early-return; "
+            "found checks: " + ", ".join(names)
+        )

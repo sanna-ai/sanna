@@ -225,3 +225,73 @@ class TestHttpInvocationAnomaly:
         assert len(anomaly_receipts) == 1
         ext = anomaly_receipts[0].get("extensions", {}).get("com.sanna.anomaly", {})
         assert ext.get("attempted_endpoint") == "https://blocked.example.com/api/*"
+
+
+@pytest.mark.skip(
+    reason=(
+        "SAN-487: blocked on authority-bypass design gap fix. "
+        "(Same reason as TestCliAnomalyRedaction.)"
+    )
+)
+class TestHttpAnomalyRedaction:
+    """SAN-406: Section 2.22.5 field-level redaction at http_interceptor emission site."""
+
+    @pytest.fixture(autouse=True)
+    def cleanup(self):
+        yield
+        unpatch_http()
+
+    def test_redacted_mode_masks_attempted_endpoint(self, sink):
+        import re
+        patch_http(
+            constitution_path=API_ANOMALY_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+            content_mode="redacted",
+        )
+        sink.receipts.clear()
+        with pytest.raises(ConnectionError):
+            _call_suppressed_url("https://internal.evil.com/api/data")
+        receipts = sink.by_event_type("api_invocation_anomaly")
+        assert len(receipts) == 1
+        ext = receipts[0].get("extensions", {}).get("com.sanna.anomaly", {})
+        assert ext.get("attempted_endpoint") == "<redacted>"
+
+    def test_hashes_only_mode_hashes_attempted_endpoint(self, sink):
+        import re
+        _SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+        patch_http(
+            constitution_path=API_ANOMALY_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+            content_mode="hashes_only",
+        )
+        sink.receipts.clear()
+        with pytest.raises(ConnectionError):
+            _call_suppressed_url("https://internal.evil.com/api/data")
+        receipts = sink.by_event_type("api_invocation_anomaly")
+        assert len(receipts) == 1
+        ext = receipts[0].get("extensions", {}).get("com.sanna.anomaly", {})
+        val = ext.get("attempted_endpoint")
+        assert _SHA256_HEX_RE.match(val), f"{val!r} not 64-hex lowercase"
+
+    def test_hashes_only_is_deterministic_across_calls(self, sink):
+        patch_http(
+            constitution_path=API_ANOMALY_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+            content_mode="hashes_only",
+        )
+        sink.receipts.clear()
+        with pytest.raises(ConnectionError):
+            _call_suppressed_url("https://internal.evil.com/api/data")
+        with pytest.raises(ConnectionError):
+            _call_suppressed_url("https://internal.evil.com/api/other")
+        receipts = sink.by_event_type("api_invocation_anomaly")
+        assert len(receipts) == 2
+        hash1 = receipts[0]["extensions"]["com.sanna.anomaly"]["attempted_endpoint"]
+        hash2 = receipts[1]["extensions"]["com.sanna.anomaly"]["attempted_endpoint"]
+        assert hash1 == hash2, "Same pattern should hash to same value"

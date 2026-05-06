@@ -229,3 +229,80 @@ class TestCliInvocationAnomaly:
         assert exc is not None
         assert exc.errno == errno.ENOENT
         assert exc.filename == "rm"
+
+
+@pytest.mark.skip(
+    reason=(
+        "SAN-487: blocked on authority-bypass design gap fix. "
+        "CLI/HTTP interceptor enforcement state populated from redacted "
+        "manifest under content_mode=redacted, so the anomaly emission "
+        "path is unreachable in tests. Re-enable when SAN-487 fixes the "
+        "state-population to read from constitution (raw) instead of "
+        "manifest (redacted)."
+    )
+)
+class TestCliAnomalyRedaction:
+    """SAN-406: Section 2.22.5 field-level redaction at subprocess_interceptor emission site."""
+
+    @pytest.fixture(autouse=True)
+    def cleanup(self):
+        yield
+        unpatch_subprocess()
+
+    def test_redacted_mode_masks_attempted_command(self, sink):
+        import re
+        import subprocess
+        patch_subprocess(
+            constitution_path=CLI_ANOMALY_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+            content_mode="redacted",
+        )
+        sink.receipts.clear()
+        with pytest.raises(FileNotFoundError):
+            subprocess.run(["rm", "/tmp/x"])
+        receipts = sink.by_event_type("cli_invocation_anomaly")
+        assert len(receipts) == 1
+        ext = receipts[0].get("extensions", {}).get("com.sanna.anomaly", {})
+        assert ext.get("attempted_command") == "<redacted>"
+
+    def test_hashes_only_mode_hashes_attempted_command(self, sink):
+        import re
+        import subprocess
+        _SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+        patch_subprocess(
+            constitution_path=CLI_ANOMALY_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+            content_mode="hashes_only",
+        )
+        sink.receipts.clear()
+        with pytest.raises(FileNotFoundError):
+            subprocess.run(["rm", "/tmp/x"])
+        receipts = sink.by_event_type("cli_invocation_anomaly")
+        assert len(receipts) == 1
+        ext = receipts[0].get("extensions", {}).get("com.sanna.anomaly", {})
+        val = ext.get("attempted_command")
+        assert _SHA256_HEX_RE.match(val), f"{val!r} not 64-hex lowercase"
+
+    def test_hashes_only_is_deterministic_across_calls(self, sink):
+        import subprocess
+        patch_subprocess(
+            constitution_path=CLI_ANOMALY_CONSTITUTION,
+            sink=sink,
+            agent_id="test-agent",
+            mode="enforce",
+            content_mode="hashes_only",
+        )
+        sink.receipts.clear()
+        with pytest.raises(FileNotFoundError):
+            subprocess.run(["rm", "/tmp/x1"])
+        with pytest.raises(FileNotFoundError):
+            subprocess.run(["rm", "/tmp/x2"])
+        receipts = sink.by_event_type("cli_invocation_anomaly")
+        assert len(receipts) == 2
+        hash1 = receipts[0]["extensions"]["com.sanna.anomaly"]["attempted_command"]
+        hash2 = receipts[1]["extensions"]["com.sanna.anomaly"]["attempted_command"]
+        assert hash1 == hash2, "Same command should hash to same value"

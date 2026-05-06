@@ -49,6 +49,7 @@ import mcp.types as types
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
+from sanna.anomaly import redact_attempted_field
 from sanna.gateway.mcp_client import (
     DownstreamConnection,
     DownstreamConnectionError,
@@ -2607,7 +2608,7 @@ class SannaGateway:
                 ),
                 extensions={
                     "com.sanna.anomaly": {
-                        "attempted_tool": attempted_tool,
+                        "attempted_tool": redact_attempted_field(attempted_tool, self._content_mode),
                         "suppression_basis": "session_manifest",
                     },
                 },
