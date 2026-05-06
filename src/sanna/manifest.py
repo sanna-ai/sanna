@@ -12,7 +12,7 @@ in SAN-206.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from .constitution import Constitution
 from .enforcement.authority import evaluate_authority
@@ -220,6 +220,69 @@ def _generate_http_surface(constitution: Constitution) -> dict[str, Any]:
         "suppression_reasons": suppression_reasons,
         "mode": ap.mode,
     }
+
+
+def get_suppressed_patterns(
+    constitution: Constitution,
+    surface: Literal["cli", "http"],
+) -> set[str]:
+    """SAN-487: return the RAW (unredacted) set of suppressed patterns from
+    constitution data, for use as interceptor enforcement state.
+
+    MUST be called by CLI/HTTP interceptors instead of reading
+    patterns_suppressed from generate_manifest(...) output -- because that
+    output is subject to content_mode redaction (under redacted mode,
+    patterns_suppressed becomes ["<redacted>"], breaking enforcement).
+
+    Mirrors the gateway's pattern (server.py:2079-2111 sources
+    self._suppressed_tool_names directly from constitution policies).
+
+    Suppression rules (same as _generate_cli_surface / _generate_http_surface):
+    - cannot_execute authority -> suppressed
+    - must_escalate authority + escalation_visibility == "suppressed" -> suppressed
+    - any other case -> NOT suppressed (delivered or N/A)
+
+    Args:
+        constitution: The constitution dataclass with cli_permissions /
+            api_permissions / authority_boundaries.
+        surface: One of "cli" or "http".
+
+    Returns:
+        Set of pattern strings (binaries for cli, URL patterns for http) that
+        are suppressed under the constitution's authority rules. Empty set if
+        the constitution has no relevant permissions section, or no patterns
+        meet the suppression criteria.
+    """
+    ab = constitution.authority_boundaries
+    escalation_visibility = ab.escalation_visibility if ab is not None else "visible"
+
+    suppressed: set[str] = set()
+
+    if surface == "cli":
+        cp = constitution.cli_permissions
+        if cp is None:
+            return suppressed
+        for cmd in cp.commands:
+            authority = getattr(cmd, "authority", "can_execute")
+            if authority == "cannot_execute":
+                suppressed.add(cmd.binary)
+            elif authority == "must_escalate" and escalation_visibility == "suppressed":
+                suppressed.add(cmd.binary)
+        return suppressed
+
+    if surface == "http":
+        ap = constitution.api_permissions
+        if ap is None:
+            return suppressed
+        for ep in ap.endpoints:
+            authority = getattr(ep, "authority", "can_execute")
+            if authority == "cannot_execute":
+                suppressed.add(ep.url_pattern)
+            elif authority == "must_escalate" and escalation_visibility == "suppressed":
+                suppressed.add(ep.url_pattern)
+        return suppressed
+
+    raise ValueError(f"unknown surface {surface!r}; expected 'cli' or 'http'")
 
 
 def _redact_for_redacted_mode(surface: dict[str, Any]) -> None:
