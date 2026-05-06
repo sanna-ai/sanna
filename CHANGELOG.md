@@ -1,6 +1,41 @@
 ## [Unreleased] -- 2026-05-06 (SAN-406)
 
 ### Added
+- `tests/test_redaction_vectors.py`: consumes the cross-SDK fixture
+  `spec/fixtures/redaction-vectors.json` (added to sanna-protocol in
+  SAN-406 PR 3 at commit 95e87e5). 27 tests: 1 fixture-presence canary,
+  1 well-formedness, 1 bidirectional vector-ID-set contract,
+  9 parametrized helper_vectors (3 modes x 3 surfaces;
+  `redact_attempted_field(input, mode) == expected`), 6 parametrized
+  verifier_vectors (NEGATIVE cases: raw value under redacted/hashes_only
+  -> marker check FAIL), 9 parametrized derived positive verifier cases
+  (each non-full helper_vector's `expected` value -> marker check PASS;
+  full mode -> no marker check emitted).
+- These tests are INDEPENDENT of SAN-487. They call the helper + verifier
+  DIRECTLY (no interceptor traversal). The 6 end-to-end interceptor tests
+  in TestCliAnomalyRedaction + TestHttpAnomalyRedaction (PR 1) remain
+  skipped with their SAN-487 cite.
+
+### Changed
+- Bumped `spec` submodule pin from 6795979 to 95e87e5 (sanna-protocol PR
+  SAN-406 PR 3). Schemas unchanged; bump pulls in EXACTLY ONE commit (the
+  new fixture + sanna-protocol CHANGELOG; verified via Phase 0 scope
+  sanity check). Operational schema copies in `src/sanna/spec/` re-synced
+  to match (no-op for this bump; bytes identical, but executed per the
+  operational-copy memory rule).
+
+### Tickets
+- SAN-406 PR 4 of 5 (this entry; sanna-repo fixture consumption).
+  PR 1 (sanna-repo emission + verifier) merged at 817bf1a. PR 2
+  (sanna-ts mirror) merged at 77acc44. PR 3 (sanna-protocol fixture)
+  merged at 95e87e5. PR 5 (sanna-ts fixture consumption) follows.
+- Related: SAN-487 (CRITICAL authority bypass). The new
+  test_redaction_vectors.py tests are INDEPENDENT of SAN-487; the
+  6 end-to-end tests skipped under SAN-487 cite remain skipped.
+
+## [Unreleased] -- 2026-05-06 (SAN-406)
+
+### Added
 - `src/sanna/anomaly.py`: `redact_attempted_field(value, content_mode)` helper
   implementing Section 2.22.5 single-value redaction for com.sanna.anomaly
   extension emissions. Three modes: "full"/None (raw, current behavior
