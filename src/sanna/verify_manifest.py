@@ -11,6 +11,7 @@ checks remain in src/sanna/aarm.py; do NOT mix concerns.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -41,6 +42,8 @@ _VALID_MANIFEST_ENFORCEMENT_SURFACES = frozenset({
 _VALID_ANOMALY_EVENT_TYPES = frozenset({
     "invocation_anomaly", "cli_invocation_anomaly", "api_invocation_anomaly",
 })
+
+_SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 
 _CROSS_RECEIPT_SKIP_MSG = (
     "Cross-receipt parent resolution requires receipt set; use verify_receipt_set"
@@ -249,6 +252,11 @@ def verify_session_manifest_receipt(receipt: dict) -> list[Check]:
     # ------------------------------------------------------------------
     checks.extend(_check_enforcement_surface(receipt, surfaces))
 
+    # ------------------------------------------------------------------
+    # SAN-406: redaction_markers_correct
+    # ------------------------------------------------------------------
+    checks.extend(_check_redaction_markers_correct(receipt))
+
     return checks
 
 
@@ -334,6 +342,86 @@ def _check_enforcement_surface(receipt: dict, surfaces: dict) -> list[Check]:
     )]
 
 
+def _check_redaction_markers_correct(receipt: dict) -> list[Check]:
+    """SAN-406: verify content_mode redaction markers are correct.
+
+    Covers BOTH com.sanna.manifest list fields (Section 2.14, SAN-439 scope)
+    AND com.sanna.anomaly attempted_* fields (Section 2.22.5, SAN-406 scope).
+
+    Under content_mode=redacted, every value MUST equal the literal
+    "<redacted>". Under content_mode=hashes_only, every value MUST match
+    64-hex-lowercase. Under "full" or None, no constraint (returns []).
+    """
+    checks: list[Check] = []
+    content_mode = receipt.get("content_mode")
+    if content_mode in (None, "full"):
+        return checks  # No constraint to enforce.
+
+    extensions = receipt.get("extensions") or {}
+
+    # com.sanna.manifest: list fields collapse to all-redacted markers.
+    manifest_ext = extensions.get("com.sanna.manifest")
+    if isinstance(manifest_ext, dict):
+        surfaces = manifest_ext.get("surfaces") or {}
+        for surface_name, surface in surfaces.items():
+            if not isinstance(surface, dict):
+                continue
+            for list_field in (
+                "tools_delivered", "tools_suppressed",
+                "patterns_delivered", "patterns_suppressed",
+            ):
+                values = surface.get(list_field)
+                if not isinstance(values, list):
+                    continue
+                for v in values:
+                    if not _is_valid_redaction_marker(v, content_mode):
+                        checks.append(Check(
+                            name="redaction_markers_correct",
+                            status="FAIL",
+                            message=(
+                                f"manifest surface '{surface_name}' "
+                                f"{list_field} contains {v!r} which is "
+                                f"not a valid {content_mode} marker"
+                            ),
+                        ))
+
+    # com.sanna.anomaly: single attempted_* field per surface variant.
+    anomaly_ext = extensions.get("com.sanna.anomaly")
+    if isinstance(anomaly_ext, dict):
+        event_type = receipt.get("event_type", "")
+        field_name = _ANOMALY_CAPABILITY_FIELD.get(event_type)
+        if field_name and field_name in anomaly_ext:
+            v = anomaly_ext[field_name]
+            if isinstance(v, str) and not _is_valid_redaction_marker(v, content_mode):
+                checks.append(Check(
+                    name="redaction_markers_correct",
+                    status="FAIL",
+                    message=(
+                        f"anomaly extension {field_name} value {v!r} is "
+                        f"not a valid {content_mode} marker"
+                    ),
+                ))
+
+    if not checks:
+        checks.append(Check(
+            name="redaction_markers_correct",
+            status="PASS",
+            message=f"all redaction markers conform to content_mode={content_mode}",
+        ))
+    return checks
+
+
+def _is_valid_redaction_marker(value: object, content_mode: str) -> bool:
+    """Helper: does `value` conform to the expected marker format for `content_mode`?"""
+    if not isinstance(value, str):
+        return False
+    if content_mode == "redacted":
+        return value == "<redacted>"
+    if content_mode == "hashes_only":
+        return bool(_SHA256_HEX_RE.match(value))
+    return True  # "full" / None: any value passes (defensive).
+
+
 def verify_invocation_anomaly_receipt(
     receipt: dict,
     receipt_set: Optional[list[dict]] = None,
@@ -372,6 +460,9 @@ def verify_invocation_anomaly_receipt(
         status="PASS",
         message=f"event_type '{event_type}' is in valid set",
     ))
+
+    # SAN-406: redaction markers check (independent of receipt_set; runs early).
+    checks.extend(_check_redaction_markers_correct(receipt))
 
     # ------------------------------------------------------------------
     # Checks 11 and 12 require a receipt set for cross-receipt resolution.

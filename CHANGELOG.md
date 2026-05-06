@@ -1,3 +1,82 @@
+## [Unreleased] -- 2026-05-06 (SAN-406)
+
+### Added
+- `src/sanna/anomaly.py`: `redact_attempted_field(value, content_mode)` helper
+  implementing Section 2.22.5 single-value redaction for com.sanna.anomaly
+  extension emissions. Three modes: "full"/None (raw, current behavior
+  preserved), "redacted" (literal `<redacted>`), "hashes_only" (SHA-256 hex
+  lowercase via canonical `hash_text`). Empty/falsy `content_mode` treated as
+  "full" (defensive permissive behavior for sentinel values).
+- Verifier semantic check `redaction_markers_correct` in
+  `src/sanna/verify_manifest.py`. Runs from both
+  `verify_session_manifest_receipt` and `verify_invocation_anomaly_receipt`.
+  Under `content_mode=redacted`, every list value (manifest) and every
+  `attempted_*` value (anomaly) MUST equal `<redacted>`; under
+  `hashes_only`, every value MUST match 64-hex-lowercase. Subsumes
+  SAN-439 scope; that ticket is superseded by SAN-406.
+- Tests: `tests/test_anomaly_redaction.py` (9 helper unit tests),
+  `TestRedactionMarkersCorrect` in `tests/test_verify_manifest.py` (11 tests),
+  gateway redaction integration tests in `test_session_manifest_parent_chain.py`
+  (4 tests for redacted + hashes_only modes via _make_gateway stub).
+
+### Fixed
+- `subprocess_interceptor.py:1917`, `http_interceptor.py:1047`, and
+  `gateway/server.py:2611`: `attempted_command` / `attempted_endpoint` /
+  `attempted_tool` now apply Section 2.22.5 field-level redaction at
+  emission time. Closes AUDIT-008 (CRITICAL): `content_mode=redacted` was
+  silently emitting raw capability names, leaking the very strings
+  operators configured the mode to suppress.
+
+### Changed
+- Removed "spec-ahead-of-impl" comments at `subprocess_interceptor.py:1930`
+  and the analogous block in `http_interceptor.py` (Section 2.22.5
+  is no longer spec-ahead-of-impl in this SDK).
+- Verifier check named `redaction_markers_correct` (not
+  `manifest_redaction_markers_correct` per SAN-439's original spec) since
+  the implementation covers both com.sanna.manifest and com.sanna.anomaly
+  extensions; the neutral name is more accurate.
+- Helper `redact_attempted_field` accepts empty/falsy `content_mode` as raw
+  mode (treated identically to None/"full"). Defensive permissive behavior
+  for sentinel values used by some test stubs (gateway server.py constructor
+  sets `self._content_mode = ""` when not configured).
+- `_make_gateway` test helper adds `_content_mode_source = None` so tests
+  can override `_content_mode` post-construction without tripping
+  AttributeError.
+- 6 integration tests in `TestCliAnomalyRedaction` (test_cli_anomaly.py)
+  and `TestHttpAnomalyRedaction` (test_http_anomaly.py) are skipped with
+  cite to SAN-487. Discovery during SAN-406 PR 1: under
+  `content_mode=redacted`, CLI/HTTP interceptors populate
+  `_state["suppressed_patterns"]` from the redacted manifest, so
+  `"rm" in {"<redacted>"}` returns False and enforcement silently fails.
+  This is an authority bypass (more severe than the original AUDIT-008
+  leak); SAN-487 is the design-gap fix. SAN-406's emission redaction
+  still ships and works for the gateway path; the CLI/HTTP integration
+  coverage waits on SAN-487. Test code is preserved (skip, not delete) so
+  SAN-487 can re-enable by removing the decorator.
+
+### Security
+- Closes the AUDIT-008 emission gap on the Python side. The TS mirror
+  lands in PR 2; cross-SDK fixture in PR 3; CI consumption in PRs 4 + 5.
+- `hashes_only` mode is for audit-time deterministic comparison, NOT
+  privacy. SHA-256 of short capability names ("ls", "/api/users", etc.)
+  is rainbow-table reversible. Operators relying on strong privacy MUST
+  use `redacted`.
+- Receipts emitted under `redacted` or `hashes_only` modes will have
+  different `extensions_hash` (Field 12 of the fingerprint formula) than
+  pre-SAN-406 receipts of the same observation. This is correct semantics
+  (different content, different fingerprint); operators upgrading should
+  expect new fingerprints on re-emission.
+
+### Tickets
+- SAN-406 PR 1 of 5 (this entry; sanna-repo emission + verifier check).
+  PR 2 (sanna-ts mirror), PR 3 (sanna-protocol fixture), PR 4 (sanna-repo
+  fixture consumption), PR 5 (sanna-ts fixture consumption) follow.
+- Supersedes SAN-439 (verifier check ticket).
+- Discovered SAN-487 (CRITICAL authority bypass): CLI/HTTP interceptors
+  populate `_state["suppressed_patterns"]` from the post-redaction manifest
+  when `content_mode` is set, rendering anomaly enforcement inoperative.
+  Separate ticket; separate fix.
+
 ## [Unreleased] -- 2026-05-06 (SAN-485)
 
 ### Added
