@@ -11,10 +11,10 @@ provenance:
   approval_method: test-approval
   change_history: []
   signature:
-    value: LGyD1zCMFgrlEqcKvOmecClXLZ8QVHbJ0cnI4UkM2ewQkVmQggt4/9Y47k+M9ytXnJT+KtRWl2oy/PhwyBmPBA==
-    key_id: c7065a8b70d9ad93611125691c762cedbef6c15e8f4fc25a86cabb4ceecbd3d8
+    value: WSJkldxNQdt3A0rQVg7mz/aTzW5rrRO9eo8cH31mKeD10xeG+YM1kB5m0b3Qt1Q9qVy9sVkzHfkNLhUs76GaBg==
+    key_id: 003f07d057a118906bb85c97a4e9173dfffe040cae77bd85362011d8b880ccbf
     signed_by: test-signer
-    signed_at: '2026-02-17T06:27:56.149828+00:00'
+    signed_at: '2026-05-06T23:34:15.394419+00:00'
     scheme: constitution_sig_v1
 boundaries:
 - id: B001
@@ -51,4 +51,6 @@ authority_boundaries:
   can_execute:
   - query_database
   - send_notification
+escalation_targets:
+  default: log
 policy_hash: 63868ebc26f6323103711f91c045559d3c5f6659882781b600c5d4fec5e67284

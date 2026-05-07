@@ -53,3 +53,11 @@ jobs:
 
       - name: Validate state doc (SAN-326)
         run: python3 tools/generate_state_doc.py --check
+
+      - name: Install pre-commit
+        run: pip install pre-commit==4.0.1
+
+      - name: Run pre-commit (block PEM private keys, etc.)
+        # SAN-404: detect-private-key blocks any future PEM private key from
+        # entering the repo. Local hook + CI step (belt + suspenders).
+        run: pre-commit run --all-files --show-diff-on-failure --color=always

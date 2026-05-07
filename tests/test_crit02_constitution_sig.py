@@ -33,7 +33,7 @@ from sanna.middleware import sanna_observe, SannaHaltError
 TESTS_DIR = Path(__file__).parent
 TEST_PUBLIC_KEY = str(
     TESTS_DIR / ".test_keys"
-    / "c7065a8b70d9ad93611125691c762cedbef6c15e8f4fc25a86cabb4ceecbd3d8.pub"
+    / "003f07d057a118906bb85c97a4e9173dfffe040cae77bd85362011d8b880ccbf.pub"
 )
 CONSTITUTIONS_DIR = TESTS_DIR / "constitutions"
 ALL_HALT_CONST = str(CONSTITUTIONS_DIR / "all_halt.yaml")

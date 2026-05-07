@@ -2172,7 +2172,7 @@ def constitution_to_dict(constitution: Constitution) -> dict:
         for rule in ab.must_escalate:
             rd: dict = {"condition": rule.condition}
             if rule.target is not None:
-                rd["target"] = asdict(rule.target)
+                rd["target"] = {k: v for k, v in asdict(rule.target).items() if v is not None}
             must_escalate_list.append(rd)
         ab_out: dict = {
             "cannot_execute": ab.cannot_execute,

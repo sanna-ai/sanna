@@ -55,3 +55,29 @@ Our `security.txt` file is available at:
 ## Credit
 
 Researchers who report valid vulnerabilities will be credited (with their permission) in release notes.
+
+## Test Key Rotation (SAN-404)
+
+The committed Ed25519 PEM private key formerly under
+`tests/.test_keys/` (key_id
+`c7065a8b70d9ad93611125691c762cedbef6c15e8f4fc25a86cabb4ceecbd3d8`)
+has been rotated and is now REVOKED. The corresponding private key
+was committed to a public repository and must be assumed compromised.
+
+Constitution YAMLs under `tests/constitutions/` whose
+`provenance.signature.key_id` matches the value above were valid
+under the old key but MUST NOT be trusted as cryptographic evidence
+in any external context. They are re-signed with the new key in this
+release; if a downstream consumer holds an older copy of these
+fixtures, those copies should be discarded.
+
+Forward-only removal: the old .key file has been deleted from the
+working tree but remains reachable in git history at the commit at
+which it was originally introduced. Sanna does not rewrite git
+history; the trust signal is the REVOKED note above plus the rotated
+.pub and re-signed YAMLs at HEAD.
+
+Going forward, `.pre-commit-config.yaml`'s `detect-private-key` hook
+blocks PEM private keys from entering the repo. CI runs the same hook
+on every pull request. The `.gitignore` line that previously
+un-ignored `tests/.test_keys/*.key` has been removed.

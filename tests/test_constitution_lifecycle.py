@@ -421,6 +421,42 @@ class TestFileIO:
         with pytest.raises(ValueError, match="Unsupported"):
             load_constitution(path)
 
+    def test_yaml_round_trip_strips_none_target_fields_san_404(self, tmp_path):
+        """SAN-404: constitution_to_dict must not emit null for absent optional
+        EscalationTarget fields. Round-tripping must produce schema-valid YAML.
+
+        Regression for a latent bug where dataclasses.asdict(rule.target) included
+        None-valued optional fields (url, handler), causing schema-invalid YAML for
+        constitutions whose must_escalate targets omit those fields."""
+        import json
+        import yaml
+        import jsonschema
+
+        # with_authority.yaml has must_escalate rules with absent url/handler fields.
+        fixture = Path("tests/constitutions/with_authority.yaml")
+        original = load_constitution(fixture)
+        original_policy_hash = original.policy_hash
+
+        path = tmp_path / "round_trip.yaml"
+        save_constitution(original, path)
+        raw = path.read_text()
+
+        # Verify no null leaks in the authority_boundaries section
+        authority_block_start = raw.find("authority_boundaries:")
+        assert authority_block_start != -1, "authority_boundaries block missing"
+        policy_hash_line = raw.find("\npolicy_hash:")
+        authority_section = raw[authority_block_start:policy_hash_line]
+        assert ": null" not in authority_section, (
+            f"null field leak in authority_boundaries section:\n{authority_section}"
+        )
+
+        schema_path = Path("src/sanna/spec/constitution.schema.json")
+        schema = json.loads(schema_path.read_text())
+        jsonschema.validate(yaml.safe_load(raw), schema)
+
+        loaded = load_constitution(path)
+        assert loaded.policy_hash == original_policy_hash
+
 
 # =============================================================================
 # SCAFFOLDING TESTS
