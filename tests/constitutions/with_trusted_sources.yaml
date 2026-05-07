@@ -11,10 +11,10 @@ provenance:
   approval_method: test-approval
   change_history: []
   signature:
-    value: JlaLg7WuJu8AAJ4Xf8pJP0A3tarSqaXDI61/EVooYixIBfE3nv+x3k+jmAaIzNXlws1/7h5XPsYAwRNyLX/RBQ==
-    key_id: c7065a8b70d9ad93611125691c762cedbef6c15e8f4fc25a86cabb4ceecbd3d8
+    value: fh5Fq+rzasQAvtFhKcO07J+YkFEABbb2sVAgAF8w1wUtpnElPUnfdmnocEd6slexnM7+X1CCgE6yzXPmr7T5BA==
+    key_id: 003f07d057a118906bb85c97a4e9173dfffe040cae77bd85362011d8b880ccbf
     signed_by: test-signer
-    signed_at: '2026-02-17T06:27:56.160149+00:00'
+    signed_at: '2026-05-06T23:34:15.443642+00:00'
     scheme: constitution_sig_v1
 boundaries:
 - id: B001

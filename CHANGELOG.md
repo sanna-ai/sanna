@@ -1,3 +1,66 @@
+## [Unreleased] -- 2026-05-06 (SAN-404)
+
+### Security
+
+- **Test keypair rotation.** The committed Ed25519 PEM private key
+  under `tests/.test_keys/` (key_id
+  `c7065a8b70d9ad93611125691c762cedbef6c15e8f4fc25a86cabb4ceecbd3d8`)
+  has been rotated and is now REVOKED. The .key file has been deleted
+  from the working tree (forward-only -- see SECURITY.md "Test Key
+  Rotation (SAN-404)" for the full posture). Only
+  `003f07d057a118906bb85c97a4e9173dfffe040cae77bd85362011d8b880ccbf.pub`
+  and
+  `003f07d057a118906bb85c97a4e9173dfffe040cae77bd85362011d8b880ccbf.meta.json`
+  are tracked under `tests/.test_keys/`.
+- **10 signed test constitutions re-signed** with the new test key:
+  all_halt, all_log, all_warn, c1_c3_only, c1_halt_rest_log,
+  c1_warn_only, no_invariants, with_authority, with_custom,
+  with_trusted_sources. policy_hash for each YAML is byte-identical
+  before vs. after re-signing (re-sign rotates only signature.value /
+  signature.key_id / signature.signed_at; canonical signable content
+  is unchanged).
+- **`.gitignore` no longer un-ignores `tests/.test_keys/*.key`.** A
+  stale negation pattern that explicitly permitted committing PEM
+  private keys is the same anti-pattern as a stale GitGuardian
+  allowlist; it has been removed.
+- **Pre-commit hook.** Added `.pre-commit-config.yaml` with
+  `pre-commit/pre-commit-hooks` `detect-private-key` to block any
+  future PEM private key from entering the repo. CI runs the same
+  hook on every pull request via inline `pip install pre-commit` +
+  `pre-commit run --all-files`.
+
+### Changed
+
+- Spec submodule pin advanced from `95e87e5` to `cc2602a`. The
+  submodule delta is exactly the SAN-404 sanna-protocol rotation
+  (test-author + test-attacker key rotation, fixture regeneration,
+  pre-commit hook addition) plus the follow-on CI fix that replaced
+  pre-commit/action with inline pre-commit invocation. SDK source is
+  unchanged -- key_ids are read dynamically from the rotated golden
+  fixtures.
+
+### Fixed
+
+- `sanna.constitution.constitution_to_dict` no longer emits `null` for
+  optional `EscalationTarget` fields (`url`, `handler`) that are absent
+  on the source dataclass. `dataclasses.asdict()` previously included
+  all fields regardless of value, causing `save_constitution` round-trips
+  to write schema-invalid YAML for constitutions that omit those fields.
+  Surfaced during SAN-404 when the rotation script's first save/load
+  cycle on `tests/constitutions/with_authority.yaml` (and similar)
+  produced YAML the schema rejected; 41 tests in
+  `test_authority_receipts.py` failed downstream. One-line fix at
+  `constitution.py:2175` plus a regression test for the round-trip.
+  Note: the SIGNABLE path (`constitution.py:1554`) intentionally retains
+  null fields to preserve backwards-compat verification of constitutions
+  signed by prior SDK releases. Cross-SDK signable parity alignment
+  ships separately under SAN-490.
+
+### Tickets
+
+- SAN-404 (this entry; sanna-repo portion). Companion sanna-ts
+  submodule pin bump + test-file pre-commit handling follows.
+
 ## [Unreleased] -- 2026-05-06 (SAN-487)
 
 ### Fixed

@@ -12,7 +12,7 @@ from pathlib import Path
 TESTS_DIR = Path(__file__).parent
 TEST_PUBLIC_KEY = str(
     TESTS_DIR / ".test_keys"
-    / "c7065a8b70d9ad93611125691c762cedbef6c15e8f4fc25a86cabb4ceecbd3d8.pub"
+    / "003f07d057a118906bb85c97a4e9173dfffe040cae77bd85362011d8b880ccbf.pub"
 )
 
 # Set environment variable so sanna_observe can find the key automatically.
