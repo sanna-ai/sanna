@@ -9,7 +9,7 @@
     "sanna_constitution": {
       "type": "string",
       "description": "Schema version of this constitution document",
-      "examples": ["1.0.1", "1.0.0", "0.1.0"]
+      "examples": ["1.1.0", "1.0.1", "1.0.0", "0.1.0"]
     },
     "identity": {
       "type": "object",
@@ -111,8 +111,8 @@
             },
             "scheme": {
               "type": "string",
-              "description": "Signature scheme identifier",
-              "enum": ["constitution_sig_v1"]
+              "description": "Signature scheme identifier. constitution_sig_v1 = legacy per-SDK canonicalization (frozen). constitution_sig_v2 = unified canonical form per spec Section 5.3. Verifiers dispatch on this value; other values are rejected.",
+              "enum": ["constitution_sig_v1", "constitution_sig_v2"]
             }
           },
           "additionalProperties": false
@@ -287,6 +287,11 @@
           "description": "Whether a justification string is required for CLI invocations.",
           "default": true
         },
+        "inspect_scripts": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable script-inspection of CLI commands (Python SDK feature, formalized in v1.1.0; was previously silently used past schema's strict rejection)"
+        },
         "commands": {
           "type": "array",
           "items": {
@@ -304,7 +309,7 @@
                 "pattern": "^[^/\\\\*?]+$"
               },
               "argv_pattern": {
-                "type": "string",
+                "type": ["string", "null"],
                 "description": "Glob pattern for argument vector. '*' matches everything.",
                 "default": "*"
               },
@@ -312,9 +317,9 @@
                 "type": "string",
                 "enum": ["can_execute", "must_escalate", "cannot_execute"]
               },
-              "description": { "type": "string" },
+              "description": { "type": ["string", "null"] },
               "escalation_target": {
-                "type": "string",
+                "type": ["string", "null"],
                 "description": "Named escalation target (for must_escalate rules)"
               }
             },
@@ -329,8 +334,8 @@
             "properties": {
               "id": { "type": "string", "pattern": "^[a-zA-Z0-9_-]+$" },
               "description": { "type": "string" },
-              "pattern": { "type": "string", "description": "Regex pattern to match against command + args" },
-              "condition": { "type": "string", "description": "Named condition for complex rules" },
+              "pattern": { "type": ["string", "null"], "description": "Regex pattern to match against command + args" },
+              "condition": { "type": ["string", "null"], "description": "Named condition for complex rules" },
               "verdict": { "type": "string", "enum": ["halt", "warn"] }
             },
             "additionalProperties": false
@@ -363,14 +368,14 @@
               "id": { "type": "string", "pattern": "^[a-zA-Z0-9_-]+$" },
               "url_pattern": { "type": "string", "description": "URL glob pattern. * for wildcards. First match wins." },
               "methods": {
-                "type": "array",
+                "type": ["array", "null"],
                 "items": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "*"] },
                 "description": "HTTP methods this rule applies to.",
                 "default": ["*"]
               },
               "authority": { "type": "string", "enum": ["can_execute", "must_escalate", "cannot_execute"] },
-              "description": { "type": "string" },
-              "escalation_target": { "type": "string" }
+              "description": { "type": ["string", "null"] },
+              "escalation_target": { "type": ["string", "null"] }
             },
             "additionalProperties": false
           }
@@ -383,7 +388,7 @@
             "properties": {
               "id": { "type": "string", "pattern": "^[a-zA-Z0-9_-]+$" },
               "description": { "type": "string" },
-              "pattern": { "type": "string", "description": "Regex pattern to match against URL" },
+              "pattern": { "type": ["string", "null"], "description": "Regex pattern to match against URL" },
               "verdict": { "type": "string", "enum": ["halt", "warn"] }
             },
             "additionalProperties": false
@@ -424,6 +429,51 @@
         }
       },
       "additionalProperties": false
+    },
+    "version": {
+      "type": "string",
+      "description": "Document version of this constitution (e.g., '1.0', '1.1'). Included in v2 signing material when != '1.0'. Optional; defaults to '1.0' when absent. Formalized in schema v1.1.0 (SAN-492); previously used by SDK but rejected by additionalProperties:false.",
+      "default": "1.0"
+    },
+    "reasoning": {
+      "type": ["object", "null"],
+      "description": "Governance-level reasoning check configuration (v1.1+). Controls when and how agent justifications are evaluated before enforcement decisions. Formalized in schema v1.1.0 (SAN-492); previously used by SDK but rejected by additionalProperties:false.",
+      "properties": {
+        "require_justification_for": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Enforcement levels that require a justification string"
+        },
+        "on_missing_justification": {
+          "type": "string",
+          "description": "Action when justification is missing: 'block', 'escalate', or 'allow'"
+        },
+        "on_check_error": {
+          "type": "string",
+          "description": "Action when a reasoning check errors: 'block', 'escalate', or 'allow'"
+        },
+        "on_api_error": {
+          "type": "string",
+          "description": "Action when an LLM API call fails: 'block', 'allow', or 'score_zero'"
+        },
+        "checks": {
+          "type": "object",
+          "description": "Named check configurations (glc_002_minimum_substance, glc_003_no_parroting, glc_005_llm_coherence)"
+        },
+        "evaluate_before_escalation": {
+          "type": "boolean",
+          "description": "If true, run reasoning checks before the escalation round-trip"
+        },
+        "auto_deny_on_reasoning_failure": {
+          "type": "boolean",
+          "description": "If true, automatically deny tool calls when reasoning checks fail"
+        },
+        "judge": {
+          "type": ["object", "null"],
+          "description": "Optional judge (LLM) configuration for reasoning evaluation"
+        }
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": false,

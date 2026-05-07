@@ -285,7 +285,7 @@
         "key_id": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
         "signed_by": {"type": ["string", "null"]},
         "signed_at": {"type": ["string", "null"]},
-        "scheme": {"type": ["string", "null"], "enum": ["constitution_sig_v1", null]},
+        "scheme": {"type": ["string", "null"], "enum": ["constitution_sig_v1", "constitution_sig_v2", null]},
         "signature_verified": {
           "description": "Whether the constitution signature was verified at receipt generation time",
           "oneOf": [

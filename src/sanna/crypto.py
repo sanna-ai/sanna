@@ -250,10 +250,22 @@ def verify_signature(data: bytes, signature_b64: str, public_key: Ed25519PublicK
 # CONSTITUTION SIGNING (v0.6.3: full-document)
 # =============================================================================
 
+def _parse_signing_version(scheme: str) -> int:
+    PREFIX = "constitution_sig_v"
+    if not scheme.startswith(PREFIX):
+        raise ValueError(f"Unrecognized signature scheme: {scheme!r}")
+    suffix = scheme[len(PREFIX):]
+    try:
+        return int(suffix)
+    except ValueError:
+        raise ValueError(f"Malformed signature scheme version: {scheme!r}") from None
+
+
 def sign_constitution_full(
     constitution,
     private_key_path: str | Path,
     signed_by: Optional[str] = None,
+    signing_version: int = 2,
 ):
     """Sign a constitution's full document with Ed25519.
 
@@ -278,7 +290,7 @@ def sign_constitution_full(
         key_id=key_id,
         signed_by=signed_by or "",
         signed_at=signed_at,
-        scheme="constitution_sig_v1",
+        scheme=f"constitution_sig_v{signing_version}",
     )
 
     # Attach placeholder to constitution's provenance for signable dict
@@ -305,7 +317,7 @@ def sign_constitution_full(
         reasoning=getattr(constitution, "reasoning", None),
     )
 
-    signable_dict = constitution_to_signable_dict(signing_constitution)
+    signable_dict = constitution_to_signable_dict(signing_constitution, signing_version=signing_version)
     signable_dict = sanitize_for_signing(signable_dict)
     data = canonical_json_bytes(signable_dict)
     signature_b64 = sign_bytes(data, private_key)
@@ -315,7 +327,7 @@ def sign_constitution_full(
         key_id=key_id,
         signed_by=signed_by or "",
         signed_at=signed_at,
-        scheme="constitution_sig_v1",
+        scheme=f"constitution_sig_v{signing_version}",
     )
 
 
@@ -328,6 +340,7 @@ def verify_constitution_full(
     Reconstructs the signable dict (with provenance.signature.value=""),
     canonicalizes it, and verifies against the stored signature.
     Also checks that the key_id matches the public key.
+    Reads provenance.signature.scheme to dispatch to the correct canonicalization.
     """
     from .constitution import constitution_to_signable_dict
 
@@ -342,7 +355,8 @@ def verify_constitution_full(
     if sig.key_id != expected_key_id:
         return False
 
-    signable_dict = constitution_to_signable_dict(constitution)
+    signing_version = _parse_signing_version(sig.scheme)
+    signable_dict = constitution_to_signable_dict(constitution, signing_version=signing_version)
     signable_dict = sanitize_for_signing(signable_dict)
     data = canonical_json_bytes(signable_dict)
     return verify_signature(data, sig.value, public_key)

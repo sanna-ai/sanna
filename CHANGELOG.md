@@ -1,3 +1,73 @@
+## [Unreleased] -- 2026-05-07 (SAN-492)
+
+### Changed
+
+- **Python SDK aligned to v2 unified canonical signable form.**
+  `constitution_to_signable_dict` now accepts a `signing_version: int = 2`
+  parameter. v1 path preserved unchanged for legacy verification of
+  currently-signed customer constitutions; v2 path mirrors the reference
+  generator at `spec/tools/generate_signable_vectors_v2.py` byte-for-byte.
+  `sign_constitution`, `sign_constitution_full` plumb the parameter through
+  and set `provenance.signature.scheme = f"constitution_sig_v{signing_version}"`.
+  `verify_constitution_full` reads the scheme and dispatches to the matching
+  canonicalization; unrecognized or malformed schemes are rejected with a
+  clear error.
+- **Sign default is v2.** Existing callers without an explicit `signing_version`
+  argument get v2 output. Customers can pass `signing_version=1` for legacy
+  interop. Tests that previously asserted on v1-shape signatures with no
+  explicit signing_version have been updated to either expect v2 (where the
+  test's intent is to verify new-signing behavior) or pass signing_version=1
+  explicitly (where the test's intent is legacy v1 behavior).
+- **ConstitutionSignature dataclass default at constitution.py:109 stays
+  `"constitution_sig_v1"`** as the parse-time fallback for legacy YAMLs
+  that lack an explicit scheme field. Sign-time always sets the scheme
+  explicitly via `sign_constitution_full`.
+- Spec submodule pin advanced from `3aea629` to `254367f`.
+- `src/sanna/spec/constitution.schema.json` updated to mirror the new
+  `spec/schemas/constitution.schema.json` per the SAN-326 operational schema
+  parity gate (1.0.1 -> 1.1.0; signature.scheme enum widen; inspect_scripts
+  formalization; ~9 null-acceptance widenings; version + reasoning
+  formalization).
+- `src/sanna/spec/receipt.schema.json` `constitution_ref.scheme` enum widened
+  to include `"constitution_sig_v2"`. The spec-side `receipt.schema.json` was
+  not updated in sanna-protocol PR #36; a follow-up sanna-protocol PR is
+  needed to align the canonical spec copy.
+
+### Added
+
+- Cross-SDK byte-parity regression test for v2 in
+  `tests/test_cross_language_fixture_parity.py` loading
+  `spec/fixtures/constitution-signable-vectors-v2.json` and asserting Python's
+  v2 canonical bytes match expected for all 20 vectors.
+- v1 backwards-compat canary in
+  `tests/test_cross_language_fixture_parity.py` asserting that
+  `spec/fixtures/constitutions/minimal.yaml` (signed `scheme: constitution_sig_v1`)
+  continues to verify under v1 dispatch.
+- `_parse_signing_version(scheme: str) -> int` helper in `src/sanna/crypto.py`
+  for safely extracting the canonical-form version from a signature scheme
+  string. Rejects malformed values with clear errors.
+
+### Notes
+
+- **Save-path output unchanged.** `save_constitution` continues to use the
+  null-stripping `constitution_to_dict` path (per SAN-404 PR 2's
+  `constitution.py:2175` fix). Save-time YAML output is unaffected by this
+  change. The signable-bytes canonicalization (signing path) is the only
+  layer affected.
+- **policy_hash scope unchanged.** `compute_constitution_hash` continues to
+  cover the v1 subset (excludes cli_permissions, api_permissions, composition).
+  v2 constitution signatures additionally cover those fields. Asymmetry is
+  intentional and documented in spec Section 5.3.
+
+### Tickets
+
+- SAN-492 (this entry; Python SDK portion). Companion sanna-protocol PR #36
+  (spec + schema + vectors + reference generator) already merged. sanna-ts PR
+  follows separately (TS canonicalization alignment + add inspect_scripts +
+  add ReasoningConfig type system + field-level alignment).
+
+---
+
 ## [Unreleased] -- 2026-05-07 (SAN-490)
 
 ### Added
