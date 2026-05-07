@@ -9,7 +9,7 @@
     "sanna_constitution": {
       "type": "string",
       "description": "Schema version of this constitution document",
-      "examples": ["1.0.0", "0.1.0"]
+      "examples": ["1.0.1", "1.0.0", "0.1.0"]
     },
     "identity": {
       "type": "object",
@@ -178,7 +178,7 @@
                 "minLength": 1
               },
               "target": {
-                "type": "object",
+                "type": ["object", "null"],
                 "properties": {
                   "type": {
                     "type": "string",
@@ -186,12 +186,12 @@
                     "description": "Escalation target type"
                   },
                   "url": {
-                    "type": "string",
-                    "description": "Webhook URL (for type=webhook)"
+                    "type": ["string", "null"],
+                    "description": "Webhook URL (for type=webhook); null is semantically equivalent to absent (no URL configured)"
                   },
                   "handler": {
-                    "type": "string",
-                    "description": "Registered callback name (for type=callback)"
+                    "type": ["string", "null"],
+                    "description": "Registered callback name (for type=callback); null is semantically equivalent to absent (no handler configured)"
                   }
                 },
                 "additionalProperties": false
