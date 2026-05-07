@@ -74,8 +74,8 @@ def _make_constitution(invariants=None):
     )
 
 
-def _sign_and_save(constitution, tmp_path, priv_path, signed_by="tester"):
-    signed = sign_constitution(constitution, private_key_path=str(priv_path), signed_by=signed_by)
+def _sign_and_save(constitution, tmp_path, priv_path, signed_by="tester", signing_version=2):
+    signed = sign_constitution(constitution, private_key_path=str(priv_path), signed_by=signed_by, signing_version=signing_version)
     path = tmp_path / "constitution.yaml"
     save_constitution(signed, path)
     return signed, path

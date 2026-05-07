@@ -22,17 +22,13 @@
   `"constitution_sig_v1"`** as the parse-time fallback for legacy YAMLs
   that lack an explicit scheme field. Sign-time always sets the scheme
   explicitly via `sign_constitution_full`.
-- Spec submodule pin advanced from `3aea629` to `254367f`.
+- Spec submodule pin advanced from `3aea629` to `aa1ccc1` (includes sanna-protocol
+  PR #36 content at `254367f` + receipt schema fix at `aa1ccc1`).
 - `src/sanna/spec/constitution.schema.json` updated to mirror the new
   `spec/schemas/constitution.schema.json` per the SAN-326 operational schema
   parity gate (1.0.1 -> 1.1.0; signature.scheme enum widen; inspect_scripts
   formalization; ~9 null-acceptance widenings; version + reasoning
   formalization).
-- `src/sanna/spec/receipt.schema.json` `constitution_ref.scheme` enum widened
-  to include `"constitution_sig_v2"`. The spec-side `receipt.schema.json` was
-  not updated in sanna-protocol PR #36; a follow-up sanna-protocol PR is
-  needed to align the canonical spec copy.
-
 ### Added
 
 - Cross-SDK byte-parity regression test for v2 in
@@ -58,6 +54,11 @@
   cover the v1 subset (excludes cli_permissions, api_permissions, composition).
   v2 constitution signatures additionally cover those fields. Asymmetry is
   intentional and documented in spec Section 5.3.
+- **Receipt schema widened.** `constitution_ref.scheme` enum in
+  `spec/schemas/receipt.schema.json` and `src/sanna/spec/receipt.schema.json`
+  widened to include `"constitution_sig_v2"`. This was an oversight in
+  sanna-protocol PR #36; fixed in a follow-up commit (`aa1ccc1`) to
+  sanna-protocol main, then submodule pin advanced accordingly.
 
 ### Tickets
 
