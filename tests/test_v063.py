@@ -305,7 +305,7 @@ class TestConstitutionFullDocSigning:
         assert sig_in_dict["value"] == ""
         assert sig_in_dict["key_id"] == signed.provenance.signature.key_id
         assert sig_in_dict["signed_by"] == "tester"
-        assert sig_in_dict["scheme"] == "constitution_sig_v1"
+        assert sig_in_dict["scheme"] == "constitution_sig_v2"
 
     def test_key_id_checked_during_verification(self, tmp_path):
         """Verifying with wrong public key should fail due to key_id mismatch."""
@@ -317,11 +317,11 @@ class TestConstitutionFullDocSigning:
         assert not verify_constitution_full(signed, str(wrong_pub))
 
     def test_scheme_field_present(self, tmp_path):
-        """Signed constitution should have scheme='constitution_sig_v1'."""
+        """Signed constitution should have scheme='constitution_sig_v2' (new default)."""
         priv_path, _ = generate_keypair(tmp_path / "keys")
         const = _make_constitution()
         signed = sign_constitution(const, private_key_path=str(priv_path))
-        assert signed.provenance.signature.scheme == "constitution_sig_v1"
+        assert signed.provenance.signature.scheme == "constitution_sig_v2"
 
 
 # =============================================================================
@@ -603,7 +603,7 @@ class TestConstitutionSignatureDataclass:
         assert loaded.provenance.signature.value == signed.provenance.signature.value
         assert loaded.provenance.signature.key_id == signed.provenance.signature.key_id
         assert loaded.provenance.signature.signed_by == "roundtrip-test"
-        assert loaded.provenance.signature.scheme == "constitution_sig_v1"
+        assert loaded.provenance.signature.scheme == "constitution_sig_v2"
 
         # And the loaded constitution should verify
         assert verify_constitution_full(loaded, str(pub_path))

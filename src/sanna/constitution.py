@@ -1507,14 +1507,7 @@ def compute_content_hash(constitution: Constitution) -> str:
     return compute_constitution_hash(constitution)
 
 
-def constitution_to_signable_dict(constitution: Constitution) -> dict:
-    """Build the canonical dict that gets Ed25519-signed.
-
-    Includes the full document (identity, provenance with signature block,
-    boundaries, trust_tiers, halt_conditions, invariants, policy_hash).
-    The only exclusion is ``provenance.signature.value`` which is set to
-    ``""`` in the signable representation.
-    """
+def _constitution_to_signable_dict_v1(constitution: Constitution) -> dict:
     prov_dict = {
         "authored_by": constitution.provenance.authored_by,
         "approved_by": constitution.provenance.approved_by,
@@ -1582,10 +1575,168 @@ def constitution_to_signable_dict(constitution: Constitution) -> dict:
     return result
 
 
+def _constitution_to_signable_dict_v2(constitution: Constitution) -> dict:
+    """Build the v2 unified canonical signable dict.
+
+    Mirrors spec/tools/generate_signable_vectors_v2.py:build_v2_signable_dict
+    byte-for-byte. See spec Section 5.3 for the normative form definition.
+    """
+    prov_dict = {
+        "authored_by": constitution.provenance.authored_by,
+        "approved_by": constitution.provenance.approved_by,
+        "approval_date": constitution.provenance.approval_date,
+        "approval_method": constitution.provenance.approval_method,
+        "change_history": constitution.provenance.change_history,
+    }
+    sig = constitution.provenance.signature
+    if sig is not None:
+        prov_dict["signature"] = {
+            "value": "",
+            "key_id": sig.key_id,
+            "signed_by": sig.signed_by,
+            "signed_at": sig.signed_at,
+            "scheme": sig.scheme,
+        }
+    else:
+        prov_dict["signature"] = None
+
+    result = {
+        "schema_version": constitution.schema_version,
+        "identity": _identity_dict(constitution.identity),
+        "provenance": prov_dict,
+        "boundaries": [asdict(b) for b in constitution.boundaries],
+        "trust_tiers": asdict(constitution.trust_tiers),
+        "halt_conditions": [asdict(h) for h in constitution.halt_conditions],
+        "invariants": [asdict(inv) for inv in constitution.invariants],
+        "policy_hash": constitution.policy_hash,
+    }
+
+    if constitution.authority_boundaries is not None:
+        ab = constitution.authority_boundaries
+        ab_d = {
+            "cannot_execute": ab.cannot_execute,
+            "must_escalate": [
+                {
+                    "condition": r.condition,
+                    "target": (
+                        None if r.target is None
+                        else {
+                            "type": r.target.type,
+                            "url": r.target.url,
+                            "handler": r.target.handler,
+                        }
+                    ),
+                }
+                for r in ab.must_escalate
+            ],
+            "can_execute": ab.can_execute,
+            "default_escalation": ab.default_escalation,
+        }
+        if ab.escalation_visibility != "visible":
+            ab_d["escalation_visibility"] = ab.escalation_visibility
+        if ab.anomaly_tracking.cli or ab.anomaly_tracking.http:
+            at = {}
+            if ab.anomaly_tracking.cli:
+                at["cli"] = True
+            if ab.anomaly_tracking.http:
+                at["http"] = True
+            ab_d["anomaly_tracking"] = at
+        result["authority_boundaries"] = ab_d
+        result["escalation_targets"] = {"default": ab.default_escalation}
+
+    if constitution.composition is not None:
+        result["composition"] = {"escalation_visibility": constitution.composition.escalation_visibility}
+
+    if constitution.cli_permissions is not None:
+        cp = constitution.cli_permissions
+        result["cli_permissions"] = {
+            "mode": cp.mode,
+            "justification_required": cp.justification_required,
+            "inspect_scripts": cp.inspect_scripts,
+            "commands": [
+                {
+                    "id": cmd.id,
+                    "binary": cmd.binary,
+                    "authority": cmd.authority,
+                    "argv_pattern": cmd.argv_pattern,
+                    "description": cmd.description,
+                    "escalation_target": cmd.escalation_target,
+                }
+                for cmd in cp.commands
+            ],
+            "invariants": [
+                {
+                    "id": inv.id,
+                    "description": inv.description,
+                    "verdict": inv.verdict,
+                    "pattern": inv.pattern,
+                    "condition": inv.condition,
+                }
+                for inv in cp.invariants
+            ],
+        }
+
+    if constitution.api_permissions is not None:
+        ap = constitution.api_permissions
+        result["api_permissions"] = {
+            "mode": ap.mode,
+            "justification_required": ap.justification_required,
+            "endpoints": [
+                {
+                    "id": ep.id,
+                    "url_pattern": ep.url_pattern,
+                    "authority": ep.authority,
+                    "methods": ep.methods,
+                    "description": ep.description,
+                    "escalation_target": ep.escalation_target,
+                }
+                for ep in ap.endpoints
+            ],
+            "invariants": [
+                {
+                    "id": inv.id,
+                    "description": inv.description,
+                    "verdict": inv.verdict,
+                    "pattern": inv.pattern,
+                }
+                for inv in ap.invariants
+            ],
+        }
+
+    if constitution.trusted_sources is not None:
+        result["trusted_sources"] = asdict(constitution.trusted_sources)
+
+    if constitution.version != "1.0":
+        result["version"] = constitution.version
+
+    if constitution.reasoning is not None:
+        result["reasoning"] = _reasoning_config_to_dict(constitution.reasoning, for_signing=True)
+
+    return result
+
+
+def constitution_to_signable_dict(constitution: Constitution, signing_version: int = 2) -> dict:
+    """Build the canonical dict that gets Ed25519-signed.
+
+    Args:
+        constitution: The constitution to canonicalize.
+        signing_version: 1 for legacy per-SDK form (frozen, backwards-compat for
+            existing customer-signed artifacts); 2 for the unified cross-SDK form
+            (default for new signing). See spec Section 5.3.
+    """
+    if signing_version == 1:
+        return _constitution_to_signable_dict_v1(constitution)
+    elif signing_version == 2:
+        return _constitution_to_signable_dict_v2(constitution)
+    else:
+        raise ValueError(f"Unsupported signing_version: {signing_version}")
+
+
 def sign_constitution(
     constitution: Constitution,
     private_key_path: Optional[str] = None,
     signed_by: Optional[str] = None,
+    signing_version: int = 2,
 ) -> Constitution:
     """Return new Constitution with policy_hash (and optional Ed25519 signature).
 
@@ -1593,6 +1744,8 @@ def sign_constitution(
         constitution: The constitution to sign.
         private_key_path: Optional path to Ed25519 private key for cryptographic signing.
         signed_by: Optional identity of the signer.
+        signing_version: Canonical form version. 2 (default) for the unified cross-SDK
+            form; 1 for legacy per-SDK form. See spec Section 5.3.
     """
     policy_hash = compute_constitution_hash(constitution)
 
@@ -1624,7 +1777,7 @@ def sign_constitution(
             version=constitution.version,
             reasoning=constitution.reasoning,
         )
-        prov_signature = sign_constitution_full(pre_signed, private_key_path, signed_by=signed_by)
+        prov_signature = sign_constitution_full(pre_signed, private_key_path, signed_by=signed_by, signing_version=signing_version)
 
     return Constitution(
         schema_version=constitution.schema_version,
