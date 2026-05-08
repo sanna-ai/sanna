@@ -1,8 +1,23 @@
 #!/usr/bin/env python3
-"""Generate deterministic test vectors for Sanna.
+"""Generate deterministic test vectors for Sanna SDK conformance verification.
 
-Uses a fixed 32-byte seed for Ed25519 to produce reproducible keypairs,
-signatures, and canonical JSON. Run from the repo root:
+The Ed25519 seed used here is INTENTIONALLY PUBLIC. The corresponding
+private key is NOT secret and MUST NOT be added to any production trust
+anchor. The vectors exist so third-party Sanna SDK implementations can
+reproduce the same Ed25519 signature byte-for-byte and verify their
+canonicalization + signing pipelines match.
+
+This is the same pattern as RFC 8032 test vectors and reference Ed25519
+implementations: a fixed seed enables reproducibility for cross-language
+conformance testing.
+
+The seed value, derived public key, and key_id are also disclosed in
+tests/vectors/README.md, ARCHITECTURE.md, and the generated vector JSON
+files (seed_hex field). The labels here and in tests/test_vectors.py
+bring the source-code identifier in line with that existing public
+disclosure.
+
+Run from the repo root:
 
     python tests/generate_vectors.py
 
@@ -17,8 +32,9 @@ from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 
-# Fixed seed for deterministic keypair
-SEED = b"\x01" * 32  # 32 bytes of 0x01
+# Intentionally public Ed25519 seed for deterministic cross-language test vectors.
+# Not secret. Not for production trust anchors. See module docstring.
+INTENTIONALLY_PUBLIC_TEST_VECTOR_SEED = b"\x01" * 32
 
 VECTORS_DIR = Path(__file__).parent / "vectors"
 VECTORS_DIR.mkdir(exist_ok=True)
@@ -26,7 +42,7 @@ VECTORS_DIR.mkdir(exist_ok=True)
 
 def make_keypair():
     """Deterministic Ed25519 keypair from fixed seed."""
-    private_key = Ed25519PrivateKey.from_private_bytes(SEED)
+    private_key = Ed25519PrivateKey.from_private_bytes(INTENTIONALLY_PUBLIC_TEST_VECTOR_SEED)
     public_key = private_key.public_key()
     return private_key, public_key
 
@@ -222,7 +238,7 @@ def generate_constitution_signature_vectors():
             "Ed25519 signature over canonical bytes",
             "Signature is base64-encoded",
         ],
-        "seed_hex": SEED.hex(),
+        "seed_hex": INTENTIONALLY_PUBLIC_TEST_VECTOR_SEED.hex(),
         "public_key_hex": public_key_hex(public_key),
         "key_id": key_id,
         "signable_dict": signable_dict,
@@ -287,7 +303,7 @@ def generate_receipt_signature_vectors():
             "Ed25519 signature over canonical bytes",
             "Signature is base64-encoded",
         ],
-        "seed_hex": SEED.hex(),
+        "seed_hex": INTENTIONALLY_PUBLIC_TEST_VECTOR_SEED.hex(),
         "public_key_hex": public_key_hex(public_key),
         "key_id": key_id,
         "receipt_dict": receipt_dict,

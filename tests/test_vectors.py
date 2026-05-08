@@ -18,7 +18,10 @@ from sanna.hashing import canonical_json_bytes, sha256_hex
 from sanna.crypto import sanitize_for_signing
 
 VECTORS_DIR = Path(__file__).parent / "vectors"
-SEED = b"\x01" * 32
+# Intentionally public Ed25519 seed; mirrors tests/generate_vectors.py.
+# Not secret. Not for production trust anchors.
+# See tests/generate_vectors.py module docstring for the full rationale.
+INTENTIONALLY_PUBLIC_TEST_VECTOR_SEED = b"\x01" * 32
 
 
 def _load_vector(name: str) -> dict:
@@ -26,7 +29,7 @@ def _load_vector(name: str) -> dict:
 
 
 def _make_keypair():
-    private_key = Ed25519PrivateKey.from_private_bytes(SEED)
+    private_key = Ed25519PrivateKey.from_private_bytes(INTENTIONALLY_PUBLIC_TEST_VECTOR_SEED)
     return private_key, private_key.public_key()
 
 
@@ -200,7 +203,7 @@ class TestDeterminism:
 
     def test_raw_crypto_verification(self):
         """Verify signature using only raw crypto, no sanna imports."""
-        private_key = Ed25519PrivateKey.from_private_bytes(SEED)
+        private_key = Ed25519PrivateKey.from_private_bytes(INTENTIONALLY_PUBLIC_TEST_VECTOR_SEED)
         pub = private_key.public_key()
 
         # Sign arbitrary data

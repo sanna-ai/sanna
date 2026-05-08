@@ -81,3 +81,39 @@ Going forward, `.pre-commit-config.yaml`'s `detect-private-key` hook
 blocks PEM private keys from entering the repo. CI runs the same hook
 on every pull request. The `.gitignore` line that previously
 un-ignored `tests/.test_keys/*.key` has been removed.
+
+See also: the "Intentionally Public Test Cryptographic Material (SAN-489)"
+section below for fixed-seed test fixtures that are intentionally public
+by design and are NOT subject to this rotation. The two cases are
+distinct: SAN-404 covers a previously-committed PEM private key that
+was inadvertently exposed and has been REVOKED; SAN-489 covers test
+material that was always intentionally public and remains so.
+
+
+## Intentionally Public Test Cryptographic Material (SAN-489)
+
+The Ed25519 seed at `tests/generate_vectors.py`
+(`INTENTIONALLY_PUBLIC_TEST_VECTOR_SEED = b"\x01" * 32`, also referenced
+at `tests/test_vectors.py`) is intentionally public. The corresponding
+deterministic keypair (key_id
+`34750f98bd59fcfc946da45aaabe933be154a4b5094e1c4abf42866505f3c97e`,
+public_key_hex
+`8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c`)
+signs the cross-language test vectors at
+`tests/vectors/constitution_signature.json` and
+`tests/vectors/receipt_signature.json`.
+
+This is NOT a leaked secret. It is a fixed-seed test fixture that
+enables third-party Sanna SDK implementations to reproduce signatures
+byte-for-byte for canonicalization + signing conformance. The pattern
+matches RFC 8032 test vectors and reference Ed25519 implementations.
+
+This material MUST NOT be added to any production trust anchor. The
+key_id above is published only as a test artifact; any system that
+trusts it as a real publisher is misconfigured.
+
+This SAN-489 section is distinct from the SAN-404 "Test Key Rotation"
+section above: SAN-404 covered a previously-committed PEM private key
+that was inadvertently exposed and has been ROTATED + REVOKED. SAN-489
+covers a fixed-seed test fixture that is and remains intentionally
+public by design.

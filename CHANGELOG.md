@@ -1,3 +1,35 @@
+## [Unreleased] -- 2026-05-07 (SAN-489)
+
+### Documentation
+
+- **Relabeled the fixed Ed25519 seed for cross-language test vectors as
+  `INTENTIONALLY_PUBLIC_TEST_VECTOR_SEED`** in both
+  `tests/generate_vectors.py` and `tests/test_vectors.py`. No keypair
+  rotation, no vector regeneration, no contract change. The seed value,
+  derived public key (`8a88e3dd...`), and key_id (`34750f98...`) are
+  unchanged; third-party SDK verifiers consuming these vectors continue
+  to verify against the same artifacts.
+- **Strengthened `tests/vectors/README.md`** with explicit
+  INTENTIONALLY-PUBLIC framing and a "MUST NOT be added to any
+  production trust anchor" advisory.
+- **Updated `ARCHITECTURE.md`** generator-listing line to call out the
+  intentional-public posture and cross-reference the README.
+- **Added new `SECURITY.md` section "Intentionally Public Test
+  Cryptographic Material (SAN-489)"** that explicitly distinguishes
+  intentional-public test fixtures from the SAN-404 REVOKED key
+  rotation. The existing SAN-404 section now carries a forward
+  cross-reference to the SAN-489 section for bidirectional audit-trail
+  navigability.
+
+### Why this is documentation, not a security fix
+
+The seed and derived public key were already disclosed in the README,
+ARCHITECTURE.md, and the vector JSON files' `seed_hex` field. The
+governance gap was purely audit-optic: the bare `SEED` identifier in
+source could be misclassified by a reviewer applying SAN-404 / AUDIT-006
+uniformly. The relabel + SECURITY.md section close that misclassification
+surface at zero crypto cost. Cross-SDK contract preserved.
+
 ## [Unreleased] -- 2026-05-07 (SAN-492)
 
 ### Changed

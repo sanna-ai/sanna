@@ -1,7 +1,19 @@
 # Sanna Test Vectors
 
-Deterministic test vectors for third-party verifier implementations.
-All vectors use a fixed Ed25519 seed (`0x01` repeated 32 times) for reproducibility.
+Deterministic test vectors for third-party Sanna SDK verifier implementations.
+
+The Ed25519 seed used to generate these vectors is **INTENTIONALLY PUBLIC**.
+The corresponding private key is NOT secret and MUST NOT be added to any
+production trust anchor. The vectors exist so third-party SDK implementations
+can reproduce signatures byte-for-byte and verify their canonicalization +
+signing pipelines match Sanna's specification.
+
+This is the same pattern as RFC 8032 test vectors and reference Ed25519
+implementations: a fixed seed enables reproducibility for cross-language
+conformance testing.
+
+All vectors use the seed `0x01` repeated 32 times. The derived public key
+and key_id are committed alongside the signed output for verifier convenience.
 
 ## Files
 
