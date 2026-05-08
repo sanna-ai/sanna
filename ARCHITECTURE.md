@@ -1818,7 +1818,7 @@ Common fixture patterns:
 - `pytest.importorskip("opentelemetry.sdk")` — guards OTel tests
 - `pytest.importorskip("httpx")` — guards gateway HTTP tests
 - `@pytest.mark.asyncio` — async test support (reasoning module)
-- `tests/generate_vectors.py` — deterministic vector generator (fixed seed `0x01 * 32`)
+- `tests/generate_vectors.py` -- deterministic vector generator (intentionally public seed `0x01 * 32`; not on any trust path; see tests/vectors/README.md)
 - `generate_golden.py` — golden receipt generator at project root
 
 ### pytest Configuration (`pyproject.toml`)
