@@ -1,3 +1,68 @@
+## [Unreleased] -- 2026-05-10 (SAN-493 PR 2 of 3)
+
+### Changed
+
+- **`tools/generate_state_doc.py`**: drops git-SHA from the
+  `docs/state.md` header. The pre-fix header was
+  `<!-- generated: TS  git-sha: SHA -->`; post-fix it is
+  `<!-- generated: TS -->`. The SHA was always one-commit-stale
+  because regen runs pre-commit (per the sealed-gate pattern,
+  HEAD at regen time is the parent commit), so the embedded SHA
+  never matched the commit that landed the state.md update. Now
+  the file contains only derived state from sources of truth
+  (version, protocol constants, test count, source layout, latest
+  CHANGELOG entry); commit SHAs come from `git log`.
+- **`git_sha()` function removed** from `generate_state_doc.py`
+  (was used only for the header; now dead code).
+- **`generate_full()` signature simplified** from
+  `(root, sha, timestamp)` to `(root, timestamp)`. Internal API
+  change; no external callers.
+- **`main()` print statement** drops the `sha={sha}, ` field;
+  keeps version + tests.
+
+### Added
+
+- **`tests/test_generate_state_doc.py`** (new file): regression
+  guard asserting the `git-sha:` substring does NOT appear in the
+  regenerated header. Catches a future re-introduction of the
+  embedded SHA.
+
+### Why this matters
+
+- Eliminates a known one-commit-stale audit artifact in state.md.
+  Auditors reading the file previously saw a SHA that didn't match
+  the commit it landed in; post-fix, the file contains no SHA and
+  refers auditors to `git log` for that information.
+- Removes the extra round-trip (regen post-first-commit) that
+  Sonnet workarounds previously required. One-commit PRs become
+  possible again for state-only changes.
+- Cross-SDK consistency: same fix pattern landed in sanna-protocol
+  (SAN-493 PR 1 of 3, merged 2026-05-10 as 16798d6). PR 3 of 3
+  (sanna-ts) applies the same fix to that repo.
+- The fix is mechanism-only: count + version fields on a clean
+  tree are byte-identical to pre-fix (version=1.5.0, tests=127).
+  No customer-visible behavior.
+
+### Out of scope (separate PR in this ticket)
+
+- `sanna-ts/tools/generate_state_doc.py` (or equivalent) --
+  SAN-493 PR 3 of 3.
+- Bumping the `spec` submodule pin (currently `aa1ccc1`,
+  pre-SAN-498) -- separate concern; sanna-repo's state-doc fix
+  doesn't require latest spec.
+- Path.glob audits (`count_test_files`, `get_source_layout`
+  already use `git ls-files`; sanna-repo's tool is not subject to
+  the SAN-498 bug pattern).
+
+### Cross-references
+
+- SAN-493 PR 1 of 3 -- sanna-protocol's equivalent fix (PR #39,
+  merged 2026-05-10 as 16798d6).
+- SAN-492 PR 1 (sanna-protocol PR #36) -- where this surfaced,
+  workaround commit `ca2de52`.
+- Memory rule `feedback_state_md_hard_gate_before_commit.md`.
+- Memory rule `feedback_state_md_regen_commands_per_repo.md`.
+
 ## [Unreleased] -- 2026-05-07 (SAN-489)
 
 ### Documentation
