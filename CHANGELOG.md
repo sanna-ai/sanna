@@ -1,3 +1,37 @@
+## [Unreleased] -- 2026-05-11 (SAN-496)
+
+### Added
+
+- **`tests/vectors/ed25519_rfc8032.json`**: IETF RFC 8032 Section 7.1
+  Ed25519 algorithm-conformance test vectors (TEST 1, TEST 2, TEST 3,
+  TEST 1024, TEST SHA(abc)). Hard-coded from the RFC text for unambiguous
+  authoritative-source linkage.
+
+- **`tests/test_ed25519_rfc8032.py`**: parametrized tests asserting (a)
+  public key derivation, (b) signature byte-match, (c) signature
+  round-trip verify for each of the 5 RFC vectors. Catches the failure
+  mode where the SDK could pass protocol-conformance (correct
+  canonicalization + signing flow) while having a buggy Ed25519
+  implementation that produces RFC-incompatible signatures. Orthogonal
+  to the protocol-conformance vectors (constitution_signature.json,
+  receipt_signature.json) which were relabeled in SAN-489 as
+  intentionally-public fixed-seed vectors.
+
+- **`tests/vectors/README.md`**: documented the two test surfaces
+  (protocol conformance vs algorithm conformance) and updated the
+  Files table to include the new RFC 8032 file.
+
+### Notes
+
+- 5 vectors x 3 assertions + 1 sanity test = 16 new parametrized test cases.
+- Runs on the full CI Python matrix (3.10, 3.11, 3.12).
+- No changes to existing protocol-conformance vectors or the
+  `tests/generate_vectors.py` generator.
+- No SDK code changes. SDK already uses `cryptography.hazmat.primitives.asymmetric.ed25519`
+  (src/sanna/crypto.py:27) which is RFC 8032 compliant.
+- Third-party SDK verifiers can use these vectors to independently
+  verify their Ed25519 implementation is RFC 8032 compliant.
+
 ## [Unreleased] -- 2026-05-10 (SAN-493 PR 2 of 3)
 
 ### Changed
