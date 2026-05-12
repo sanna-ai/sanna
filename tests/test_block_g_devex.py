@@ -88,7 +88,7 @@ class TestPIIRedaction:
     def test_pii_redaction_hash_only(self, tmp_path):
         """Redacted content shows salted SHA-256 hash, PII removed."""
         pytest.importorskip("mcp")
-        from sanna.gateway.server import _redact_for_storage
+        from sanna.redaction import _redact_for_storage
 
         content = "sensitive user data with PII"
         salt = "test-receipt-id"
@@ -118,7 +118,7 @@ class TestPIIRedaction:
     def test_redaction_before_signing(self, tmp_path):
         """Hash computed on original, then redacted for storage."""
         pytest.importorskip("mcp")
-        from sanna.gateway.server import _redact_for_storage
+        from sanna.redaction import _redact_for_storage
         from sanna.hashing import hash_text
 
         original_context = "Patient John Doe, SSN 123-45-6789"

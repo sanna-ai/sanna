@@ -89,30 +89,7 @@ class DownstreamConfig:
     optional: bool = False
 
 
-@dataclass
-class RedactionConfig:
-    """PII redaction controls for receipt storage.
-
-    When enabled, the gateway redacts specified fields from receipts
-    before writing them to disk.  Hashes are always computed on the
-    FULL (unredacted) content first, so the receipt signature covers
-    the original data.  The stored copy replaces raw values with a
-    ``[REDACTED — SHA-256: ...]`` placeholder.
-
-    Attributes:
-        enabled: Whether redaction is active.  ``False`` by default.
-        mode: ``"hash_only"`` replaces content with its SHA-256 hash.
-            ``"pattern_redact"`` is reserved for future regex-based
-            PII detection.
-        fields: Receipt fields to redact.  Supported values:
-            ``"arguments"`` (inputs.context) and ``"result_text"``
-            (outputs.output).
-    """
-    enabled: bool = False
-    mode: str = "hash_only"
-    fields: list[str] = field(
-        default_factory=lambda: ["arguments", "result_text"],
-    )
+from sanna.redaction import RedactionConfig  # re-exported for backward compat
 
 
 @dataclass

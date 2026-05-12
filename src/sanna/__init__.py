@@ -20,6 +20,7 @@ from .sinks import (
     CompositeSink,
 )
 from .interceptors import patch_subprocess, unpatch_subprocess, patch_http, unpatch_http
+from .redaction import RedactionConfig
 
 __all__ = [
     "__version__",
@@ -44,6 +45,7 @@ __all__ = [
     "unpatch_subprocess",
     "patch_http",
     "unpatch_http",
+    "RedactionConfig",
 ]
 
 
