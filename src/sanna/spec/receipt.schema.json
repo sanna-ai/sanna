@@ -432,7 +432,7 @@
     "content_mode_source": {
       "description": "Origin of the content_mode value. Metadata only — does NOT participate in fingerprint computation. MUST be absent when content_mode is absent.",
       "type": ["string", "null"],
-      "enum": ["local_config", "cloud_tenant", "override", null]
+      "enum": ["local_config", "cloud_tenant", "override", "middleware_redaction_config", null]
     },
     "event_type": {
       "type": ["string", "null"],

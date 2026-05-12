@@ -1,3 +1,51 @@
+## [Unreleased] -- 2026-05-11 (SAN-249)
+
+### Added
+
+- **`sanna.RedactionConfig`** is now public API. Imported from `sanna.redaction`.
+  Mirrors the previously-gateway-only `RedactionConfig` dataclass with the same
+  fields (`enabled`, `mode`, `fields`).
+- **`@sanna_observe(redaction_config=...)`** parameter. When supplied with an
+  enabled config, receipts emitted by the middleware path apply spec section
+  2.11.1 marker objects (`{__redacted__: true, original_hash: '<sha256-hex>'}`)
+  to the configured fields BEFORE signing. `content_mode` is auto-set to
+  `'redacted'`; `content_mode_source` to `'middleware_redaction_config'`.
+- **`sanna.redaction` module**: new top-level module hosting
+  `_make_redaction_marker`, `_apply_redaction_markers`, `apply_redaction`, and
+  `RedactionConfig`. Canonical location for receipt-redaction primitives.
+- **`tests/test_middleware_redaction.py`**: 8 new test cases covering the full
+  middleware redaction path (no-config, enabled, per-field, signed+verify,
+  content_mode state-match, FIX-12 injection guard, disabled no-op).
+
+### Changed
+
+- **`sanna/gateway/server.py`**: redaction primitives
+  (`_make_redaction_marker`, `_apply_redaction_markers`, `_redact_for_storage`)
+  moved to `sanna/redaction.py`. Gateway server imports from the new location;
+  call sites unchanged.
+- **`sanna/gateway/config.py`**: `RedactionConfig` removed; re-exported from
+  `sanna.redaction` for backward compat.
+
+### Why this matters
+
+Previously, `content_mode='redacted'` on a `@sanna_observe`-emitted receipt
+was a metadata claim with no enforcement: the actual redaction lived only in
+the gateway path. Customers using `@sanna_observe` to govern an LLM agent
+could not emit actually-redacted receipts; PII flowed through to downstream
+sinks (including sanna-cloud via `CloudHTTPSink`).
+
+This change brings the middleware emission path into spec section 2.11
+conformance: when `redaction_config` is supplied, the middleware applies
+marker objects per spec section 2.11.1 BEFORE signing. The signature covers
+the markers, not the original PII. Verifier-side enforcement (rejection of
+receipts claiming `content_mode='redacted'` without spec section 2.11.1
+markers) is tracked as a separate Sprint 17 P0 ticket.
+
+Spec section 2.11.4 pre-existing-marker injection guard (FIX-12) is preserved
+verbatim from the gateway path.
+
+Paired with: SAN-250 (TS rewrite + port).
+
 ## [Unreleased] -- 2026-05-11 (SAN-496)
 
 ### Added

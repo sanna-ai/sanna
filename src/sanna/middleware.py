@@ -43,6 +43,7 @@ from .receipt import (
     FinalAnswerProvenance,
 )
 from .hashing import hash_text, hash_obj, EMPTY_HASH
+from .redaction import RedactionConfig, apply_redaction
 
 logger = logging.getLogger("sanna.middleware")
 
@@ -994,6 +995,7 @@ def sanna_observe(
     strict: bool = True,
     parent_receipts: Optional[list] = None,
     workflow_id: Optional[str] = None,
+    redaction_config: Optional[RedactionConfig] = None,
     # Legacy parameters — ignored when constitution has invariants
     on_violation: str = "halt",
     checks: Optional[List[str]] = None,
@@ -1396,7 +1398,18 @@ def sanna_observe(
                 ],
             }
 
-        # 5b. Sign receipt if private key provided
+        # 5b. SEC-1 (mirrored from gateway/server.py): apply redaction markers
+        # BEFORE signing so the signature covers the markers, not the original
+        # PII. The spec section 2.11 metadata-matches-state invariant requires
+        # content_mode='redacted' whenever markers are applied.
+        if redaction_config is not None and redaction_config.enabled:
+            receipt, redacted_paths = apply_redaction(receipt, redaction_config)
+            receipt["content_mode"] = "redacted"
+            receipt["content_mode_source"] = "middleware_redaction_config"
+            if redacted_paths:
+                receipt["redacted_fields"] = redacted_paths
+
+        # 5c. Sign receipt if private key provided
         if private_key_path is not None:
             from .crypto import sign_receipt as _sign_receipt
             receipt = _sign_receipt(receipt, private_key_path)

@@ -16,12 +16,12 @@ import pytest
 
 class TestTopLevelExportsMinimal:
     def test_all_has_exactly_21_names(self):
-        """sanna.__all__ should contain exactly 22 curated names."""
+        """sanna.__all__ should contain exactly 23 curated names."""
         import sanna
-        assert len(sanna.__all__) == 22
+        assert len(sanna.__all__) == 23
 
     def test_expected_names_present(self):
-        """All 22 curated names should be in __all__."""
+        """All 23 curated names should be in __all__."""
         import sanna
         expected = {
             "__version__", "sanna_observe", "SannaHaltError", "SannaResult",
@@ -31,6 +31,7 @@ class TestTopLevelExportsMinimal:
             "LocalSQLiteSink", "NullSink", "CloudHTTPSink", "CompositeSink",
             "patch_subprocess", "unpatch_subprocess",
             "patch_http", "unpatch_http",
+            "RedactionConfig",
         }
         assert set(sanna.__all__) == expected
 
