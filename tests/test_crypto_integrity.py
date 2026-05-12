@@ -251,7 +251,7 @@ class TestSaltedRedactionHashes:
     def test_redaction_hash_is_salted(self):
         """Same content with different salts produces different hashes."""
         mcp = pytest.importorskip("mcp")
-        from sanna.gateway.server import _redact_for_storage
+        from sanna.redaction import _redact_for_storage
 
         content = "sensitive data"
         r1 = _redact_for_storage(content, "hash_only", salt="receipt-001")
@@ -261,7 +261,7 @@ class TestSaltedRedactionHashes:
     def test_redaction_hash_deterministic_with_same_salt(self):
         """Same content + same salt = same redacted output."""
         mcp = pytest.importorskip("mcp")
-        from sanna.gateway.server import _redact_for_storage
+        from sanna.redaction import _redact_for_storage
 
         content = "sensitive data"
         r1 = _redact_for_storage(content, "hash_only", salt="same-id")
@@ -271,7 +271,7 @@ class TestSaltedRedactionHashes:
     def test_redaction_output_contains_salted_marker(self):
         """Redacted output uses SHA-256-SALTED label."""
         mcp = pytest.importorskip("mcp")
-        from sanna.gateway.server import _redact_for_storage
+        from sanna.redaction import _redact_for_storage
 
         result = _redact_for_storage("data", "hash_only", salt="id1")
         assert "SHA-256-SALTED" in result

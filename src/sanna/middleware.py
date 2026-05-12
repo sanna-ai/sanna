@@ -1405,7 +1405,7 @@ def sanna_observe(
         if redaction_config is not None and redaction_config.enabled:
             receipt, redacted_paths = apply_redaction(receipt, redaction_config)
             receipt["content_mode"] = "redacted"
-            receipt["content_mode_source"] = "middleware_redaction_config"
+            receipt["content_mode_source"] = "local_config"
             if redacted_paths:
                 receipt["redacted_fields"] = redacted_paths
 

@@ -97,7 +97,7 @@ class TestMiddlewareEnabledConfig:
         assert len(resp.get("original_hash", "")) == 64
 
         assert receipt.get("content_mode") == "redacted"
-        assert receipt.get("content_mode_source") == "middleware_redaction_config"
+        assert receipt.get("content_mode_source") == "local_config"
         assert "inputs.context" in receipt.get("redacted_fields", [])
         assert "outputs.response" in receipt.get("redacted_fields", [])
 

@@ -1,21 +1,19 @@
-## [Unreleased] -- 2026-05-11 (SAN-249)
+## [Unreleased] -- 2026-05-12 (SAN-249)
 
 ### Added
 
-- **`sanna.RedactionConfig`** is now public API. Imported from `sanna.redaction`.
+- **`sanna.RedactionConfig`** now public API. Imported from `sanna.redaction`.
   Mirrors the previously-gateway-only `RedactionConfig` dataclass with the same
   fields (`enabled`, `mode`, `fields`).
 - **`@sanna_observe(redaction_config=...)`** parameter. When supplied with an
   enabled config, receipts emitted by the middleware path apply spec section
   2.11.1 marker objects (`{__redacted__: true, original_hash: '<sha256-hex>'}`)
   to the configured fields BEFORE signing. `content_mode` is auto-set to
-  `'redacted'`; `content_mode_source` to `'middleware_redaction_config'`.
+  `'redacted'`; `content_mode_source` is set to `'local_config'`.
 - **`sanna.redaction` module**: new top-level module hosting
-  `_make_redaction_marker`, `_apply_redaction_markers`, `apply_redaction`, and
-  `RedactionConfig`. Canonical location for receipt-redaction primitives.
-- **`tests/test_middleware_redaction.py`**: 8 new test cases covering the full
-  middleware redaction path (no-config, enabled, per-field, signed+verify,
-  content_mode state-match, FIX-12 injection guard, disabled no-op).
+  `_make_redaction_marker`, `_apply_redaction_markers`, `apply_redaction`,
+  `_redact_for_storage`, and `RedactionConfig`. Canonical location for
+  receipt-redaction primitives.
 
 ### Changed
 
@@ -25,6 +23,27 @@
   call sites unchanged.
 - **`sanna/gateway/config.py`**: `RedactionConfig` removed; re-exported from
   `sanna.redaction` for backward compat.
+- **`tests/test_block_g_devex.py`** and **`tests/test_crypto_integrity.py`**:
+  `_redact_for_storage` import path updated from `sanna.gateway.server` to
+  `sanna.redaction` to follow the function's new location.
+
+### Audit-trail rationale (content_mode_source provenance)
+
+The middleware path sets `content_mode_source='local_config'` (the existing
+enum value), NOT a new `'middleware_redaction_config'` value. Rationale: the
+middleware-vs-gateway provenance distinction is already carried by the
+`enforcement_surface` field per spec section 2.16 (`"middleware"` vs
+`"gateway"`). Adding a redundant enum value to `content_mode_source` would
+have created drift surface (two fields encoding the same provenance) and
+required cross-repo coordination on the spec submodule. The audit trail of any
+redacted receipt remains fully informative:
+
+- Gateway-yaml-driven redaction: `enforcement_surface="gateway"` +
+  `content_mode_source="local_config"` + spec section 2.11.1 markers
+- Middleware-decorator-driven redaction: `enforcement_surface="middleware"` +
+  `content_mode_source="local_config"` + spec section 2.11.1 markers
+- Cloud-tenant-policy-driven gateway redaction: `enforcement_surface="gateway"`
+  + `content_mode_source="cloud_tenant"` + spec section 2.11.1 markers
 
 ### Why this matters
 
@@ -38,13 +57,14 @@ This change brings the middleware emission path into spec section 2.11
 conformance: when `redaction_config` is supplied, the middleware applies
 marker objects per spec section 2.11.1 BEFORE signing. The signature covers
 the markers, not the original PII. Verifier-side enforcement (rejection of
-receipts claiming `content_mode='redacted'` without spec section 2.11.1
+receipts that claim `content_mode='redacted'` without spec section 2.11.1
 markers) is tracked as a separate Sprint 17 P0 ticket.
 
 Spec section 2.11.4 pre-existing-marker injection guard (FIX-12) is preserved
 verbatim from the gateway path.
 
-Paired with: SAN-250 (TS rewrite + port).
+Paired with: SAN-250 (TS rewrite + port). The TS work also uses existing
+`content_mode_source='local_config'`; cross-SDK byte-equality preserved.
 
 ## [Unreleased] -- 2026-05-11 (SAN-496)
 
