@@ -687,6 +687,85 @@ def _collect_redacted_fields(inputs: dict, outputs: dict) -> list[str]:
     return paths
 
 
+def _check_gateway_redaction_markers_correct(receipt: dict) -> list[str]:
+    """Verify content_mode declaration matches actual spec section 2.11.1 marker state.
+
+    Stable umbrella error code: ``REDACTION_CLAIM_WITHOUT_MARKER`` (cross-SDK aligned
+    with sanna-ts equivalent at packages/core/src/verifier-manifest.ts). The code is
+    a single umbrella covering three distinct rejection cases (the fixture and the
+    SDKs intentionally use one code for "redaction state mismatch" generally):
+
+    1. ``content_mode='redacted'`` is claimed but neither ``inputs.context`` nor
+       ``outputs.response`` contains a valid spec section 2.11.1 marker
+       (``{__redacted__: True, original_hash: <64-hex>}``). The metadata claims
+       redaction; the content shows none.
+    2. ``content_mode='redacted'`` and a field has ``__redacted__: True`` but the
+       marker is malformed (missing or invalid ``original_hash``). Attacker may
+       have pre-populated a fake marker that bypassed FIX-12.
+    3. ``content_mode='full'`` is claimed but a field IS a valid spec section 2.11.1
+       marker. Claim/state mismatch the other direction (markers present without
+       a corresponding metadata claim).
+
+    Scope note: only ``inputs.context`` and ``outputs.response`` are checked. This
+    matches the emission-side scope of ``sanna.redaction._apply_redaction_markers``
+    which only writes markers to those two fields. If future spec changes extend
+    the redactable-field set, this function must be updated in lockstep. The
+    parallel SAN-406 helper at ``verify_manifest._check_redaction_markers_correct``
+    handles a different scope (com.sanna.manifest / com.sanna.anomaly redaction,
+    spec sections 2.14 and 2.22.5); the two functions are complementary.
+
+    Args:
+        receipt: The receipt dict to verify.
+
+    Returns:
+        A list of error strings, each prefixed with
+        ``REDACTION_CLAIM_WITHOUT_MARKER:``. Empty list if all states are consistent.
+    """
+    errors: list[str] = []
+    content_mode = receipt.get("content_mode")
+    inputs = receipt.get("inputs") or {}
+    outputs = receipt.get("outputs") or {}
+    ctx = inputs.get("context")
+    resp = outputs.get("response")
+
+    def _is_marker_attempt(v: object) -> bool:
+        return isinstance(v, dict) and v.get("__redacted__") is True
+
+    ctx_is_marker_attempt = _is_marker_attempt(ctx)
+    resp_is_marker_attempt = _is_marker_attempt(resp)
+    ctx_is_valid_marker = ctx_is_marker_attempt and _is_redaction_marker(ctx)
+    resp_is_valid_marker = resp_is_marker_attempt and _is_redaction_marker(resp)
+
+    if content_mode == "redacted":
+        if not (ctx_is_valid_marker or resp_is_valid_marker):
+            errors.append(
+                "REDACTION_CLAIM_WITHOUT_MARKER: content_mode='redacted' is "
+                "claimed but neither inputs.context nor outputs.response contains "
+                "a valid spec section 2.11.1 marker"
+            )
+        if ctx_is_marker_attempt and not ctx_is_valid_marker:
+            errors.append(
+                "REDACTION_CLAIM_WITHOUT_MARKER: inputs.context marker is "
+                "malformed (missing or invalid original_hash; expected 64-char "
+                "lowercase hex)"
+            )
+        if resp_is_marker_attempt and not resp_is_valid_marker:
+            errors.append(
+                "REDACTION_CLAIM_WITHOUT_MARKER: outputs.response marker is "
+                "malformed (missing or invalid original_hash; expected 64-char "
+                "lowercase hex)"
+            )
+    elif content_mode == "full":
+        if ctx_is_valid_marker or resp_is_valid_marker:
+            errors.append(
+                "REDACTION_CLAIM_WITHOUT_MARKER: content_mode='full' is claimed "
+                "but inputs/outputs contain spec section 2.11.1 markers "
+                "(claim/state mismatch)"
+            )
+
+    return errors
+
+
 def verify_content_hashes(receipt: dict) -> tuple[list, list]:
     """Verify context_hash and output_hash match actual content.
 
@@ -1072,6 +1151,9 @@ def verify_receipt(
             errors=errors, warnings=warnings,
             checks=_manifest_checks,
         )
+
+    # 2b-ii. Gateway redaction marker / content_mode consistency (SAN-516)
+    errors.extend(_check_gateway_redaction_markers_correct(receipt))
 
     # 2c. Constitution hash format check
     constitution_errors = verify_constitution_hash(receipt)

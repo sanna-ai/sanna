@@ -1,3 +1,28 @@
+## [Unreleased] -- 2026-05-12 (SAN-516 PR 2 of 3)
+
+### Added (BACKWARD-INCOMPATIBLE VERIFIER TIGHTENING)
+
+- **`sanna.verify._check_gateway_redaction_markers_correct(receipt) -> list[str]`**: new verifier-side enforcement for spec section 2.11.1 marker objects. Emits umbrella stable error code `REDACTION_CLAIM_WITHOUT_MARKER` for three rejection cases: (a) content_mode='redacted' claimed but no valid markers in inputs.context or outputs.response, (b) marker dict has `__redacted__: True` but missing or invalid `original_hash`, (c) content_mode='full' claimed but markers are present (claim/state mismatch).
+- **`tests/test_cross_sdk_gateway_redaction_vectors.py`**: new fixture-consumer test suite. Consumes `spec/fixtures/gateway-redaction-vectors.json` and asserts: byte-parity for 4 marker vectors / 1 fix12 / 5 apply_redaction vectors; verifier rejection for 3 rejection vectors with stable error code.
+
+### Changed
+
+- **`spec/` submodule pin** bumped from `aa1ccc1e6e24faa77801463f6c171f9a0e4d0d2c` to `d69977132ba3be4f7a144c8e43a2ff1c65019c91` (sanna-protocol PR #42 squash; SAN-516 PR 1 of 3).
+
+### Backward-compatibility note
+
+This is a verifier-tightening change. Receipts that previously passed verification despite claiming `content_mode='redacted'` without spec section 2.11.1 markers will now FAIL verification with the stable umbrella error code `REDACTION_CLAIM_WITHOUT_MARKER`. Similarly, receipts with `content_mode='full'` that nonetheless contain marker objects will now fail. Pre-customer state means no real-world impact, but the audit trail records this as an intentional rejection-tightening governance hardening.
+
+### Why this matters
+
+SAN-249 + SAN-250 (closed 2026-05-12) brought both SDKs into spec section 2.11.1 marker-shape conformance at the EMISSION side. This PR closes the verifier-side enforcement gap: previously the Python verifier silently accepted receipts claiming `content_mode='redacted'` without spec-conformant markers (worst-of-both-worlds: metadata claims governance, content shows none). After this PR, such receipts are rejected with a stable cross-SDK error code that TS verifier (PR 3 of 3 in sanna-ts) will mirror.
+
+Per CLAUDE.md governance principles 'Cross-SDK coherence is load-bearing' + 'Verifier-side enforcement is non-negotiable'.
+
+### Subsequent PRs
+
+- PR 3 of 3 (sanna-ts): mirrors this rejection logic in the TS verifier with the same `REDACTION_CLAIM_WITHOUT_MARKER` error code; consumes the same fixture.
+
 ## [Unreleased] -- 2026-05-12 (SAN-249)
 
 ### Added
