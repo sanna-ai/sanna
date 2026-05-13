@@ -1,0 +1,49 @@
+{
+  "spec_version": "1.5",
+  "tool_version": "1.5.0",
+  "checks_version": "10",
+  "receipt_id": "a9990010-0000-4000-8000-000000000010",
+  "timestamp": "2026-01-01T00:00:00+00:00",
+  "correlation_id": "golden-v10-pass-simple",
+  "inputs": {
+    "query": "What is the capital of France?",
+    "context": "France is a country in Western Europe. Its capital is Paris."
+  },
+  "outputs": {
+    "response": "TAMPERED: response altered after fingerprint computation"
+  },
+  "context_hash": "96f6c721339be5b85d75f466d025373180a4dac3c18e72003af339c63d15f190",
+  "output_hash": "5eebc757bbbe8b82b9962187595c7cb6c1accc2ec1e1fc3b69d76c2f38a69f89",
+  "checks": [
+    {
+      "check_id": "C2",
+      "name": "Mark Inferences",
+      "passed": true,
+      "severity": "info",
+      "evidence": null,
+      "details": "Response derivable from context without inference."
+    }
+  ],
+  "checks_failed": 0,
+  "checks_passed": 1,
+  "status": "PASS",
+  "event_type": null,
+  "content_mode": null,
+  "content_mode_source": null,
+  "context_limitation": null,
+  "constitution_ref": null,
+  "enforcement": null,
+  "parent_receipts": null,
+  "workflow_id": null,
+  "agent_model": null,
+  "agent_model_provider": null,
+  "agent_model_version": null,
+  "enforcement_surface": "middleware",
+  "invariants_scope": "full",
+  "tool_name": "sanna",
+  "agent_identity": {
+    "agent_session_id": "session-v10-golden-pass-simple"
+  },
+  "receipt_fingerprint": "f04954ca2e7358f8",
+  "full_fingerprint": "f04954ca2e7358f8d28d4038326e4d499b287035d5764e8df26c25c8686dc1c6"
+}

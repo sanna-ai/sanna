@@ -40,7 +40,11 @@ jobs:
       - name: Verify golden receipts
         run: |
           for f in golden/receipts/*.json; do
-            if [[ "$(basename "$f")" == "999_tampered"* ]]; then
+            # Tampered fixtures use one of two name conventions:
+            #   999_tampered*    (legacy cv=9 baseline; pre-SAN-533)
+            #   v{cv}_tampered*  (per-cv coverage; SAN-533 onward)
+            # Both must FAIL sanna-verify (verifier detects output_hash mismatch).
+            if [[ "$(basename "$f")" == *tampered* ]]; then
               sanna-verify "$f" --format json && echo "ERROR: tampered receipt should fail" && exit 1 || echo "tampered detected"
             else
               sanna-verify "$f" --format json | python -c "import sys,json; r=json.load(sys.stdin); assert r['valid'], f'FAILED: {r}'"
