@@ -1,3 +1,25 @@
+## [Unreleased] -- 2026-05-13 (SAN-524)
+
+### Changed
+
+- **`src/sanna/fingerprint.py`** (new module): Canonical cv-dispatched fingerprint formula extracted into a single source of truth with three public symbols: `compute_fingerprint_input(receipt) -> str | None`, `compute_fingerprints(receipt) -> FingerprintPair | None`, and `FingerprintPair` (NamedTuple of `receipt_fingerprint` + `full_fingerprint`). API shape mirrors sanna-ts `computeFingerprintInput` + `computeFingerprints` in `packages/core/src/receipt.ts` for cross-SDK developer ergonomics.
+- **`src/sanna/verify.py:_verify_fingerprint_v013`**: Reduced from 155-line inline implementation to a 10-line wrapper that calls `compute_fingerprints` and compares against the receipt's claimed values.
+- **`src/sanna/receipt.py:generate_receipt`**: Inline fingerprint construction replaced with `compute_fingerprints` call. Assertion guards the None case (unreachable given upstream validation).
+- **`src/sanna/middleware.py:_generate_constitution_receipt`**: Inline fingerprint construction replaced with `compute_fingerprints` call. Assertion guards the None case.
+- **`src/sanna/middleware.py:_generate_no_invariants_receipt`**: Inline fingerprint construction replaced with `compute_fingerprints` call. Assertion guards the None case.
+- **`src/sanna/redaction.py:_apply_redaction_markers`**: Full cv-dispatch block replaced with `compute_fingerprints(receipt)` call. Two semantic corrections vs. the prior inline implementation: (1) `tool_name` now read from the receipt dict (was `TOOL_NAME` constant; the canonical wins, and the corrected behavior matches verification); (2) missing required fields now raise `ValueError` (were silently substituted with `EMPTY_HASH`). Re-exports `hash_obj` and `compute_fingerprints` at module level (previously deferred inside the function).
+- **`tests/test_property_crypto.py:TestFingerprintCrossSiteParity`**: SAN-293 Property 10 upgraded from sample-input equality fallback to direct `is` identity check across module imports (`test_call_sites_share_canonical_function`). Catches the drift mode where a future refactor copies the function inline instead of importing. Docstring updated to describe the pre/post-SAN-524 states.
+- **`tests/test_middleware_redaction.py:TestMiddlewarePreexistingMarkerInjectionGuard`**: Stub receipt updated from cv=10 (missing required fields) to cv=9 with `tool_name`, `enforcement_surface`, `invariants_scope`. The previous stub silently succeeded only because redaction bypassed the canonical validation; the refactor correctly surfaces the incomplete stub.
+- **`src/sanna/__init__.py`**: No re-export added for `compute_fingerprints`/`FingerprintPair`. The existing convention is to not re-export hashing primitives at the top level (they live in `sanna.hashing` per the `__getattr__` redirect map); `fingerprint.py` follows the same pattern.
+
+### Behavior preservation
+
+- Pre/post golden receipt verification diff: EMPTY across all 13 golden receipts (all cv=9).
+- Cross-language test vectors (`TestCrossLanguageVectors`): 10 passed.
+- Tampered receipts correctly rejected post-refactor.
+- Full test suite: 3400 passed, 0 failed (including the new identity check).
+- Extended PBT (1000 Hypothesis examples): 29 passed, 0 failed.
+
 ## [Unreleased] -- 2026-05-12 (SAN-293)
 
 ### Added
