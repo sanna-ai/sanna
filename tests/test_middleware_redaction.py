@@ -229,9 +229,12 @@ class TestMiddlewarePreexistingMarkerInjectionGuard:
             "inputs": {"context": fake_marker, "query": "q"},
             "outputs": {"response": "some response"},
             "checks": [],
-            "checks_version": "10",
+            "checks_version": "9",
             "correlation_id": "test-corr",
             "constitution_ref": None,
+            "tool_name": "sanna",
+            "enforcement_surface": "middleware",
+            "invariants_scope": "full",
         }
 
         with caplog.at_level(logging.WARNING, logger="sanna.redaction"):

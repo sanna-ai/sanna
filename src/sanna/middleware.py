@@ -42,6 +42,7 @@ from .receipt import (
     extract_query,
     FinalAnswerProvenance,
 )
+from .fingerprint import compute_fingerprints
 from .hashing import hash_text, hash_obj, EMPTY_HASH
 from .redaction import RedactionConfig, apply_redaction
 
@@ -586,26 +587,10 @@ def _generate_constitution_receipt(
     checks_hash = hash_obj(checks_fingerprint_data) if checks_fingerprint_data else EMPTY_HASH
     coverage_hash = hash_obj(evaluation_coverage)
 
-    # Unified fingerprint formula (v1.0.0) — always 14 pipe-delimited fields
     correlation_id = trace_data.get("correlation_id", "")
-    authority_hash = hash_obj(authority_decisions) if authority_decisions else EMPTY_HASH
-    escalation_hash = hash_obj(escalation_events) if escalation_events else EMPTY_HASH
-    trust_hash = hash_obj(source_trust_evaluations) if source_trust_evaluations else EMPTY_HASH
 
     # Namespace extensions for v0.13.0+
     namespaced_ext = _namespace_extensions(extensions) if extensions else {}
-    extensions_hash = hash_obj(namespaced_ext) if namespaced_ext else EMPTY_HASH
-
-    # Fields 13-14: parent_receipts and workflow_id (v1.0.0)
-    parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
-    workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
-
-    # Fields 15-16: enforcement_surface and invariants_scope (v1.3, SAN-213)
-    enforcement_surface_hash = hash_text(enforcement_surface)
-    invariants_scope_hash = hash_text(invariants_scope)
-
-    # Fields 17-20: tool_name and agent_model* (v1.4+, SAN-222)
-    tool_name_hash = hash_text(TOOL_NAME)
 
     # SAN-370: cv-dispatch on agent_identity presence (Issue Y design lock)
     if agent_identity is not None:
@@ -615,36 +600,37 @@ def _generate_constitution_receipt(
             )
         _cv_emit = "10"
         _sv_emit = "1.5"
-        _agent_identity_hash = hash_obj(agent_identity)
     else:
         # Legacy library middleware path: emit cv=9 receipt (spec Section 2.19 line 781-782)
         _cv_emit = "9"
         _sv_emit = "1.4"
-        _agent_identity_hash = None
 
-    if _cv_emit == "10":
-        fingerprint_input = (
-            f"{correlation_id}|{context_hash}|{output_hash}|{_cv_emit}|"
-            f"{checks_hash}|{constitution_hash_val}|{enforcement_hash_val}|{coverage_hash}|"
-            f"{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|"
-            f"{parent_receipts_hash}|{workflow_id_hash}|"
-            f"{enforcement_surface_hash}|{invariants_scope_hash}|"
-            f"{tool_name_hash}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|"
-            f"{_agent_identity_hash}"
-        )
-    else:
-        # Legacy 20-field formula (cv=9, byte-equal with archive fixtures)
-        fingerprint_input = (
-            f"{correlation_id}|{context_hash}|{output_hash}|{_cv_emit}|"
-            f"{checks_hash}|{constitution_hash_val}|{enforcement_hash_val}|{coverage_hash}|"
-            f"{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|"
-            f"{parent_receipts_hash}|{workflow_id_hash}|"
-            f"{enforcement_surface_hash}|{invariants_scope_hash}|"
-            f"{tool_name_hash}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}"
-        )
-
-    full_fp = hash_text(fingerprint_input)
-    receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
+    fps = compute_fingerprints({
+        "correlation_id": correlation_id,
+        "context_hash": context_hash,
+        "output_hash": output_hash,
+        "checks_version": _cv_emit,
+        "checks": checks_fingerprint_data,
+        "constitution_ref": constitution_ref,
+        "enforcement": enforcement_dict,
+        "evaluation_coverage": evaluation_coverage,
+        "authority_decisions": authority_decisions,
+        "escalation_events": escalation_events,
+        "source_trust_evaluations": source_trust_evaluations,
+        "extensions": namespaced_ext,
+        "parent_receipts": parent_receipts,
+        "workflow_id": workflow_id,
+        "enforcement_surface": enforcement_surface,
+        "invariants_scope": invariants_scope,
+        "tool_name": TOOL_NAME,
+        "agent_identity": agent_identity,
+    })
+    assert fps is not None, (
+        f"compute_fingerprints returned None at _generate_constitution_receipt; "
+        f"upstream missed required field for cv={_cv_emit}"
+    )
+    receipt_fingerprint = fps.receipt_fingerprint
+    full_fp = fps.full_fingerprint
 
     receipt_dict = {
         "spec_version": _sv_emit,
@@ -734,24 +720,10 @@ def _generate_no_invariants_receipt(
     else:
         constitution_hash_val = EMPTY_HASH
 
-    # Unified fingerprint formula — always 16 pipe-delimited fields (v1.3)
     correlation_id = trace_data.get("correlation_id", "")
-    checks_hash = EMPTY_HASH  # Empty checks array → EMPTY_HASH (spec parity)
 
     # Namespace extensions for v0.13.0+
     namespaced_ext = _namespace_extensions(extensions) if extensions else {}
-    extensions_hash = hash_obj(namespaced_ext) if namespaced_ext else EMPTY_HASH
-
-    # Fields 13-14: parent_receipts and workflow_id (v1.0.0)
-    parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
-    workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
-
-    # Fields 15-16: enforcement_surface and invariants_scope (v1.3, SAN-213)
-    enforcement_surface_hash = hash_text(enforcement_surface)
-    invariants_scope_hash = hash_text(invariants_scope)
-
-    # Fields 17-20: tool_name and agent_model* (v1.4+, SAN-222)
-    tool_name_hash = hash_text(TOOL_NAME)
 
     # SAN-370: cv-dispatch on agent_identity presence (Issue Y design lock)
     if agent_identity is not None:
@@ -761,36 +733,32 @@ def _generate_no_invariants_receipt(
             )
         _cv_emit = "10"
         _sv_emit = "1.5"
-        _agent_identity_hash = hash_obj(agent_identity)
     else:
         # Legacy library middleware path: emit cv=9 receipt (spec Section 2.19 line 781-782)
         _cv_emit = "9"
         _sv_emit = "1.4"
-        _agent_identity_hash = None
 
-    if _cv_emit == "10":
-        fingerprint_input = (
-            f"{correlation_id}|{context_hash}|{output_hash}|{_cv_emit}|"
-            f"{checks_hash}|{constitution_hash_val}|{EMPTY_HASH}|{EMPTY_HASH}|"
-            f"{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{extensions_hash}|"
-            f"{parent_receipts_hash}|{workflow_id_hash}|"
-            f"{enforcement_surface_hash}|{invariants_scope_hash}|"
-            f"{tool_name_hash}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|"
-            f"{_agent_identity_hash}"
-        )
-    else:
-        # Legacy 20-field formula (cv=9, byte-equal with archive fixtures)
-        fingerprint_input = (
-            f"{correlation_id}|{context_hash}|{output_hash}|{_cv_emit}|"
-            f"{checks_hash}|{constitution_hash_val}|{EMPTY_HASH}|{EMPTY_HASH}|"
-            f"{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}|{extensions_hash}|"
-            f"{parent_receipts_hash}|{workflow_id_hash}|"
-            f"{enforcement_surface_hash}|{invariants_scope_hash}|"
-            f"{tool_name_hash}|{EMPTY_HASH}|{EMPTY_HASH}|{EMPTY_HASH}"
-        )
-
-    full_fp = hash_text(fingerprint_input)
-    receipt_fingerprint = hash_text(fingerprint_input, truncate=16)
+    fps = compute_fingerprints({
+        "correlation_id": correlation_id,
+        "context_hash": context_hash,
+        "output_hash": output_hash,
+        "checks_version": _cv_emit,
+        "checks": [],
+        "constitution_ref": constitution_ref,
+        "extensions": namespaced_ext,
+        "parent_receipts": parent_receipts,
+        "workflow_id": workflow_id,
+        "enforcement_surface": enforcement_surface,
+        "invariants_scope": invariants_scope,
+        "tool_name": TOOL_NAME,
+        "agent_identity": agent_identity,
+    })
+    assert fps is not None, (
+        f"compute_fingerprints returned None at _generate_no_invariants_receipt; "
+        f"upstream missed required field for cv={_cv_emit}"
+    )
+    receipt_fingerprint = fps.receipt_fingerprint
+    full_fp = fps.full_fingerprint
 
     receipt_dict = {
         "spec_version": _sv_emit,

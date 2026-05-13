@@ -21,6 +21,9 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .fingerprint import compute_fingerprints
+from .hashing import hash_obj
+
 logger = logging.getLogger(__name__)
 
 
@@ -132,9 +135,6 @@ def _apply_redaction_markers(receipt: dict, redaction_fields: list[str]) -> tupl
         ``redacted_paths`` is a list of JSON-path strings
         for fields that were actually redacted.
     """
-    from sanna.hashing import hash_obj, hash_text, EMPTY_HASH
-    from sanna.receipt import TOOL_NAME
-
     redacted_paths: list[str] = []
 
     # Apply markers to specified fields
@@ -178,164 +178,26 @@ def _apply_redaction_markers(receipt: dict, redaction_fields: list[str]) -> tupl
     # Recompute content hashes from marker-bearing inputs/outputs
     inputs = receipt.get("inputs", {})
     outputs = receipt.get("outputs", {})
-    context_hash = hash_obj(inputs)
-    output_hash = hash_obj(outputs)
-    receipt["context_hash"] = context_hash
-    receipt["output_hash"] = output_hash
+    receipt["context_hash"] = hash_obj(inputs)
+    receipt["output_hash"] = hash_obj(outputs)
 
     # Record redaction metadata
     receipt["redacted_fields"] = redacted_paths
 
-    # Recompute fingerprint (v1.0.0 unified 14-field formula)
-    correlation_id = receipt.get("correlation_id", "")
-    checks_version = receipt.get("checks_version", "")
-
-    checks = receipt.get("checks", [])
-    has_enforcement_fields = any(c.get("triggered_by") is not None for c in checks)
-    if has_enforcement_fields:
-        checks_data = [
-            {
-                "check_id": c.get("check_id", ""),
-                "passed": c.get("passed"),
-                "severity": c.get("severity", ""),
-                "evidence": c.get("evidence"),
-                "triggered_by": c.get("triggered_by"),
-                "enforcement_level": c.get("enforcement_level"),
-                "check_impl": c.get("check_impl"),
-                "replayable": c.get("replayable"),
-            }
-            for c in checks
-        ]
-    else:
-        checks_data = [
-            {
-                "check_id": c.get("check_id", ""),
-                "passed": c.get("passed"),
-                "severity": c.get("severity", ""),
-                "evidence": c.get("evidence"),
-            }
-            for c in checks
-        ]
-    checks_hash = hash_obj(checks_data) if checks_data else EMPTY_HASH
-
-    constitution_ref = receipt.get("constitution_ref")
-    if constitution_ref:
-        _cref = {k: v for k, v in constitution_ref.items() if k != "constitution_approval"}
-        constitution_hash = hash_obj(_cref)
-    else:
-        constitution_hash = EMPTY_HASH
-
-    enforcement = receipt.get("enforcement")
-    enforcement_hash = hash_obj(enforcement) if enforcement else EMPTY_HASH
-
-    evaluation_coverage = receipt.get("evaluation_coverage")
-    coverage_hash = hash_obj(evaluation_coverage) if evaluation_coverage else EMPTY_HASH
-
-    authority_decisions = receipt.get("authority_decisions")
-    authority_hash = hash_obj(authority_decisions) if authority_decisions else EMPTY_HASH
-
-    escalation_events = receipt.get("escalation_events")
-    escalation_hash = hash_obj(escalation_events) if escalation_events else EMPTY_HASH
-
-    source_trust_evaluations = receipt.get("source_trust_evaluations")
-    trust_hash = hash_obj(source_trust_evaluations) if source_trust_evaluations else EMPTY_HASH
-
-    extensions = receipt.get("extensions")
-    extensions_hash = hash_obj(extensions) if extensions else EMPTY_HASH
-
-    # Fields 13-14 (v1.0.0)
-    parent_receipts = receipt.get("parent_receipts")
-    parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
-    workflow_id = receipt.get("workflow_id")
-    workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
-
-    # Detect field count by checks_version (parity with _verify_fingerprint_v013)
-    try:
-        cv_int = int(checks_version)
-    except (ValueError, TypeError):
-        cv_int = 5
-
-    if cv_int >= 10:
-        # Fields 15-21 (v1.5+, SAN-370)
-        enforcement_surface = receipt.get("enforcement_surface", "")
-        invariants_scope = receipt.get("invariants_scope", "")
-        enforcement_surface_hash = hash_text(enforcement_surface)
-        invariants_scope_hash = hash_text(invariants_scope)
-        tool_name_hash = hash_text(TOOL_NAME)
-        agent_model = receipt.get("agent_model")
-        agent_model_hash = hash_text(agent_model) if agent_model else EMPTY_HASH
-        agent_model_provider = receipt.get("agent_model_provider")
-        agent_model_provider_hash = hash_text(agent_model_provider) if agent_model_provider else EMPTY_HASH
-        agent_model_version = receipt.get("agent_model_version")
-        agent_model_version_hash = hash_text(agent_model_version) if agent_model_version else EMPTY_HASH
-        agent_identity = receipt.get("agent_identity")
-        agent_identity_hash = hash_obj(agent_identity) if agent_identity else EMPTY_HASH
-        fingerprint_input = (
-            f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}"
-            f"|{checks_hash}|{constitution_hash}|{enforcement_hash}"
-            f"|{coverage_hash}|{authority_hash}|{escalation_hash}"
-            f"|{trust_hash}|{extensions_hash}"
-            f"|{parent_receipts_hash}|{workflow_id_hash}"
-            f"|{enforcement_surface_hash}|{invariants_scope_hash}"
-            f"|{tool_name_hash}|{agent_model_hash}"
-            f"|{agent_model_provider_hash}|{agent_model_version_hash}"
-            f"|{agent_identity_hash}"
+    # Recompute fingerprint using canonical formula (SAN-524).
+    # receipt["context_hash"] and receipt["output_hash"] are already updated above,
+    # so compute_fingerprints reads the post-redaction hashes correctly.
+    # tool_name is read from the receipt (not the TOOL_NAME constant), which is
+    # the correct behavior: the fingerprint covers the receipt's declared tool_name.
+    fps = compute_fingerprints(receipt)
+    if fps is None:
+        raise ValueError(
+            f"compute_fingerprints returned None after redaction for "
+            f"cv={receipt.get('checks_version')!r}; receipt is missing a "
+            f"required field for this cv level"
         )
-    elif cv_int >= 9:
-        # Fields 15-20 (v1.4+, SAN-222)
-        enforcement_surface = receipt.get("enforcement_surface", "")
-        invariants_scope = receipt.get("invariants_scope", "")
-        enforcement_surface_hash = hash_text(enforcement_surface)
-        invariants_scope_hash = hash_text(invariants_scope)
-        tool_name_hash = hash_text(TOOL_NAME)
-        agent_model = receipt.get("agent_model")
-        agent_model_hash = hash_text(agent_model) if agent_model else EMPTY_HASH
-        agent_model_provider = receipt.get("agent_model_provider")
-        agent_model_provider_hash = hash_text(agent_model_provider) if agent_model_provider else EMPTY_HASH
-        agent_model_version = receipt.get("agent_model_version")
-        agent_model_version_hash = hash_text(agent_model_version) if agent_model_version else EMPTY_HASH
-        fingerprint_input = (
-            f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}"
-            f"|{checks_hash}|{constitution_hash}|{enforcement_hash}"
-            f"|{coverage_hash}|{authority_hash}|{escalation_hash}"
-            f"|{trust_hash}|{extensions_hash}"
-            f"|{parent_receipts_hash}|{workflow_id_hash}"
-            f"|{enforcement_surface_hash}|{invariants_scope_hash}"
-            f"|{tool_name_hash}|{agent_model_hash}"
-            f"|{agent_model_provider_hash}|{agent_model_version_hash}"
-        )
-    elif cv_int >= 8:
-        # Fields 15-16 (v1.3+, SAN-213)
-        enforcement_surface = receipt.get("enforcement_surface", "")
-        invariants_scope = receipt.get("invariants_scope", "")
-        enforcement_surface_hash = hash_text(enforcement_surface)
-        invariants_scope_hash = hash_text(invariants_scope)
-        fingerprint_input = (
-            f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}"
-            f"|{checks_hash}|{constitution_hash}|{enforcement_hash}"
-            f"|{coverage_hash}|{authority_hash}|{escalation_hash}"
-            f"|{trust_hash}|{extensions_hash}"
-            f"|{parent_receipts_hash}|{workflow_id_hash}"
-            f"|{enforcement_surface_hash}|{invariants_scope_hash}"
-        )
-    elif cv_int >= 6:
-        fingerprint_input = (
-            f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}"
-            f"|{checks_hash}|{constitution_hash}|{enforcement_hash}"
-            f"|{coverage_hash}|{authority_hash}|{escalation_hash}"
-            f"|{trust_hash}|{extensions_hash}"
-            f"|{parent_receipts_hash}|{workflow_id_hash}"
-        )
-    else:
-        fingerprint_input = (
-            f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}"
-            f"|{checks_hash}|{constitution_hash}|{enforcement_hash}"
-            f"|{coverage_hash}|{authority_hash}|{escalation_hash}"
-            f"|{trust_hash}|{extensions_hash}"
-        )
-
-    receipt["full_fingerprint"] = hash_text(fingerprint_input)
-    receipt["receipt_fingerprint"] = hash_text(fingerprint_input, truncate=16)
+    receipt["full_fingerprint"] = fps.full_fingerprint
+    receipt["receipt_fingerprint"] = fps.receipt_fingerprint
 
     return receipt, redacted_paths
 

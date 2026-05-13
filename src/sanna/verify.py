@@ -19,6 +19,7 @@ from typing import Optional
 
 from jsonschema import validate, ValidationError
 
+from .fingerprint import compute_fingerprints
 from .hashing import hash_text, hash_obj, EMPTY_HASH
 from .utils.safe_json import safe_json_loads, safe_json_load
 
@@ -278,168 +279,22 @@ def verify_fingerprint(receipt: dict) -> tuple:
 
 
 def _verify_fingerprint_v013(receipt: dict) -> tuple:
-    """Unified v1.0.0 fingerprint verification (14-field formula).
+    """Unified v1.0.0+ fingerprint verification.
 
-    Supports both v0.13.x receipts (12 fields) and v1.0.0+ (14 fields).
-    Auto-detects format by checking checks_version.
+    Delegates to compute_fingerprints in sanna.fingerprint for the
+    cv-dispatched formula. Handles verifier-specific concerns: comparing
+    computed against the receipt's claimed values and returning the
+    (matches, computed, expected) tuple.
     """
-    correlation_id = receipt.get("correlation_id", "")
-    context_hash = receipt.get("context_hash", "")
-    output_hash = receipt.get("output_hash", "")
-    checks_version = receipt.get("checks_version", "")
-
-    checks = receipt.get("checks", [])
-    has_enforcement_fields = any(c.get("triggered_by") is not None for c in checks)
-    if has_enforcement_fields:
-        checks_data = [
-            {
-                "check_id": c.get("check_id", ""),
-                "passed": c.get("passed"),
-                "severity": c.get("severity", ""),
-                "evidence": c.get("evidence"),
-                "triggered_by": c.get("triggered_by"),
-                "enforcement_level": c.get("enforcement_level"),
-                "check_impl": c.get("check_impl"),
-                "replayable": c.get("replayable"),
-            }
-            for c in checks
-        ]
-    else:
-        checks_data = [{"check_id": c.get("check_id", ""), "passed": c.get("passed"), "severity": c.get("severity", ""), "evidence": c.get("evidence")} for c in checks]
-    checks_hash = hash_obj(checks_data) if checks_data else EMPTY_HASH
-
-    constitution_ref = receipt.get("constitution_ref")
-    if constitution_ref:
-        _cref = {k: v for k, v in constitution_ref.items() if k != "constitution_approval"}
-        constitution_hash = hash_obj(_cref)
-    else:
-        constitution_hash = EMPTY_HASH
-
-    enforcement = receipt.get("enforcement")
-    enforcement_hash = hash_obj(enforcement) if enforcement else EMPTY_HASH
-
-    evaluation_coverage = receipt.get("evaluation_coverage")
-    coverage_hash = hash_obj(evaluation_coverage) if evaluation_coverage else EMPTY_HASH
-
-    authority_decisions = receipt.get("authority_decisions")
-    authority_hash = hash_obj(authority_decisions) if authority_decisions else EMPTY_HASH
-
-    escalation_events = receipt.get("escalation_events")
-    escalation_hash = hash_obj(escalation_events) if escalation_events else EMPTY_HASH
-
-    source_trust_evaluations = receipt.get("source_trust_evaluations")
-    trust_hash = hash_obj(source_trust_evaluations) if source_trust_evaluations else EMPTY_HASH
-
-    extensions = receipt.get("extensions")
-    extensions_hash = hash_obj(extensions) if extensions else EMPTY_HASH
-
-    # Fields 13-14: parent_receipts and workflow_id (v1.0.0, CHECKS_VERSION >= 6)
-    parent_receipts = receipt.get("parent_receipts")
-    parent_receipts_hash = hash_obj(parent_receipts) if parent_receipts is not None else EMPTY_HASH
-    workflow_id = receipt.get("workflow_id")
-    workflow_id_hash = hash_text(workflow_id) if workflow_id is not None else EMPTY_HASH
-
-    # Fields 15-16: enforcement_surface and invariants_scope (v1.3, CHECKS_VERSION >= 8)
-    enforcement_surface = receipt.get("enforcement_surface")
-    invariants_scope = receipt.get("invariants_scope")
-
-    # Detect field count:
-    #   CHECKS_VERSION >= 8 → 16 fields (v1.3+, SAN-213)
-    #   CHECKS_VERSION 6-7  → 14 fields (v1.0.0–v1.1)
-    #   CHECKS_VERSION <= 5 → 12 fields (legacy)
-    try:
-        cv_int = int(checks_version)
-    except (ValueError, TypeError):
-        cv_int = 5
-    if cv_int >= 10:
-        # v1.5+: agent_identity required, 21-field formula (SAN-370)
-        tool_name = receipt.get("tool_name")
-        if not tool_name:
-            return (False, "", "")
-        tool_name_hash = hash_text(tool_name)
-
-        agent_model = receipt.get("agent_model")
-        agent_model_hash = hash_text(agent_model) if agent_model else EMPTY_HASH
-        agent_model_provider = receipt.get("agent_model_provider")
-        agent_model_provider_hash = hash_text(agent_model_provider) if agent_model_provider else EMPTY_HASH
-        agent_model_version = receipt.get("agent_model_version")
-        agent_model_version_hash = hash_text(agent_model_version) if agent_model_version else EMPTY_HASH
-
-        if not enforcement_surface or not invariants_scope:
-            return (False, "", "")
-        enforcement_surface_hash = hash_text(enforcement_surface)
-        invariants_scope_hash = hash_text(invariants_scope)
-
-        agent_identity = receipt.get("agent_identity")
-        if not agent_identity:
-            return (False, "", "")
-        agent_identity_hash = hash_obj(agent_identity)
-
-        fingerprint_input = (
-            f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|"
-            f"{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|"
-            f"{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|"
-            f"{parent_receipts_hash}|{workflow_id_hash}|"
-            f"{enforcement_surface_hash}|{invariants_scope_hash}|"
-            f"{tool_name_hash}|{agent_model_hash}|"
-            f"{agent_model_provider_hash}|{agent_model_version_hash}|"
-            f"{agent_identity_hash}"
-        )
-    elif cv_int >= 9:
-        # v1.4+: tool_name required (agent_model* optional)
-        tool_name = receipt.get("tool_name")
-        if not tool_name:
-            return (False, "", "")
-        tool_name_hash = hash_text(tool_name)
-
-        agent_model = receipt.get("agent_model")
-        agent_model_hash = hash_text(agent_model) if agent_model else EMPTY_HASH
-        agent_model_provider = receipt.get("agent_model_provider")
-        agent_model_provider_hash = hash_text(agent_model_provider) if agent_model_provider else EMPTY_HASH
-        agent_model_version = receipt.get("agent_model_version")
-        agent_model_version_hash = hash_text(agent_model_version) if agent_model_version else EMPTY_HASH
-
-        # v1.3 required fields still required at cv>=9
-        if not enforcement_surface or not invariants_scope:
-            return (False, "", "")
-        enforcement_surface_hash = hash_text(enforcement_surface)
-        invariants_scope_hash = hash_text(invariants_scope)
-
-        fingerprint_input = (
-            f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|"
-            f"{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|"
-            f"{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|"
-            f"{parent_receipts_hash}|{workflow_id_hash}|"
-            f"{enforcement_surface_hash}|{invariants_scope_hash}|"
-            f"{tool_name_hash}|{agent_model_hash}|"
-            f"{agent_model_provider_hash}|{agent_model_version_hash}"
-        )
-    elif cv_int >= 8:
-        # v1.3+: require enforcement_surface and invariants_scope
-        if not enforcement_surface:
-            return (False, "", "")
-        if not invariants_scope:
-            return (False, "", "")
-        enforcement_surface_hash = hash_text(enforcement_surface)
-        invariants_scope_hash = hash_text(invariants_scope)
-        fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}|{enforcement_surface_hash}|{invariants_scope_hash}"
-    elif cv_int >= 6:
-        fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}|{parent_receipts_hash}|{workflow_id_hash}"
-    else:
-        fingerprint_input = f"{correlation_id}|{context_hash}|{output_hash}|{checks_version}|{checks_hash}|{constitution_hash}|{enforcement_hash}|{coverage_hash}|{authority_hash}|{escalation_hash}|{trust_hash}|{extensions_hash}"
-
-    computed_full = hash_text(fingerprint_input)
-    computed_short = hash_text(fingerprint_input, truncate=16)
-    expected = receipt.get("receipt_fingerprint", "")
-
-    matches = computed_short == expected
-
-    # Also check full_fingerprint if present
+    result = compute_fingerprints(receipt)
+    if result is None:
+        return (False, "", "")
+    expected_short = receipt.get("receipt_fingerprint", "")
     expected_full = receipt.get("full_fingerprint", "")
-    if expected_full and computed_full != expected_full:
+    matches = result.receipt_fingerprint == expected_short
+    if expected_full and result.full_fingerprint != expected_full:
         matches = False
-
-    return (matches, computed_short, expected)
+    return (matches, result.receipt_fingerprint, expected_short)
 
 
 def _verify_fingerprint_legacy(receipt: dict) -> tuple:
