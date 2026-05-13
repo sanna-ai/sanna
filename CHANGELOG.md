@@ -1,3 +1,21 @@
+## [Unreleased] -- 2026-05-12 (SAN-293)
+
+### Added
+
+- **`tests/test_property_crypto.py`**: 28 Hypothesis property-based tests across 10 categories for Sanna crypto primitives. Complements fixture-based coverage in `test_crypto_integrity.py` and `test_fingerprint_edge_cases.py` with random-input invariant assertions:
+  1. `canonical_json_bytes` invariant under dict key reordering at any nesting level
+  2. `hash_text` NFC-scope invariance; `hash_obj` NFC byte-differentiation (ADR-004 normative)
+  3. `_verify_fingerprint_v013` deterministic on repeat calls AND stable across canonical-JSON round-trip
+  4. Empty container (`[]` vs `None`) produces distinct hashes for `parent_receipts`; non-empty `workflow_id` vs `None` also distinct
+  5. Integer-valued floats coerce to int (positive case); non-integer floats raise (negative case)
+  6. NaN, +Infinity, -Infinity each raise `TypeError` at canonicalization (three explicit cases)
+  7. `sign_bytes` + `verify_signature` round-trip on arbitrary bytes; tampered-message and tampered-signature both fail
+  8. cv-aware field-count dispatch: cv=5->12, cv=6/7->14, cv=8->16, cv=9->20, cv=10->21 fields (externally observed via differential receipts)
+  9. Redaction marker shape `{__redacted__: True, original_hash: <sha256-hex>}` byte-stable across NFC/NFD input variations (Spec section 2.11.1)
+  10. Fingerprint cross-site parity: `generate_receipt()` emission verified by `verify_fingerprint()` for both cv=9 and cv=10 receipts
+- **`hypothesis>=6.100`** added to dev extras in `pyproject.toml`.
+- **`SANNA_HYPOTHESIS_MAX_EXAMPLES`** env var: overrides the per-test example count (default 100) for nightly extended runs.
+
 ## [Unreleased] -- 2026-05-12 (SAN-516 PR 2 of 3)
 
 ### Added (BACKWARD-INCOMPATIBLE VERIFIER TIGHTENING)
