@@ -585,11 +585,35 @@ class TestGoldenReceipts:
         assert "extensions" in receipt
         assert receipt["extensions"]["vendor"] == "test-vendor"
 
+    # SAN-533: cv-coverage expansion introduced fixtures at cv=5/6/7/8/10
+    # with spec_version values per the cv-dispatch ladder. cv=6 + cv=8
+    # confirmed via golden/receipts/archive/. cv=5 / 7 / 10 derived from
+    # SDK constants and spec history. Existing 13 cv=9 fixtures remain at
+    # spec_version=1.4 (CV9_LEGACY codepath).
+    EXPECTED_SPEC_VERSION_BY_CV = {
+        "5":  "1.0",
+        "6":  "1.1",
+        "7":  "1.2",
+        "8":  "1.3",
+        "9":  "1.4",
+        "10": "1.5",
+    }
+
     def test_golden_v013_schema_fields(self):
-        """All golden receipts have v0.13.0 required fields."""
+        """All golden receipts have required structural fields; spec_version matches
+        checks_version per the cv-dispatch ladder."""
         for filename in all_golden_receipts():
             receipt = load_golden(filename)
-            assert receipt["spec_version"] == "1.4", f"{filename}: missing spec_version"
+            cv = receipt.get("checks_version")
+            expected_spec = self.EXPECTED_SPEC_VERSION_BY_CV.get(cv)
+            assert expected_spec is not None, (
+                f"{filename}: unknown checks_version {cv!r} -- "
+                f"update EXPECTED_SPEC_VERSION_BY_CV if a new cv level was added"
+            )
+            assert receipt["spec_version"] == expected_spec, (
+                f"{filename}: spec_version {receipt['spec_version']!r} does not "
+                f"match expected {expected_spec!r} for cv={cv}"
+            )
             assert "correlation_id" in receipt, f"{filename}: missing correlation_id"
             assert "status" in receipt, f"{filename}: missing status"
             assert "full_fingerprint" in receipt, f"{filename}: missing full_fingerprint"
