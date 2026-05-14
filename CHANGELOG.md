@@ -1,3 +1,23 @@
+## [Unreleased] -- 2026-05-13 (SAN-533)
+
+### Added
+
+- **10 new golden receipt fixtures at cv=5, 6, 7, 8, 10** (SAN-533): `golden/receipts/v{cv}_pass_simple.json` + `golden/receipts/v{cv}_tampered.json` for each cv level. Closes the cv-coverage gap surfaced by SAN-524's Phase 0.5 enumeration (existing 13 goldens are all cv=9; cv=5/6/7/8/10 had zero golden representation, only probabilistic PBT coverage). Each new fixture is deterministic (fixed `receipt_id` UUID + fixed `timestamp`), hand-crafted with cv-appropriate field set, and signed via `sanna.fingerprint.compute_fingerprints` (the SAN-524 centralized cv-aware formula). Tampered variants mutate `outputs.response` after fingerprint computation; the verifier detects the mismatch when it recomputes `hash_obj(outputs)` and compares to the stored `output_hash` field. Existing 13 cv=9 fixtures are unchanged and continue to exercise the CV9_LEGACY verifier code path.
+- **`golden/generate_legacy_goldens.py`** (SAN-533): new generator script. cv=6 + cv=8 spec_version and tool_version mappings confirmed from `golden/receipts/archive/pre-v1.3/` and `golden/receipts/archive/v1.3/`; cv=5 / 7 / 10 derived and empirically validated via `sanna-verify`.
+
+### Changed
+
+- **`.github/workflows/ci.yml`**: tampered-fixture detection glob broadened from `999_tampered*` to `*tampered*` so per-cv tampered fixtures (e.g., `v5_tampered.json`) are also expected-to-fail. Existing `999_tampered.json` continues to match. Inline comment documents the convention.
+- **`tests/test_golden.py::test_golden_v013_schema_fields`**: assertion broadened from a single `spec_version == "1.4"` check to a per-cv expected-spec-version map (cv=5->1.0, cv=6->1.1, cv=7->1.2, cv=8->1.3, cv=9->1.4, cv=10->1.5). The prior assertion was a test-side coverage gap (governance pattern #2): the new SAN-533 fixtures at cv=5/6/7/8/10 have spec_version values per the cv-dispatch ladder, not 1.4. Surfaced by CI on the initial SAN-533 PR push.
+
+### Notes
+
+- 13 existing cv=9 goldens kept as-is per design: they remain the load-bearing coverage for the CV9_LEGACY verifier codepath, which is real production behavior we want deterministic test fixtures for.
+- SAN-540 tracks the related refactor of `golden/generate_golden.py` (use `compute_fingerprints`; reconcile cv=9 stale-vs-regen tension; merge with `generate_legacy_goldens.py` as a single cv-parameterized generator). Out of scope for SAN-533.
+- Cross-references: SAN-533 (this ticket), SAN-524 (compute_fingerprints centralization), SAN-293 (PBT safety net, now augmented by goldens), SAN-540 (follow-up generator refactor).
+
+---
+
 ## [Unreleased] -- 2026-05-13 (SAN-524)
 
 ### Changed
