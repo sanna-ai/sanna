@@ -70,12 +70,22 @@ def test_agent_model_null_opt_out():
 
 
 def test_verifier_rejects_missing_tool_name():
-    """cv>=9 receipt missing tool_name fails with exact error text."""
+    """cv>=9 receipt missing tool_name fails with exact error text.
+
+    Loads a cv=9 fixture specifically so the schema's conditional-required
+    rule for tool_name fires (rather than failing earlier on enforcement_surface
+    which is only required for cv>=8 fixtures and absent from cv=5/6/7
+    fixtures). Sorting + filtering makes the test order-independent; previously
+    the test took golden_files[0] from glob("*.json") which could
+    non-deterministically pick a cv=5/6/7 fixture on Ubuntu's directory-hash
+    order. (Discovered via SAN-540 CI surface, same defect class as
+    test_verifier_accepts_valid_golden.)
+    """
     import json, pathlib
-    # Load a valid golden and strip tool_name to create an invalid receipt
     golden_dir = pathlib.Path("golden/receipts")
-    golden_files = list(golden_dir.glob("*.json"))
-    assert golden_files, "No goldens found — regenerate first"
+    # Restrict to cv=9 fixtures (filenames 0NN_*.json), non-tampered.
+    golden_files = sorted(f for f in golden_dir.glob("0*.json") if "tampered" not in f.name)
+    assert golden_files, "No non-tampered cv=9 goldens found"
     with open(golden_files[0]) as f:
         receipt = json.load(f)
     receipt.pop("tool_name", None)
