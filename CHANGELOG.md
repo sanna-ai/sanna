@@ -1,3 +1,11 @@
+## [Unreleased] -- 2026-05-15 (SAN-540)
+
+### Changed
+
+- Refactor golden receipt generators: merge generate_golden.py + generate_legacy_goldens.py into a single cv-parameterized generate_goldens.py using sanna.fingerprint.compute_fingerprints (centralized cv-aware formula from SAN-524). All 13 existing cv=9 fixtures remain byte-identical (verified via git diff --exit-code); cv=5/6/7/8/10 fixtures unchanged. Removes the inline 20-field add_extensions formula. (SAN-540)
+
+---
+
 ## [Unreleased] -- 2026-05-13 (SAN-533)
 
 ### Added
