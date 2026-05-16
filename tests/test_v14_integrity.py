@@ -91,12 +91,20 @@ def test_verifier_rejects_missing_tool_name():
 
 
 def test_verifier_accepts_valid_golden():
-    """Valid regenerated v1.4 golden passes verification."""
+    """Every non-tampered cv=9 golden passes verification.
+
+    The 999_tampered.json fixture is intentionally invalid (outputs mutated
+    post-fingerprint) and is excluded by filename. Sorting + filtering makes
+    the test order-independent; previously the test took golden_files[0]
+    which could non-deterministically pick the tampered fixture depending on
+    filesystem directory-hash order. (Discovered via SAN-540 CI surface.)
+    """
     import json, pathlib
     golden_dir = pathlib.Path("golden/receipts")
-    golden_files = list(golden_dir.glob("[0-9]*.json"))
-    assert golden_files
-    with open(golden_files[0]) as f:
-        receipt = json.load(f)
-    result = verify_receipt(receipt, RECEIPT_SCHEMA)
-    assert result.valid, f"Golden failed verification: {result.errors}"
+    golden_files = sorted(f for f in golden_dir.glob("[0-9]*.json") if "tampered" not in f.name)
+    assert golden_files, "No non-tampered cv=9 goldens found"
+    for f in golden_files:
+        with open(f) as fh:
+            receipt = json.load(fh)
+        result = verify_receipt(receipt, RECEIPT_SCHEMA)
+        assert result.valid, f"Golden {f.name} failed verification: {result.errors}"
