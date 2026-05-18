@@ -354,6 +354,33 @@
           "type": "string",
           "description": "ISO 8601 timestamp",
           "format": "date-time"
+        },
+        "halt_reason": {
+          "type": ["string", "null"],
+          "description": "Machine-readable categorization of the halt cause when enforcement.action=halted. Stable enum; verifier MUST accept unknown values with informational warning. Spec Section 2.23.",
+          "enum": ["constitution_revoked", "constitution_status_unavailable", null]
+        },
+        "constitution_status_evidence": {
+          "type": ["object", "null"],
+          "description": "Audit-quality binding fields tying the halt action to the observed constitution status. Required when halt_reason is in {constitution_revoked, constitution_status_unavailable}. Spec Section 2.23.",
+          "required": ["constitution_policy_hash", "version", "status_observed", "status_checked_at", "status_etag"],
+          "properties": {
+            "constitution_policy_hash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "description": "SHA-256 hex of the observed constitution's policy_hash. MUST equal the receipt's constitution_ref.policy_hash. Spec Section 2.23.4."
+            },
+            "version": {"type": "string"},
+            "status_observed": {
+              "type": "string",
+              "enum": ["active", "superseded", "revoked", "draft", "archived", "rejected"]
+            },
+            "status_checked_at": {"type": "string", "format": "date-time"},
+            "status_etag": {"type": "string"},
+            "activated_at": {"type": ["string", "null"], "format": "date-time"},
+            "revoked_at": {"type": ["string", "null"], "format": "date-time"}
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -862,6 +889,72 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    {
+      "$comment": "CFC-A: enforcement.halt_reason present requires enforcement.action=halted. Spec Section 4.6.",
+      "if": {
+        "properties": {
+          "enforcement": {
+            "type": "object",
+            "required": ["halt_reason"],
+            "properties": {"halt_reason": {"type": "string"}}
+          }
+        },
+        "required": ["enforcement"]
+      },
+      "then": {
+        "properties": {
+          "enforcement": {
+            "properties": {"action": {"const": "halted"}}
+          }
+        }
+      }
+    },
+    {
+      "$comment": "CFC-B: enforcement.halt_reason in constitution-status set requires enforcement.constitution_status_evidence present and non-null. Spec Section 4.6.",
+      "if": {
+        "properties": {
+          "enforcement": {
+            "type": "object",
+            "required": ["halt_reason"],
+            "properties": {
+              "halt_reason": {"enum": ["constitution_revoked", "constitution_status_unavailable"]}
+            }
+          }
+        },
+        "required": ["enforcement"]
+      },
+      "then": {
+        "properties": {
+          "enforcement": {
+            "required": ["constitution_status_evidence"],
+            "properties": {
+              "constitution_status_evidence": {"type": "object"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "$comment": "CFC-D: enforcement.constitution_status_evidence present requires enforcement.halt_reason present (evidence-without-claim prevention). Spec Section 4.6.",
+      "if": {
+        "properties": {
+          "enforcement": {
+            "type": "object",
+            "required": ["constitution_status_evidence"],
+            "properties": {"constitution_status_evidence": {"type": "object"}}
+          }
+        },
+        "required": ["enforcement"]
+      },
+      "then": {
+        "properties": {
+          "enforcement": {
+            "required": ["halt_reason"],
+            "properties": {"halt_reason": {"type": "string"}}
           }
         }
       }
