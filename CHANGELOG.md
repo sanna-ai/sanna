@@ -1,3 +1,30 @@
+## [Unreleased] -- 2026-05-18 (SAN-665)
+
+### Changed
+
+- **`spec` submodule**: bumped to `35950af9b3d7052e61a2f9965ffd8c5e5be046bc` (sanna-protocol SAN-647 branch HEAD). Pulls in optional `enforcement.halt_reason` enum + `enforcement.constitution_status_evidence` object fields on the receipt schema, the corresponding spec Section 2.23 + Appendix H additions, and four new Section 4.6 cross-field consistency rules (CFC-A, CFC-B, CFC-C verifier-side, CFC-D).
+- **`src/sanna/spec/receipt.schema.json`**: byte-exact mirror update to match the new submodule HEAD. Satisfies the operational-schema governance gate at `.github/workflows/ci.yml`. `src/sanna/spec/constitution.schema.json` mirror is unchanged (SAN-647 did not touch the constitution schema).
+
+### Why this matters
+
+Sanna-protocol PR #46 (SAN-647) adds the receipt-schema vocabulary the Cloud receipt-ingestion RC blocker (SAN-568) consumes. The protocol PR's cross-sdk-smoke-python CI gate diffs the protocol schema against sanna-repo's SDK mirror at main; an additive protocol schema change creates transient drift the gate flags as failure. Landing this submodule bump + mirror update on sanna main FIRST clears the drift; the protocol PR then re-runs the gate against the updated mirror and passes.
+
+The schema additions are optional/nullable; existing receipts validate unchanged. The new cross-field consistency conditionals (CFC-A, CFC-B, CFC-D) in receipt.schema.json only fire when the new optional fields are present, so the full golden-receipt fixture set and the SDK test suite remain green without modification.
+
+### Notes
+
+- Staged release sequence: SAN-665 (this PR) merges first; sanna-protocol PR #46 re-runs cross-sdk-smoke-python green; PR #46 merges.
+- The pinned SHA (`35950af9b3d7052e61a2f9965ffd8c5e5be046bc`) is the SAN-647 PR branch HEAD; after SAN-647 squash-merges and its branch auto-deletes per `delete_branch_on_merge=true` (SAN-543), the SHA remains reachable via the sanna-protocol PR ref (`refs/pull/46/head`). A follow-up cleanup PR will re-pin the spec submodule to the resulting merged-to-main commit so the pin references a commit reachable on sanna-protocol main without going through the PR ref.
+- SDK-side fail-closed implementation of the new halt_reason + constitution_status_evidence emission is post-beta scope (separate ticket family); this PR only updates the schema vocabulary.
+
+### Tickets
+
+- SAN-665 (this PR)
+- SAN-647 (sanna-protocol protocol/spec change consumed by this submodule bump)
+- SAN-568 (Cloud RC blocker consumer of the SAN-647 vocabulary)
+
+---
+
 ## [Unreleased] -- 2026-05-15 (SAN-540)
 
 ### Changed
