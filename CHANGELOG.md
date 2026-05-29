@@ -1,3 +1,19 @@
+## [Unreleased] -- 2026-05-29 (SAN-745)
+
+### Added
+
+- **`tests/test_escalate_conformance.py`**: cross-SDK escalate-disposition conformance test (Python side). Drives the http + subprocess interceptors with a must_escalate decision in enforce mode and asserts the emitted receipt matches the shared protocol fixture (`spec/fixtures/multi-surface-vectors.json` -> `escalate_disposition_vectors`) and that the action did not execute. The sanna-ts suite asserts the same vector (SAN-745 PR3a).
+
+### Changed
+
+- **`spec` submodule**: bumped to `4b73ec3` (sanna-protocol main) to consume `escalate_disposition_vectors` (SAN-745).
+
+### Why this matters
+
+This is the Python half of the SAN-745 cross-SDK conformance: both SDKs now assert the same escalate-in-enforce disposition against one shared protocol fixture, so a regression in either SDK breaks against the shared contract. `assurance` is not asserted (Python interceptors do not yet emit it; SAN-765); the agreed disposition fields are (event_type, enforcement.action, enforcement_mode, status, enforcement_surface, invariants_scope, action_hash).
+
+---
+
 ## [Unreleased] -- 2026-05-18 (SAN-665)
 
 ### Changed
