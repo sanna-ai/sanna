@@ -9,7 +9,7 @@ Sanna generates portable cryptographic receipts attesting to governance outcomes
 
 - **`enforcement_surface` field** — Receipts now record which SDK component generated them (`middleware`, `gateway`, `cli_interceptor`, `http_interceptor`).
 - **`invariants_scope` field** — Receipts record which invariants were evaluated (`full`, `authority_only`, `limited`, `none`).
-- **21-field fingerprint** — `CHECKS_VERSION` bumped to `"8"`, `SPEC_VERSION` to `"1.3"`. Fields 15-16 are `enforcement_surface_hash` and `invariants_scope_hash`.
+- **21-field fingerprint** — `CHECKS_VERSION` bumped to `"10"`, `SPEC_VERSION` to `"1.5"`. Fields 15-16 are `enforcement_surface_hash` and `invariants_scope_hash`; fields 17-20 are `tool_name`, `agent_model`, `agent_model_provider`, and `agent_model_version`; field 21 is `agent_identity_hash`.
 - **Schema cross-field consistency** — `allOf` rules enforce `halted → FAIL`, `warned → WARN`, `allowed → PASS`.
 - **`skip_default_checks` parameter** — Interceptor receipts derive status from `enforcement.action` without running C1-C5 checks (SAN-216).
 
