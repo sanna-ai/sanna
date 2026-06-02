@@ -3,13 +3,13 @@
 [![PyPI version](https://img.shields.io/pypi/v/sanna)](https://pypi.org/project/sanna/)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12284/badge)](https://www.bestpractices.dev/projects/12284)
 
-Sanna checks reasoning during execution, halts when constraints are violated, and generates portable cryptographic receipts proving governance was enforced. Constitution-as-code: your governance rules live in version-controlled YAML, not in a vendor dashboard.
+Sanna generates portable cryptographic receipts attesting to governance outcomes. The `@sanna_observe` decorator is post-execution detection and attestation -- the wrapped function executes before output checks run, so its side effects are not prevented; the gateway and interceptor surfaces enforce governance pre-execution and block disallowed actions before they occur. An opt-in pre-execution reasoning gate in `@sanna_observe` activates when a constitution defines reasoning checks and `_justification` is supplied. Constitution-as-code: your governance rules live in version-controlled YAML, not in a vendor dashboard.
 
 ## What's New in v1.3.0
 
 - **`enforcement_surface` field** — Receipts now record which SDK component generated them (`middleware`, `gateway`, `cli_interceptor`, `http_interceptor`).
 - **`invariants_scope` field** — Receipts record which invariants were evaluated (`full`, `authority_only`, `limited`, `none`).
-- **16-field fingerprint** — `CHECKS_VERSION` bumped to `"8"`, `SPEC_VERSION` to `"1.3"`. Fields 15-16 are `enforcement_surface_hash` and `invariants_scope_hash`.
+- **21-field fingerprint** — `CHECKS_VERSION` bumped to `"8"`, `SPEC_VERSION` to `"1.3"`. Fields 15-16 are `enforcement_surface_hash` and `invariants_scope_hash`.
 - **Schema cross-field consistency** — `allOf` rules enforce `halted → FAIL`, `warned → WARN`, `allowed → PASS`.
 - **`skip_default_checks` parameter** — Interceptor receipts derive status from `enforcement.action` without running C1-C5 checks (SAN-216).
 
@@ -151,9 +151,9 @@ Every governed action produces a reasoning receipt — a JSON artifact that cryp
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `spec_version` | string | Schema version, `"1.3"` |
+| `spec_version` | string | Schema version, `"1.5"` |
 | `tool_version` | string | Package version, e.g. `"1.3.0"` |
-| `checks_version` | string | Check algorithm version, e.g. `"8"` |
+| `checks_version` | string | Check algorithm version, e.g. `"10"` |
 | `receipt_id` | string | UUID v4 unique identifier |
 | `correlation_id` | string | Path-prefixed identifier for grouping related receipts |
 
@@ -223,9 +223,9 @@ Minimal example receipt (abbreviated -- production receipts typically contain 3-
 
 ```json
 {
-  "spec_version": "1.3",
+  "spec_version": "1.5",
   "tool_version": "1.3.0",
-  "checks_version": "8",
+  "checks_version": "10",
   "receipt_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
   "receipt_fingerprint": "7b4d06e836514eef",
   "full_fingerprint": "7b4d06e836514eef26ab96f5c62b193d036c92b45d966ef7025d75539ff93aca",
