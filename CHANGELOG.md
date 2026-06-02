@@ -1,3 +1,22 @@
+## [Unreleased] -- 2026-06-02 (SAN-752)
+
+### Changed
+
+- **README.md**: corrected receipt schema references from v1.3 / checks_version 8 / 16-field to
+  v1.5 / checks_version 10 / 21-field. Updated schema reference table, example receipt JSON, and
+  the What's New fingerprint bullet.
+- **README.md**: corrected `@sanna_observe` enforcement framing. The decorator is post-execution
+  detection and attestation -- the wrapped function executes before output checks run, so its side
+  effects are not prevented. A pre-execution reasoning gate is opt-in (activates when the
+  constitution defines reasoning checks and `_justification` is supplied). True pre-execution
+  prevention is provided by the gateway and interceptor surfaces.
+
+### Tickets
+
+- SAN-752
+
+---
+
 ## [Unreleased] -- 2026-06-02 (SAN-667)
 
 ### Added
