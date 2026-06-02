@@ -1,3 +1,37 @@
+## [Unreleased] -- 2026-06-02 (SAN-667)
+
+### Added
+
+- **`tests/test_spec_pin_integrity.py`**: two CI-enforced spec-submodule integrity invariants.
+  1. **Mirror-match guard** (`test_spec_schema_mirrors_match_submodule`): asserts that each file in
+     `src/sanna/spec/` is byte-identical to its counterpart in `spec/schemas/`. Fails fast after any
+     submodule bump where the SDK mirror was not updated, preventing the SDK from shipping a schema
+     that diverges from the pinned protocol version.
+  2. **Pin-on-protocol-main guard** (`test_spec_pin_is_on_protocol_main`): reads the committed
+     gitlink SHA (not the checkout), fetches `sanna-protocol origin/main`, and asserts the pinned
+     commit is reachable from that branch. Prevents the SDK from being pinned to a dangling or
+     unmerged PR-branch HEAD. In CI/GITHUB_ACTIONS the fetch failure is a hard `pytest.fail`; locally
+     it is a `pytest.skip` to accommodate offline development.
+
+### Why this matters
+
+SAN-665 pinned the spec submodule to a PR-branch HEAD that auto-deleted after squash-merge
+(SAN-543 `delete_branch_on_merge=true`). SAN-745 re-pinned to protocol main HEAD (`4b73ec3`),
+clearing the dangling-commit instance. This ticket (SAN-667) adds the durable enforcement so the
+same failure mode cannot recur silently: every PR that touches the spec submodule or the SDK
+schema mirrors now fails CI immediately if either invariant breaks.
+
+The no-silent-skip design (CI blip = hard fail, not skip) is deliberate: a suppressed enforcement
+check reads as green to auditors while providing no protection.
+
+### Tickets
+
+- SAN-667 (this PR)
+- SAN-665 (original dangling-pin incident)
+- SAN-745 (one-time re-pin to protocol main; guard now makes this enforced)
+
+---
+
 ## [Unreleased] -- 2026-05-29 (SAN-745)
 
 ### Added
