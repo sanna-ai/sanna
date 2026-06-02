@@ -1,3 +1,18 @@
+## [Unreleased] -- 2026-06-02 (SAN-752, rev2)
+
+### Changed
+
+- **README.md**: corrected remaining stale schema reference in the What's-New v1.3.0 fingerprint
+  bullet: `CHECKS_VERSION` `"8"` -> `"10"`, `SPEC_VERSION` `"1.3"` -> `"1.5"`, and extended the
+  field list from fields 15-16 through field 21 (`tool_name`, `agent_model`,
+  `agent_model_provider`, `agent_model_version` at fields 17-20; `agent_identity_hash` at field 21).
+
+### Tickets
+
+- SAN-752
+
+---
+
 ## [Unreleased] -- 2026-06-02 (SAN-752)
 
 ### Changed
