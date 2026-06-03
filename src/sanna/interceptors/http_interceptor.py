@@ -416,6 +416,7 @@ def _emit_http_receipt(
     receipt_dict["input_hash"] = input_hash
     receipt_dict["reasoning_hash"] = reasoning_hash
     receipt_dict["action_hash"] = action_hash
+    receipt_dict["assurance"] = "partial"  # spec 7.3: authority-only interceptor, reasoning not evaluated
     receipt_dict["event_type"] = event_type
     receipt_dict["context_limitation"] = context_limitation
 

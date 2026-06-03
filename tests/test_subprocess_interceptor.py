@@ -333,6 +333,16 @@ class TestReceiptFields:
             subprocess.run(["rm", "something"])
         assert patched.last["event_type"] == "cli_invocation_halted"
 
+    def test_assurance_partial_allowed(self, patched):
+        subprocess.run(["echo", "hello"])
+        assert patched.last["assurance"] == "partial"
+
+    def test_assurance_partial_halted(self, patched):
+        # spec 7.3: assurance is "partial" regardless of outcome (authority-only, no reasoning checks)
+        with pytest.raises(FileNotFoundError):
+            subprocess.run(["rm", "something"])
+        assert patched.last["assurance"] == "partial"
+
     def test_context_limitation_set(self, patched):
         subprocess.run(["echo", "hello"], justification="reason")
         assert patched.last["context_limitation"] == "cli_execution"
