@@ -1,3 +1,16 @@
+## [Unreleased] -- 2026-06-03 (SAN-765)
+
+### Changed
+
+- **HTTP + subprocess interceptors**: emit top-level `assurance` as `"partial"`, conforming to spec
+  section 7.3 (authority-only interceptors do not run reasoning checks); fingerprint-inert.
+
+### Tickets
+
+- SAN-765
+
+---
+
 ## [Unreleased] -- 2026-06-02 (SAN-752, rev2)
 
 ### Changed

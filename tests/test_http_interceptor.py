@@ -501,6 +501,22 @@ class TestReceiptFields:
             requests.get("https://internal.evil.com/data")
         assert sink.last["event_type"] == "api_invocation_halted"
 
+    def test_assurance_partial_allowed(self, sink):
+        mod = _patch_and_mock(sink)
+        _mock_orig(mod, "requests.get")
+
+        requests.get("https://api.example.com/data")
+        assert sink.last["assurance"] == "partial"
+
+    def test_assurance_partial_halted(self, sink):
+        # spec 7.3: assurance is "partial" regardless of outcome (authority-only, no reasoning checks)
+        mod = _patch_and_mock(sink)
+        _mock_orig(mod, "requests.get")
+
+        with pytest.raises(ConnectionError):
+            requests.get("https://internal.evil.com/data")
+        assert sink.last["assurance"] == "partial"
+
     def test_context_limitation_set(self, sink):
         mod = _patch_and_mock(sink)
         _mock_orig(mod, "requests.get")
