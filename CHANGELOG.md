@@ -1,3 +1,23 @@
+## [Unreleased] -- 2026-06-03 (SAN-765, Phase C2)
+
+### Changed
+
+- **src/sanna/verify.py** (`verify_receipt`): verifier now rejects an authority-only Receipt Triad
+  receipt whose `assurance` is not `"partial"` (spec Section 7.3: authority-only interceptors never
+  run reasoning checks). Fires after the existing Triad block (step 9b); error string is
+  byte-identical to the sanna-ts D2 verifier counterpart.
+- **tests/test_verify_interceptor_assurance.py**: new tests drive a real subprocess interceptor
+  receipt and assert the 7.3 rule fires on `assurance="full"` and is absent on `assurance="partial"`.
+- **tests/test_escalate_conformance.py** (`_assert_matches`): removed the `# assurance intentionally
+  NOT asserted` deferral; now asserts `receipt["assurance"] == expected["assurance"]` (vectors pin
+  `assurance="partial"`). Allow-disposition vector enforcement lands in Phase C3.
+
+### Tickets
+
+- SAN-765
+
+---
+
 ## [Unreleased] -- 2026-06-03 (SAN-765, Phase C1)
 
 ### Changed

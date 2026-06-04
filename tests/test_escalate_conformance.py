@@ -50,7 +50,7 @@ def _assert_matches(receipt: dict, expected: dict) -> None:
     assert receipt["enforcement_surface"] == expected["enforcement_surface"]
     assert receipt["invariants_scope"] == expected["invariants_scope"]
     assert receipt["action_hash"] == expected["action_hash"]
-    # assurance intentionally NOT asserted -- cross-SDK divergence tracked in SAN-765.
+    assert receipt["assurance"] == expected["assurance"]
 
 
 # Mock-isolation: save the genuine original before overwriting _originals, and restore it before
