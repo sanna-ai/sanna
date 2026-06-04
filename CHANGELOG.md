@@ -1,3 +1,19 @@
+## [Unreleased] -- 2026-06-03 (SAN-765, Phase C3)
+
+### Changed
+
+- **tests/test_allow_conformance.py** (new): cross-SDK allow-disposition conformance test (SAN-765).
+  Drives an allowed (`can_execute`) action through the HTTP and subprocess interceptors in enforce
+  mode and asserts the emitted receipt matches the shared protocol fixture
+  (`allow_disposition_vectors`), including `assurance="partial"` per spec Section 7.3. Companion
+  to the escalate-disposition conformance suite; both SDKs now assert the same allowed-path vector.
+
+### Tickets
+
+- SAN-765
+
+---
+
 ## [Unreleased] -- 2026-06-03 (SAN-765, Phase C2)
 
 ### Changed
