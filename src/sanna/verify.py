@@ -1143,6 +1143,17 @@ def verify_receipt(
         errors.extend(triad_result.errors)
         warnings.extend(triad_result.warnings)
 
+    # 9b. Interceptor assurance (SAN-765 / spec Section 7.3): an authority-only receipt with a top-level
+    # Receipt Triad never ran reasoning checks, so assurance must be "partial" (not "full").
+    if receipt.get("invariants_scope") == "authority_only" and any(
+        isinstance(receipt.get(_h), str) for _h in ("input_hash", "reasoning_hash", "action_hash")
+    ):
+        if receipt.get("assurance") != "partial":
+            errors.append(
+                "Authority-only receipt (invariants_scope=authority_only) with a Receipt Triad "
+                "must have assurance='partial' per spec Section 7.3 (no reasoning checks ran)."
+            )
+
     # 10. Identity verification reporting (point-in-time, no re-verification)
     iv = receipt.get("identity_verification")
     if iv and isinstance(iv, dict):
