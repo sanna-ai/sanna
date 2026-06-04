@@ -40,6 +40,16 @@ def test_spec_pin_is_on_protocol_main():
         if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
             pytest.fail(f"could not fetch sanna-protocol origin/main to verify pin: {fetch.stderr}")
         pytest.skip("offline: cannot fetch protocol main to verify spec pin reachability")
+    # SAN-789: a shallow submodule clone (depth 1, as in the cross-SDK smoke) lacks the parent chain between
+    # origin/main and an older-but-merged pin, making merge-base --is-ancestor a false negative. Deepen to
+    # full history so the reachability check is reliable at any clone depth.
+    is_shallow = subprocess.run(
+        ["git", "-C", spec, "rev-parse", "--is-shallow-repository"],
+        capture_output=True, text=True,
+    ).stdout.strip() == "true"
+    if is_shallow:
+        subprocess.run(["git", "-C", spec, "fetch", "--unshallow", "origin"],
+                       capture_output=True, text=True)
     reachable = subprocess.run(
         ["git", "-C", spec, "merge-base", "--is-ancestor", pin, "origin/main"]
     ).returncode == 0

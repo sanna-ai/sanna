@@ -1,3 +1,20 @@
+## [Unreleased] -- 2026-06-03 (SAN-789)
+
+### Fixed
+
+- **tests/test_spec_pin_integrity.py**: harden `test_spec_pin_is_on_protocol_main` against shallow
+  submodule clones (depth 1, as used in the cross-SDK smoke test). A shallow clone lacks the parent
+  chain between origin/main and an older-but-merged pin, causing `merge-base --is-ancestor` to
+  return a false negative. The test now detects a shallow repository and unshallows it via
+  `git fetch --unshallow origin` before the reachability check, making the assertion reliable at
+  any clone depth. Ref SAN-667 (original spec-pin enforcement).
+
+### Tickets
+
+- SAN-789, SAN-667
+
+---
+
 ## [Unreleased] -- 2026-06-03 (SAN-765)
 
 ### Changed
