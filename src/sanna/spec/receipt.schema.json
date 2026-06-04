@@ -958,6 +958,20 @@
           }
         }
       }
+    },
+    {
+      "$comment": "Receipt Triad: a present (non-null) triad hash requires a non-null assurance. Spec Section 7.3. SAN-765.",
+      "if": {
+        "anyOf": [
+          { "properties": { "input_hash": { "type": "string" } }, "required": ["input_hash"] },
+          { "properties": { "reasoning_hash": { "type": "string" } }, "required": ["reasoning_hash"] },
+          { "properties": { "action_hash": { "type": "string" } }, "required": ["action_hash"] }
+        ]
+      },
+      "then": {
+        "required": ["assurance"],
+        "properties": { "assurance": { "enum": ["full", "partial"] } }
+      }
     }
   ],
   "$defs": {
