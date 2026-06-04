@@ -1,3 +1,20 @@
+## [Unreleased] -- 2026-06-03 (SAN-765, Phase C1)
+
+### Changed
+
+- **spec submodule**: bumped pin to protocol main 323c7af (SAN-765 #49 -- receipt schema now
+  enforces assurance field when triad keys are present; cross-SDK assurance conformance vectors
+  pinned). Submodule delta relative to prior pin: SAN-788 (#50) + SAN-765 (#49).
+- **src/sanna/spec/receipt.schema.json**, **src/sanna/spec/constitution.schema.json**: synced
+  operational schema mirror to match new spec pin (SAN-326 gate; byte-equal to spec/schemas/).
+  Verifier enforcement of the interceptor assurance rule lands in Phase C2.
+
+### Tickets
+
+- SAN-765
+
+---
+
 ## [Unreleased] -- 2026-06-03 (SAN-789)
 
 ### Fixed
