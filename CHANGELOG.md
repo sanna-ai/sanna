@@ -1,10 +1,16 @@
-## [Unreleased] -- 2026-06-08 (SAN-795)
+# Changelog
 
-### Added
+**Note:** v0.13.x is the first public release series. Earlier version entries document internal pre-release development.
+
+## [1.5.0] - 2026-06-09
+
+### 2026-06-08 (SAN-795)
+
+#### Added
 - Python SDK reference (docs/python-sdk-reference.md) and cookbook (docs/cookbook.md).
 - Version-consistency test: pyproject.toml [project].version must equal sanna.__version__.
 
-### Fixed
+#### Fixed
 - Corrected pyproject.toml package version 1.3.0 -> 1.5.0 (it lagged the 1.4.0/1.5.0 bumps; version.py, receipt emission, and tests were already 1.5.0).
 - README API Reference export count (17 -> 23) and missing names; version notes (1.3.0 -> 1.5.0); broken spec links (parent path / v1.0 -> sanna-protocol / v1.5).
 - docs/conventions.md stale SPEC_VERSION/CHECKS_VERSION note (1.4/9 -> 1.5/10).
@@ -12,9 +18,9 @@
 
 ---
 
-## [Unreleased] -- 2026-06-03 (SAN-765, Phase C3)
+### 2026-06-03 (SAN-765, Phase C3)
 
-### Changed
+#### Changed
 
 - **tests/test_allow_conformance.py** (new): cross-SDK allow-disposition conformance test (SAN-765).
   Drives an allowed (`can_execute`) action through the HTTP and subprocess interceptors in enforce
@@ -22,15 +28,15 @@
   (`allow_disposition_vectors`), including `assurance="partial"` per spec Section 7.3. Companion
   to the escalate-disposition conformance suite; both SDKs now assert the same allowed-path vector.
 
-### Tickets
+#### Tickets
 
 - SAN-765
 
 ---
 
-## [Unreleased] -- 2026-06-03 (SAN-765, Phase C2)
+### 2026-06-03 (SAN-765, Phase C2)
 
-### Changed
+#### Changed
 
 - **src/sanna/verify.py** (`verify_receipt`): verifier now rejects an authority-only Receipt Triad
   receipt whose `assurance` is not `"partial"` (spec Section 7.3: authority-only interceptors never
@@ -42,15 +48,15 @@
   NOT asserted` deferral; now asserts `receipt["assurance"] == expected["assurance"]` (vectors pin
   `assurance="partial"`). Allow-disposition vector enforcement lands in Phase C3.
 
-### Tickets
+#### Tickets
 
 - SAN-765
 
 ---
 
-## [Unreleased] -- 2026-06-03 (SAN-765, Phase C1)
+### 2026-06-03 (SAN-765, Phase C1)
 
-### Changed
+#### Changed
 
 - **spec submodule**: bumped pin to protocol main 323c7af (SAN-765 #49 -- receipt schema now
   enforces assurance field when triad keys are present; cross-SDK assurance conformance vectors
@@ -59,15 +65,15 @@
   operational schema mirror to match new spec pin (SAN-326 gate; byte-equal to spec/schemas/).
   Verifier enforcement of the interceptor assurance rule lands in Phase C2.
 
-### Tickets
+#### Tickets
 
 - SAN-765
 
 ---
 
-## [Unreleased] -- 2026-06-03 (SAN-789)
+### 2026-06-03 (SAN-789)
 
-### Fixed
+#### Fixed
 
 - **tests/test_spec_pin_integrity.py**: harden `test_spec_pin_is_on_protocol_main` against shallow
   submodule clones (depth 1, as used in the cross-SDK smoke test). A shallow clone lacks the parent
@@ -76,43 +82,43 @@
   `git fetch --unshallow origin` before the reachability check, making the assertion reliable at
   any clone depth. Ref SAN-667 (original spec-pin enforcement).
 
-### Tickets
+#### Tickets
 
 - SAN-789, SAN-667
 
 ---
 
-## [Unreleased] -- 2026-06-03 (SAN-765)
+### 2026-06-03 (SAN-765)
 
-### Changed
+#### Changed
 
 - **HTTP + subprocess interceptors**: emit top-level `assurance` as `"partial"`, conforming to spec
   section 7.3 (authority-only interceptors do not run reasoning checks); fingerprint-inert.
 
-### Tickets
+#### Tickets
 
 - SAN-765
 
 ---
 
-## [Unreleased] -- 2026-06-02 (SAN-752, rev2)
+### 2026-06-02 (SAN-752, rev2)
 
-### Changed
+#### Changed
 
 - **README.md**: corrected remaining stale schema reference in the What's-New v1.3.0 fingerprint
   bullet: `CHECKS_VERSION` `"8"` -> `"10"`, `SPEC_VERSION` `"1.3"` -> `"1.5"`, and extended the
   field list from fields 15-16 through field 21 (`tool_name`, `agent_model`,
   `agent_model_provider`, `agent_model_version` at fields 17-20; `agent_identity_hash` at field 21).
 
-### Tickets
+#### Tickets
 
 - SAN-752
 
 ---
 
-## [Unreleased] -- 2026-06-02 (SAN-752)
+### 2026-06-02 (SAN-752)
 
-### Changed
+#### Changed
 
 - **README.md**: corrected receipt schema references from v1.3 / checks_version 8 / 16-field to
   v1.5 / checks_version 10 / 21-field. Updated schema reference table, example receipt JSON, and
@@ -123,15 +129,15 @@
   constitution defines reasoning checks and `_justification` is supplied). True pre-execution
   prevention is provided by the gateway and interceptor surfaces.
 
-### Tickets
+#### Tickets
 
 - SAN-752
 
 ---
 
-## [Unreleased] -- 2026-06-02 (SAN-667)
+### 2026-06-02 (SAN-667)
 
-### Added
+#### Added
 
 - **`tests/test_spec_pin_integrity.py`**: two CI-enforced spec-submodule integrity invariants.
   1. **Mirror-match guard** (`test_spec_schema_mirrors_match_submodule`): asserts that each file in
@@ -144,7 +150,7 @@
      unmerged PR-branch HEAD. In CI/GITHUB_ACTIONS the fetch failure is a hard `pytest.fail`; locally
      it is a `pytest.skip` to accommodate offline development.
 
-### Why this matters
+#### Why this matters
 
 SAN-665 pinned the spec submodule to a PR-branch HEAD that auto-deleted after squash-merge
 (SAN-543 `delete_branch_on_merge=true`). SAN-745 re-pinned to protocol main HEAD (`4b73ec3`),
@@ -155,7 +161,7 @@ schema mirrors now fails CI immediately if either invariant breaks.
 The no-silent-skip design (CI blip = hard fail, not skip) is deliberate: a suppressed enforcement
 check reads as green to auditors while providing no protection.
 
-### Tickets
+#### Tickets
 
 - SAN-667 (this PR)
 - SAN-665 (original dangling-pin incident)
@@ -163,42 +169,42 @@ check reads as green to auditors while providing no protection.
 
 ---
 
-## [Unreleased] -- 2026-05-29 (SAN-745)
+### 2026-05-29 (SAN-745)
 
-### Added
+#### Added
 
 - **`tests/test_escalate_conformance.py`**: cross-SDK escalate-disposition conformance test (Python side). Drives the http + subprocess interceptors with a must_escalate decision in enforce mode and asserts the emitted receipt matches the shared protocol fixture (`spec/fixtures/multi-surface-vectors.json` -> `escalate_disposition_vectors`) and that the action did not execute. The sanna-ts suite asserts the same vector (SAN-745 PR3a).
 
-### Changed
+#### Changed
 
 - **`spec` submodule**: bumped to `4b73ec3` (sanna-protocol main) to consume `escalate_disposition_vectors` (SAN-745).
 
-### Why this matters
+#### Why this matters
 
 This is the Python half of the SAN-745 cross-SDK conformance: both SDKs now assert the same escalate-in-enforce disposition against one shared protocol fixture, so a regression in either SDK breaks against the shared contract. `assurance` is not asserted (Python interceptors do not yet emit it; SAN-765); the agreed disposition fields are (event_type, enforcement.action, enforcement_mode, status, enforcement_surface, invariants_scope, action_hash).
 
 ---
 
-## [Unreleased] -- 2026-05-18 (SAN-665)
+### 2026-05-18 (SAN-665)
 
-### Changed
+#### Changed
 
 - **`spec` submodule**: bumped to `35950af9b3d7052e61a2f9965ffd8c5e5be046bc` (sanna-protocol SAN-647 branch HEAD). Pulls in optional `enforcement.halt_reason` enum + `enforcement.constitution_status_evidence` object fields on the receipt schema, the corresponding spec Section 2.23 + Appendix H additions, and four new Section 4.6 cross-field consistency rules (CFC-A, CFC-B, CFC-C verifier-side, CFC-D).
 - **`src/sanna/spec/receipt.schema.json`**: byte-exact mirror update to match the new submodule HEAD. Satisfies the operational-schema governance gate at `.github/workflows/ci.yml`. `src/sanna/spec/constitution.schema.json` mirror is unchanged (SAN-647 did not touch the constitution schema).
 
-### Why this matters
+#### Why this matters
 
 Sanna-protocol PR #46 (SAN-647) adds the receipt-schema vocabulary the Cloud receipt-ingestion RC blocker (SAN-568) consumes. The protocol PR's cross-sdk-smoke-python CI gate diffs the protocol schema against sanna-repo's SDK mirror at main; an additive protocol schema change creates transient drift the gate flags as failure. Landing this submodule bump + mirror update on sanna main FIRST clears the drift; the protocol PR then re-runs the gate against the updated mirror and passes.
 
 The schema additions are optional/nullable; existing receipts validate unchanged. The new cross-field consistency conditionals (CFC-A, CFC-B, CFC-D) in receipt.schema.json only fire when the new optional fields are present, so the full golden-receipt fixture set and the SDK test suite remain green without modification.
 
-### Notes
+#### Notes
 
 - Staged release sequence: SAN-665 (this PR) merges first; sanna-protocol PR #46 re-runs cross-sdk-smoke-python green; PR #46 merges.
 - The pinned SHA (`35950af9b3d7052e61a2f9965ffd8c5e5be046bc`) is the SAN-647 PR branch HEAD; after SAN-647 squash-merges and its branch auto-deletes per `delete_branch_on_merge=true` (SAN-543), the SHA remains reachable via the sanna-protocol PR ref (`refs/pull/46/head`). A follow-up cleanup PR will re-pin the spec submodule to the resulting merged-to-main commit so the pin references a commit reachable on sanna-protocol main without going through the PR ref.
 - SDK-side fail-closed implementation of the new halt_reason + constitution_status_evidence emission is post-beta scope (separate ticket family); this PR only updates the schema vocabulary.
 
-### Tickets
+#### Tickets
 
 - SAN-665 (this PR)
 - SAN-647 (sanna-protocol protocol/spec change consumed by this submodule bump)
@@ -206,27 +212,27 @@ The schema additions are optional/nullable; existing receipts validate unchanged
 
 ---
 
-## [Unreleased] -- 2026-05-15 (SAN-540)
+### 2026-05-15 (SAN-540)
 
-### Changed
+#### Changed
 
 - Refactor golden receipt generators: merge generate_golden.py + generate_legacy_goldens.py into a single cv-parameterized generate_goldens.py using sanna.fingerprint.compute_fingerprints (centralized cv-aware formula from SAN-524). All 13 existing cv=9 fixtures remain byte-identical (verified via git diff --exit-code); cv=5/6/7/8/10 fixtures unchanged. Removes the inline 20-field add_extensions formula. (SAN-540)
 
 ---
 
-## [Unreleased] -- 2026-05-13 (SAN-533)
+### 2026-05-13 (SAN-533)
 
-### Added
+#### Added
 
 - **10 new golden receipt fixtures at cv=5, 6, 7, 8, 10** (SAN-533): `golden/receipts/v{cv}_pass_simple.json` + `golden/receipts/v{cv}_tampered.json` for each cv level. Closes the cv-coverage gap surfaced by SAN-524's Phase 0.5 enumeration (existing 13 goldens are all cv=9; cv=5/6/7/8/10 had zero golden representation, only probabilistic PBT coverage). Each new fixture is deterministic (fixed `receipt_id` UUID + fixed `timestamp`), hand-crafted with cv-appropriate field set, and signed via `sanna.fingerprint.compute_fingerprints` (the SAN-524 centralized cv-aware formula). Tampered variants mutate `outputs.response` after fingerprint computation; the verifier detects the mismatch when it recomputes `hash_obj(outputs)` and compares to the stored `output_hash` field. Existing 13 cv=9 fixtures are unchanged and continue to exercise the CV9_LEGACY verifier code path.
 - **`golden/generate_legacy_goldens.py`** (SAN-533): new generator script. cv=6 + cv=8 spec_version and tool_version mappings confirmed from `golden/receipts/archive/pre-v1.3/` and `golden/receipts/archive/v1.3/`; cv=5 / 7 / 10 derived and empirically validated via `sanna-verify`.
 
-### Changed
+#### Changed
 
 - **`.github/workflows/ci.yml`**: tampered-fixture detection glob broadened from `999_tampered*` to `*tampered*` so per-cv tampered fixtures (e.g., `v5_tampered.json`) are also expected-to-fail. Existing `999_tampered.json` continues to match. Inline comment documents the convention.
 - **`tests/test_golden.py::test_golden_v013_schema_fields`**: assertion broadened from a single `spec_version == "1.4"` check to a per-cv expected-spec-version map (cv=5->1.0, cv=6->1.1, cv=7->1.2, cv=8->1.3, cv=9->1.4, cv=10->1.5). The prior assertion was a test-side coverage gap (governance pattern #2): the new SAN-533 fixtures at cv=5/6/7/8/10 have spec_version values per the cv-dispatch ladder, not 1.4. Surfaced by CI on the initial SAN-533 PR push.
 
-### Notes
+#### Notes
 
 - 13 existing cv=9 goldens kept as-is per design: they remain the load-bearing coverage for the CV9_LEGACY verifier codepath, which is real production behavior we want deterministic test fixtures for.
 - SAN-540 tracks the related refactor of `golden/generate_golden.py` (use `compute_fingerprints`; reconcile cv=9 stale-vs-regen tension; merge with `generate_legacy_goldens.py` as a single cv-parameterized generator). Out of scope for SAN-533.
@@ -234,9 +240,9 @@ The schema additions are optional/nullable; existing receipts validate unchanged
 
 ---
 
-## [Unreleased] -- 2026-05-13 (SAN-524)
+### 2026-05-13 (SAN-524)
 
-### Changed
+#### Changed
 
 - **`src/sanna/fingerprint.py`** (new module): Canonical cv-dispatched fingerprint formula extracted into a single source of truth with three public symbols: `compute_fingerprint_input(receipt) -> str | None`, `compute_fingerprints(receipt) -> FingerprintPair | None`, and `FingerprintPair` (NamedTuple of `receipt_fingerprint` + `full_fingerprint`). API shape mirrors sanna-ts `computeFingerprintInput` + `computeFingerprints` in `packages/core/src/receipt.ts` for cross-SDK developer ergonomics.
 - **`src/sanna/verify.py:_verify_fingerprint_v013`**: Reduced from 155-line inline implementation to a 10-line wrapper that calls `compute_fingerprints` and compares against the receipt's claimed values.
@@ -248,7 +254,7 @@ The schema additions are optional/nullable; existing receipts validate unchanged
 - **`tests/test_middleware_redaction.py:TestMiddlewarePreexistingMarkerInjectionGuard`**: Stub receipt updated from cv=10 (missing required fields) to cv=9 with `tool_name`, `enforcement_surface`, `invariants_scope`. The previous stub silently succeeded only because redaction bypassed the canonical validation; the refactor correctly surfaces the incomplete stub.
 - **`src/sanna/__init__.py`**: No re-export added for `compute_fingerprints`/`FingerprintPair`. The existing convention is to not re-export hashing primitives at the top level (they live in `sanna.hashing` per the `__getattr__` redirect map); `fingerprint.py` follows the same pattern.
 
-### Behavior preservation
+#### Behavior preservation
 
 - Pre/post golden receipt verification diff: EMPTY across all 13 golden receipts (all cv=9).
 - Cross-language test vectors (`TestCrossLanguageVectors`): 10 passed.
@@ -256,9 +262,9 @@ The schema additions are optional/nullable; existing receipts validate unchanged
 - Full test suite: 3400 passed, 0 failed (including the new identity check).
 - Extended PBT (1000 Hypothesis examples): 29 passed, 0 failed.
 
-## [Unreleased] -- 2026-05-12 (SAN-293)
+### 2026-05-12 (SAN-293)
 
-### Added
+#### Added
 
 - **`tests/test_property_crypto.py`**: 28 Hypothesis property-based tests across 10 categories for Sanna crypto primitives. Complements fixture-based coverage in `test_crypto_integrity.py` and `test_fingerprint_edge_cases.py` with random-input invariant assertions:
   1. `canonical_json_bytes` invariant under dict key reordering at any nesting level
@@ -274,34 +280,34 @@ The schema additions are optional/nullable; existing receipts validate unchanged
 - **`hypothesis>=6.100`** added to dev extras in `pyproject.toml`.
 - **`SANNA_HYPOTHESIS_MAX_EXAMPLES`** env var: overrides the per-test example count (default 100) for nightly extended runs.
 
-## [Unreleased] -- 2026-05-12 (SAN-516 PR 2 of 3)
+### 2026-05-12 (SAN-516 PR 2 of 3)
 
-### Added (BACKWARD-INCOMPATIBLE VERIFIER TIGHTENING)
+#### Added (BACKWARD-INCOMPATIBLE VERIFIER TIGHTENING)
 
 - **`sanna.verify._check_gateway_redaction_markers_correct(receipt) -> list[str]`**: new verifier-side enforcement for spec section 2.11.1 marker objects. Emits umbrella stable error code `REDACTION_CLAIM_WITHOUT_MARKER` for three rejection cases: (a) content_mode='redacted' claimed but no valid markers in inputs.context or outputs.response, (b) marker dict has `__redacted__: True` but missing or invalid `original_hash`, (c) content_mode='full' claimed but markers are present (claim/state mismatch).
 - **`tests/test_cross_sdk_gateway_redaction_vectors.py`**: new fixture-consumer test suite. Consumes `spec/fixtures/gateway-redaction-vectors.json` and asserts: byte-parity for 4 marker vectors / 1 fix12 / 5 apply_redaction vectors; verifier rejection for 3 rejection vectors with stable error code.
 
-### Changed
+#### Changed
 
 - **`spec/` submodule pin** bumped from `aa1ccc1e6e24faa77801463f6c171f9a0e4d0d2c` to `d69977132ba3be4f7a144c8e43a2ff1c65019c91` (sanna-protocol PR #42 squash; SAN-516 PR 1 of 3).
 
-### Backward-compatibility note
+#### Backward-compatibility note
 
 This is a verifier-tightening change. Receipts that previously passed verification despite claiming `content_mode='redacted'` without spec section 2.11.1 markers will now FAIL verification with the stable umbrella error code `REDACTION_CLAIM_WITHOUT_MARKER`. Similarly, receipts with `content_mode='full'` that nonetheless contain marker objects will now fail. Pre-customer state means no real-world impact, but the audit trail records this as an intentional rejection-tightening governance hardening.
 
-### Why this matters
+#### Why this matters
 
 SAN-249 + SAN-250 (closed 2026-05-12) brought both SDKs into spec section 2.11.1 marker-shape conformance at the EMISSION side. This PR closes the verifier-side enforcement gap: previously the Python verifier silently accepted receipts claiming `content_mode='redacted'` without spec-conformant markers (worst-of-both-worlds: metadata claims governance, content shows none). After this PR, such receipts are rejected with a stable cross-SDK error code that TS verifier (PR 3 of 3 in sanna-ts) will mirror.
 
 Per CLAUDE.md governance principles 'Cross-SDK coherence is load-bearing' + 'Verifier-side enforcement is non-negotiable'.
 
-### Subsequent PRs
+#### Subsequent PRs
 
 - PR 3 of 3 (sanna-ts): mirrors this rejection logic in the TS verifier with the same `REDACTION_CLAIM_WITHOUT_MARKER` error code; consumes the same fixture.
 
-## [Unreleased] -- 2026-05-12 (SAN-249)
+### 2026-05-12 (SAN-249)
 
-### Added
+#### Added
 
 - **`sanna.RedactionConfig`** now public API. Imported from `sanna.redaction`.
   Mirrors the previously-gateway-only `RedactionConfig` dataclass with the same
@@ -316,7 +322,7 @@ Per CLAUDE.md governance principles 'Cross-SDK coherence is load-bearing' + 'Ver
   `_redact_for_storage`, and `RedactionConfig`. Canonical location for
   receipt-redaction primitives.
 
-### Changed
+#### Changed
 
 - **`sanna/gateway/server.py`**: redaction primitives
   (`_make_redaction_marker`, `_apply_redaction_markers`, `_redact_for_storage`)
@@ -328,7 +334,7 @@ Per CLAUDE.md governance principles 'Cross-SDK coherence is load-bearing' + 'Ver
   `_redact_for_storage` import path updated from `sanna.gateway.server` to
   `sanna.redaction` to follow the function's new location.
 
-### Audit-trail rationale (content_mode_source provenance)
+#### Audit-trail rationale (content_mode_source provenance)
 
 The middleware path sets `content_mode_source='local_config'` (the existing
 enum value), NOT a new `'middleware_redaction_config'` value. Rationale: the
@@ -346,7 +352,7 @@ redacted receipt remains fully informative:
 - Cloud-tenant-policy-driven gateway redaction: `enforcement_surface="gateway"`
   + `content_mode_source="cloud_tenant"` + spec section 2.11.1 markers
 
-### Why this matters
+#### Why this matters
 
 Previously, `content_mode='redacted'` on a `@sanna_observe`-emitted receipt
 was a metadata claim with no enforcement: the actual redaction lived only in
@@ -367,9 +373,9 @@ verbatim from the gateway path.
 Paired with: SAN-250 (TS rewrite + port). The TS work also uses existing
 `content_mode_source='local_config'`; cross-SDK byte-equality preserved.
 
-## [Unreleased] -- 2026-05-11 (SAN-496)
+### 2026-05-11 (SAN-496)
 
-### Added
+#### Added
 
 - **`tests/vectors/ed25519_rfc8032.json`**: IETF RFC 8032 Section 7.1
   Ed25519 algorithm-conformance test vectors (TEST 1, TEST 2, TEST 3,
@@ -390,7 +396,7 @@ Paired with: SAN-250 (TS rewrite + port). The TS work also uses existing
   (protocol conformance vs algorithm conformance) and updated the
   Files table to include the new RFC 8032 file.
 
-### Notes
+#### Notes
 
 - 5 vectors x 3 assertions + 1 sanity test = 16 new parametrized test cases.
 - Runs on the full CI Python matrix (3.10, 3.11, 3.12).
@@ -401,9 +407,9 @@ Paired with: SAN-250 (TS rewrite + port). The TS work also uses existing
 - Third-party SDK verifiers can use these vectors to independently
   verify their Ed25519 implementation is RFC 8032 compliant.
 
-## [Unreleased] -- 2026-05-10 (SAN-493 PR 2 of 3)
+### 2026-05-10 (SAN-493 PR 2 of 3)
 
-### Changed
+#### Changed
 
 - **`tools/generate_state_doc.py`**: drops git-SHA from the
   `docs/state.md` header. The pre-fix header was
@@ -423,14 +429,14 @@ Paired with: SAN-250 (TS rewrite + port). The TS work also uses existing
 - **`main()` print statement** drops the `sha={sha}, ` field;
   keeps version + tests.
 
-### Added
+#### Added
 
 - **`tests/test_generate_state_doc.py`** (new file): regression
   guard asserting the `git-sha:` substring does NOT appear in the
   regenerated header. Catches a future re-introduction of the
   embedded SHA.
 
-### Why this matters
+#### Why this matters
 
 - Eliminates a known one-commit-stale audit artifact in state.md.
   Auditors reading the file previously saw a SHA that didn't match
@@ -446,7 +452,7 @@ Paired with: SAN-250 (TS rewrite + port). The TS work also uses existing
   tree are byte-identical to pre-fix (version=1.5.0, tests=127).
   No customer-visible behavior.
 
-### Out of scope (separate PR in this ticket)
+#### Out of scope (separate PR in this ticket)
 
 - `sanna-ts/tools/generate_state_doc.py` (or equivalent) --
   SAN-493 PR 3 of 3.
@@ -457,7 +463,7 @@ Paired with: SAN-250 (TS rewrite + port). The TS work also uses existing
   already use `git ls-files`; sanna-repo's tool is not subject to
   the SAN-498 bug pattern).
 
-### Cross-references
+#### Cross-references
 
 - SAN-493 PR 1 of 3 -- sanna-protocol's equivalent fix (PR #39,
   merged 2026-05-10 as 16798d6).
@@ -466,9 +472,9 @@ Paired with: SAN-250 (TS rewrite + port). The TS work also uses existing
 - Memory rule `feedback_state_md_hard_gate_before_commit.md`.
 - Memory rule `feedback_state_md_regen_commands_per_repo.md`.
 
-## [Unreleased] -- 2026-05-07 (SAN-489)
+### 2026-05-07 (SAN-489)
 
-### Documentation
+#### Documentation
 
 - **Relabeled the fixed Ed25519 seed for cross-language test vectors as
   `INTENTIONALLY_PUBLIC_TEST_VECTOR_SEED`** in both
@@ -489,7 +495,7 @@ Paired with: SAN-250 (TS rewrite + port). The TS work also uses existing
   cross-reference to the SAN-489 section for bidirectional audit-trail
   navigability.
 
-### Why this is documentation, not a security fix
+#### Why this is documentation, not a security fix
 
 The seed and derived public key were already disclosed in the README,
 ARCHITECTURE.md, and the vector JSON files' `seed_hex` field. The
@@ -498,9 +504,9 @@ source could be misclassified by a reviewer applying SAN-404 / AUDIT-006
 uniformly. The relabel + SECURITY.md section close that misclassification
 surface at zero crypto cost. Cross-SDK contract preserved.
 
-## [Unreleased] -- 2026-05-07 (SAN-492)
+### 2026-05-07 (SAN-492)
 
-### Changed
+#### Changed
 
 - **Python SDK aligned to v2 unified canonical signable form.**
   `constitution_to_signable_dict` now accepts a `signing_version: int = 2`
@@ -529,7 +535,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   parity gate (1.0.1 -> 1.1.0; signature.scheme enum widen; inspect_scripts
   formalization; ~9 null-acceptance widenings; version + reasoning
   formalization).
-### Added
+#### Added
 
 - Cross-SDK byte-parity regression test for v2 in
   `tests/test_cross_language_fixture_parity.py` loading
@@ -543,7 +549,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   for safely extracting the canonical-form version from a signature scheme
   string. Rejects malformed values with clear errors.
 
-### Notes
+#### Notes
 
 - **Save-path output unchanged.** `save_constitution` continues to use the
   null-stripping `constitution_to_dict` path (per SAN-404 PR 2's
@@ -560,7 +566,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   sanna-protocol PR #36; fixed in a follow-up commit (`aa1ccc1`) to
   sanna-protocol main, then submodule pin advanced accordingly.
 
-### Tickets
+#### Tickets
 
 - SAN-492 (this entry; Python SDK portion). Companion sanna-protocol PR #36
   (spec + schema + vectors + reference generator) already merged. sanna-ts PR
@@ -569,9 +575,9 @@ surface at zero crypto cost. Cross-SDK contract preserved.
 
 ---
 
-## [Unreleased] -- 2026-05-07 (SAN-490)
+### 2026-05-07 (SAN-490)
 
-### Added
+#### Added
 
 - Cross-SDK byte-parity regression test in
   `tests/test_cross_language_fixture_parity.py` loading
@@ -583,7 +589,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   sanna-protocol PR #35); this test makes that match enforced rather than
   assumed.
 
-### Changed
+#### Changed
 
 - Spec submodule pin advanced from `cc2602a` to `3aea629`. The submodule
   delta is the SAN-490 sanna-protocol portion (cross-SDK byte-equal contract
@@ -593,16 +599,16 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   `spec/schemas/constitution.schema.json` per the SAN-326 operational
   schema parity gate.
 
-### Tickets
+#### Tickets
 
 - SAN-490 (this entry; sanna-repo portion -- the Python-side regression
   canary closing the cross-3-repo signable parity work). Companion
   sanna-protocol PR #35 (fixture + schema + spec) and sanna-ts PR #49
   (TS canonicalization alignment) already merged.
 
-## [Unreleased] -- 2026-05-06 (SAN-404)
+### 2026-05-06 (SAN-404)
 
-### Security
+#### Security
 
 - **Test keypair rotation.** The committed Ed25519 PEM private key
   under `tests/.test_keys/` (key_id
@@ -631,7 +637,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   hook on every pull request via inline `pip install pre-commit` +
   `pre-commit run --all-files`.
 
-### Changed
+#### Changed
 
 - Spec submodule pin advanced from `95e87e5` to `cc2602a`. The
   submodule delta is exactly the SAN-404 sanna-protocol rotation
@@ -641,7 +647,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   unchanged -- key_ids are read dynamically from the rotated golden
   fixtures.
 
-### Fixed
+#### Fixed
 
 - `sanna.constitution.constitution_to_dict` no longer emits `null` for
   optional `EscalationTarget` fields (`url`, `handler`) that are absent
@@ -658,14 +664,14 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   signed by prior SDK releases. Cross-SDK signable parity alignment
   ships separately under SAN-490.
 
-### Tickets
+#### Tickets
 
 - SAN-404 (this entry; sanna-repo portion). Companion sanna-ts
   submodule pin bump + test-file pre-commit handling follows.
 
-## [Unreleased] -- 2026-05-06 (SAN-487)
+### 2026-05-06 (SAN-487)
 
-### Fixed
+#### Fixed
 - **CRITICAL authority bypass** (AUDIT-008-derived): under
   `content_mode=redacted` (or `hashes_only`), CLI and HTTP interceptors
   populated their enforcement state cache (`_state["suppressed_patterns"]`)
@@ -684,7 +690,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   emitted with redaction for the receipt; only the internal enforcement
   cache is now sourced from raw constitution data.
 
-### Added
+#### Added
 - `sanna.manifest.get_suppressed_patterns(constitution, surface)` helper:
   returns `set[str]` of binaries (cli) or URL patterns (http) that are
   suppressed under the constitution's authority rules. Mirrors the
@@ -701,7 +707,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   content_mode (regression guard against future refactor that would
   reintroduce the bug).
 
-### Changed
+#### Changed
 - `tests/test_cli_anomaly.py::TestCliAnomalyRedaction` and
   `tests/test_http_anomaly.py::TestHttpAnomalyRedaction`: removed the
   class-level `@pytest.mark.skip(reason=("SAN-487: ..."))` decorators
@@ -712,13 +718,13 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   With both fixes in place, the customer-facing toggle now works as
   documented.
 
-### Tickets
+#### Tickets
 - SAN-487 PR 1 of 2 (this entry; sanna-repo enforcement state fix). PR 2
   mirrors in sanna-ts. SAN-487 closes when PR 2 merges.
 - Discovered during SAN-406 PR 1 implementation; SAN-406 closed at
   817bf1a/77acc44/95e87e5/0809568/cc75579 (5 PRs across 3 repos).
 
-### Security
+#### Security
 - Closes the AUDIT-008-derived authority bypass on the Python side.
   Operators relying on enforcement under content_mode=redacted/hashes_only
   now get the enforcement they expected. Customer-facing impact: zero
@@ -726,9 +732,9 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   proactive outreach needed. Once beta accepts customers, this fix MUST be
   in place before any customer touches content_mode=redacted/hashes_only.
 
-## [Unreleased] -- 2026-05-06 (SAN-406)
+### 2026-05-06 (SAN-406)
 
-### Added
+#### Added
 - `tests/test_redaction_vectors.py`: consumes the cross-SDK fixture
   `spec/fixtures/redaction-vectors.json` (added to sanna-protocol in
   SAN-406 PR 3 at commit 95e87e5). 27 tests: 1 fixture-presence canary,
@@ -744,7 +750,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   in TestCliAnomalyRedaction + TestHttpAnomalyRedaction (PR 1) remain
   skipped with their SAN-487 cite.
 
-### Changed
+#### Changed
 - Bumped `spec` submodule pin from 6795979 to 95e87e5 (sanna-protocol PR
   SAN-406 PR 3). Schemas unchanged; bump pulls in EXACTLY ONE commit (the
   new fixture + sanna-protocol CHANGELOG; verified via Phase 0 scope
@@ -752,7 +758,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   to match (no-op for this bump; bytes identical, but executed per the
   operational-copy memory rule).
 
-### Tickets
+#### Tickets
 - SAN-406 PR 4 of 5 (this entry; sanna-repo fixture consumption).
   PR 1 (sanna-repo emission + verifier) merged at 817bf1a. PR 2
   (sanna-ts mirror) merged at 77acc44. PR 3 (sanna-protocol fixture)
@@ -761,9 +767,9 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   test_redaction_vectors.py tests are INDEPENDENT of SAN-487; the
   6 end-to-end tests skipped under SAN-487 cite remain skipped.
 
-## [Unreleased] -- 2026-05-06 (SAN-406)
+### 2026-05-06 (SAN-406)
 
-### Added
+#### Added
 - `src/sanna/anomaly.py`: `redact_attempted_field(value, content_mode)` helper
   implementing Section 2.22.5 single-value redaction for com.sanna.anomaly
   extension emissions. Three modes: "full"/None (raw, current behavior
@@ -782,7 +788,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   gateway redaction integration tests in `test_session_manifest_parent_chain.py`
   (4 tests for redacted + hashes_only modes via _make_gateway stub).
 
-### Fixed
+#### Fixed
 - `subprocess_interceptor.py:1917`, `http_interceptor.py:1047`, and
   `gateway/server.py:2611`: `attempted_command` / `attempted_endpoint` /
   `attempted_tool` now apply Section 2.22.5 field-level redaction at
@@ -790,7 +796,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   silently emitting raw capability names, leaking the very strings
   operators configured the mode to suppress.
 
-### Changed
+#### Changed
 - Removed "spec-ahead-of-impl" comments at `subprocess_interceptor.py:1930`
   and the analogous block in `http_interceptor.py` (Section 2.22.5
   is no longer spec-ahead-of-impl in this SDK).
@@ -817,7 +823,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   coverage waits on SAN-487. Test code is preserved (skip, not delete) so
   SAN-487 can re-enable by removing the decorator.
 
-### Security
+#### Security
 - Closes the AUDIT-008 emission gap on the Python side. The TS mirror
   lands in PR 2; cross-SDK fixture in PR 3; CI consumption in PRs 4 + 5.
 - `hashes_only` mode is for audit-time deterministic comparison, NOT
@@ -830,7 +836,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   (different content, different fingerprint); operators upgrading should
   expect new fingerprints on re-emission.
 
-### Tickets
+#### Tickets
 - SAN-406 PR 1 of 5 (this entry; sanna-repo emission + verifier check).
   PR 2 (sanna-ts mirror), PR 3 (sanna-protocol fixture), PR 4 (sanna-repo
   fixture consumption), PR 5 (sanna-ts fixture consumption) follow.
@@ -840,9 +846,9 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   when `content_mode` is set, rendering anomaly enforcement inoperative.
   Separate ticket; separate fix.
 
-## [Unreleased] -- 2026-05-06 (SAN-485)
+### 2026-05-06 (SAN-485)
 
-### Added
+#### Added
 - `tests/test_bundle_trust_anchor_vectors.py`: consumes the cross-SDK fixture
   `spec/fixtures/bundle-trust-vectors.json` (added to sanna-protocol in SAN-403
   PR 3 of 3 at commit 6795979). Asserts every vector's expected `valid` and
@@ -851,7 +857,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   contract, 2 bundle internal-reference sanity assertions, and 7 parametrized
   vector cases.
 
-### Changed
+#### Changed
 - Bumped `spec` submodule pin from baa517f to 6795979. The bump pulls in
   sanna-protocol commits SAN-381 (R1 aggregate_suppression_reasons schema
   rule), SAN-383 (A1' cv<10 forbids agent_identity schema rule), SAN-372
@@ -871,14 +877,14 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   message format changed. The relaxed match is also robust to future
   jsonschema phrasing drift.
 
-### Tickets
+#### Tickets
 - SAN-485 (this entry). Closes the "run by both SDK CIs" acceptance criterion
   of SAN-403 on the Python side. SAN-486 lands the same consumption in
   TypeScript.
 
-## [Unreleased] -- 2026-05-05 (SAN-403)
+### 2026-05-05 (SAN-403)
 
-### Added
+#### Added
 - `verify_bundle(..., trusted_key_ids=...)` parameter. When provided, the
   bundle's receipt key_id and every constitution signature key_id must
   appear in the supplied set or verification fails closed. Empty set is
@@ -894,7 +900,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   verdict is self-consistent only -- the bundle internally agrees but no
   external authority confirms the key_id's identity claim.
 
-### Security
+#### Security
 - Closes the bundle-forge attack vector at the verifier level. An adversary
   who re-signs a genuine receipt + constitution with their own key and
   repackages the bundle would, prior to this change, get a `valid=true`
@@ -902,50 +908,50 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   anchor, the warning makes the limitation visible. Approval signature
   key_ids are NOT yet checked against the trust anchor (known limitation).
 
-### Tickets
+#### Tickets
 - SAN-403 PR 1 of 3 (this entry). PR 2 (TypeScript SDK in sanna-ts) and
   PR 3 (sanna-protocol cross-SDK forged-bundle fixture + spec/SECURITY.md
   updates) follow.
 
-## [Unreleased] -- 2026-05-03 (SAN-396)
+### 2026-05-03 (SAN-396)
 
-### Added
+#### Added
 - Bidirectional emission-verifier integration: test_session_manifest_
   parent_chain.py now runs SAN-358 verify_session_manifest_receipt and
   verify_invocation_anomaly_receipt on captured gateway emission outputs.
   Asserts zero FAIL checks. Catches emission-shape drift that hand-
   crafted fixtures would miss.
 
-### Tickets
+#### Tickets
 - SAN-396 (this entry).
 
-## [Unreleased] -- 2026-05-03 (SAN-380)
+### 2026-05-03 (SAN-380)
 
-### Fixed
+#### Fixed
 - Gateway handle_list_tools: session_manifest emission protected by
   asyncio.Lock with double-checked locking. Fixes race condition
   where concurrent tools/list calls could emit duplicate manifests.
   Second concurrent call now WAITS for emission to complete before
   returning tools (no TOCTOU gap).
 
-### Tickets
+#### Tickets
 - SAN-380 Prompt A (this entry; Python half).
 
-## [Unreleased] -- 2026-05-03 (SAN-379)
+### 2026-05-03 (SAN-379)
 
-### Fixed
+#### Fixed
 - CLI + HTTP interceptors: enforcement.enforcement_mode now emits
   schema-conformant values (halt/warn/log) instead of interceptor
   mode values (enforce/audit/passthrough). Mapping: enforce->halt,
   audit->warn, passthrough->log.
 - Added jsonschema validation to interceptor tests (regression gate).
 
-### Tickets
+#### Tickets
 - SAN-379 (this entry).
 
-## [Unreleased] -- 2026-05-02 (SAN-397)
+### 2026-05-02 (SAN-397)
 
-### Added
+#### Added
 - `AnomalyTracking` dataclass + `AuthorityBoundaries.anomaly_tracking` field
   (per-surface opt-in for CLI/HTTP invocation_anomaly emission). Default: both
   false (backward compat).
@@ -960,23 +966,23 @@ surface at zero crypto cost. Cross-SDK contract preserved.
 - Spec submodule bumped to SAN-397 Prompt A (constitution.schema.json
   gains anomaly_tracking field).
 
-### Hash backward-compat
+#### Hash backward-compat
 - `constitution_to_signable_dict` omits `anomaly_tracking` when at defaults
   (both false). Pre-v1.5 constitutions hash IDENTICALLY without re-signing.
 
-### Cross-SDK
+#### Cross-SDK
 - Extension shape matches SAN-395 Section 2.22.2 reserved field names.
 - content_mode set on receipt envelope only (Section 2.22.5 field-level
   redaction is spec-ahead-of-impl, consistent with gateway server.py:2508).
 - Prompt C (TS mirror) will replicate byte-for-byte.
 
-### Tickets
+#### Tickets
 - SAN-397 Prompt B (this entry; Python half).
 - Companion: SAN-397 Prompt A (protocol, PR #27 merged), Prompt C (TS).
 
-## [Unreleased] -- 2026-05-02 (SAN-359)
+### 2026-05-02 (SAN-359)
 
-### Fixed
+#### Fixed
 - Gateway `handle_list_tools` now returns empty tools list when
   `_emit_session_manifest` fails (generation or persistence). Previously
   the gateway caught manifest failures silently and still returned the
@@ -990,130 +996,130 @@ surface at zero crypto cost. Cross-SDK contract preserved.
 - Belt-and-suspenders: `handle_list_tools` wraps `_emit_session_manifest`
   in try/except as catch-all for unexpected failures.
 
-### Security
+#### Security
 - Per PRD CT-7 (fail-closed) and Codex addendum: 'If manifest persistence
   fails in enforce mode, fail closed.' No tool-name data leaks to the agent
   on manifest failure; the response is an empty tools array.
 
-### Tickets
+#### Tickets
 - SAN-359 Prompt A (this entry; Python half).
 - Companion: SAN-359 Prompt B (TypeScript mirror).
 
-## [Unreleased] -- 2026-05-02 (SAN-358)
+### 2026-05-02 (SAN-358)
 
-### Added
+#### Added
 - New module `src/sanna/verify_manifest.py` with `verify_session_manifest_receipt()` (9 checks) and `verify_invocation_anomaly_receipt()` (3 checks). Implements verifier-side semantic enforcement of v1.5 Section 2.20 (com.sanna.manifest extension shape + determinism), Section 2.21 (suppression_reason enum), and Section 2.12 (parent_receipts binding for invocation_anomaly).
 - New public function `verify_receipt_set(receipts, schema, public_key) -> dict[receipt_id, VerificationResult]` in `src/sanna/verify.py`. Per-receipt verification + cross-receipt parent-resolution for anomaly receipts. Backward-compat: existing `verify_receipt()` signature unchanged.
 - `verify_receipt()` dispatches on `event_type` to invoke session_manifest checks. Receipts without event_type (cv=9 / pre-v1.5) skip the new dispatch entirely.
 - CLI: `sanna verify --receipt-set <pattern>` invokes verify_receipt_set. `--json-detailed` flag emits per-check machine-actionable verdict output for customer-equipping reproducibility.
 
-### Compatibility
+#### Compatibility
 - `verify_receipt(receipt)` signature unchanged; external callers continue to work.
 - cv=9 receipts: no behavior change (no event_type field, dispatch skipped).
 - AARM report (`aggregate_aarm_report` from SAN-368) unchanged. SAN-358 checks are downstream of AARM Core (R1-R6) and live in verify_receipt(), preserving the public AARM Conformance claim boundary per spec Section 14.
 
-### Cross-SDK
+#### Cross-SDK
 - Check.message text is stable and intended for byte-equal mirror in TS verifier (companion ticket SAN-358 Prompt B).
 - Cross-language verdict fixture authored in companion ticket SAN-358 Prompt C (sanna-protocol).
 
-### Tickets
+#### Tickets
 - SAN-358 Prompt A (this entry; Python half).
 - Companion: SAN-358 Prompt B (TS mirror), SAN-358 Prompt C (sanna-protocol verdict fixture).
 - Adjacent: SAN-394 (TS schema-validator gap; orthogonal; tracked separately).
 
-## [Unreleased] -- 2026-05-02 (SAN-368)
+### 2026-05-02 (SAN-368)
 
-### Added
+#### Added
 - **`sanna-verify aarm` CLI subcommand** mechanically verifies AARM Core (R1-R6) conformance on a receipt set. Per spec Section 14, this CLI makes the public conformance claim mechanically verifiable: `sanna-verify aarm <files-glob> [--format json|human] [--public-key <path>]`. Exit 0 on PASS or PARTIAL, exit 1 on FAIL.
 - **`src/sanna/aarm.py`** module with: `SANNA_TO_AARM` decision-enum mapping table (code primitive per SAN-356 G2); six per-requirement check functions (`check_r1_pre_execution_interception`, `check_r2_context_accumulation`, `check_r3_policy_evaluation`, `check_r4_decisions` with STEP_UP chain check, `check_r5_tamper_evident` with redacted-receipt acceptance, `check_r6_identity_binding` with cv-aware PASS/PARTIAL/FAIL dispatch); `aggregate_aarm_report` aggregator; `format_aarm_report` for JSON and human-readable output.
 - **R6 dispatch** per SAN-371 + SAN-370: cv=10 receipts with `agent_identity.agent_session_id` -> PASS contribution; cv=9 receipts -> PARTIAL contribution (consistent with the CV9_LEGACY warning); cv=10 receipts missing `agent_identity` -> FAIL (hard error).
 - New tests in `tests/test_san368_aarm_verifier.py` covering per-check unit tests for PASS/FAIL/PARTIAL/N/A cases, STEP_UP chain check, R6 dispatch, redacted-receipt R5 acceptance, fixture-set integration, and CLI smoke test.
 
-### Out of scope
+#### Out of scope
 - **TypeScript parity.** Lands in sanna-ts SAN-368 portion (separate Opus prompt).
 - **Spec section 'How to verify AARM conformance with sanna-verify aarm'.** Lands in sanna-protocol SAN-368 portion.
 - **SARIF output format.** Marked optional in SAN-368 ACs; deferred.
 - **Cross-language fixture parity test.** Achievable once TS parity ships; deferred to TS portion.
 
-### Tickets
+#### Tickets
 - SAN-368 (this entry; sanna-repo Python portion)
 - Predecessor: SAN-361 (Section 14 AARM Conformance and Mapping spec section, MERGED)
 - Companions: sanna-ts SAN-368 (TypeScript parity, separate PR), sanna-protocol SAN-368 (operational docs, separate PR)
 - Cross-references: SAN-356 G2 (locked decision-enum mapping), SAN-369 (MODIFY recording infrastructure), SAN-371 (CV9_LEGACY warning + cv-aware dispatch)
 
-## [Unreleased] -- 2026-05-02 (SAN-369)
+### 2026-05-02 (SAN-369)
 
-### Added
+#### Added
 - **MODIFY authority decision recording infrastructure (Python).** `sanna.enforcement.authority.build_modify_authority_decision(action, original, transformed, transformations, ...)` constructs a dict matching `AuthorityDecisionRecord` with `decision=modify_with_constraints` and the three required MODIFY recording fields (`tool_input_original`, `tool_input_transformed`, `transformations_applied`) per spec Section 2.7. Helper validates at construction time: transformations is a non-empty list of `{type, target_field, rationale}` dicts; `original` and `transformed` are string or dict. Records produced by the helper satisfy the A1' conditional rule in `receipt.schema.json` (decision=modify_with_constraints requires the three fields).
 - New test coverage in `tests/test_san369_modify_recording.py` validating: helper output schema-validates inside a full receipt; receipts missing any of the three MODIFY fields are schema-rejected; transformation items with missing/extra keys are construction-rejected; non-string-non-dict `original`/`transformed` raise ValueError; deterministic construction (two calls with identical inputs produce byte-equal records).
 
-### Out of scope
+#### Out of scope
 - **Constitution-rule-driven MODIFY emission.** `evaluate_authority` does NOT yet return `modify_with_constraints`. The rule engine (constitution boundary type for transformations + dispatch in `evaluate_authority`) is conceptually a separate ticket; SAN-369 ships only the recording-infrastructure half.
 - **Cross-SDK fixture (SAN-369 AC #4).** Lands in the sanna-protocol SAN-369 portion (hand-constructed + signed with the committed e58ed3e keypair). Not generated via `generate_fixtures.py` until SAN-391 lands.
 
-### Tickets
+#### Tickets
 - SAN-369 (this entry; sanna-repo Python portion)
 - Predecessor: SAN-204 (schema text + A1' conditional rule, MERGED)
 - Companions: sanna-ts SAN-369 portion (TypeScript parity, separate Opus prompt) + sanna-protocol SAN-369 portion (implementer's guide example + cross-SDK fixture, separate Opus prompt)
 - Verifier rejection of MODIFY receipts missing the three fields: SAN-368 (sanna-verify aarm)
 
-## [Unreleased] -- 2026-05-01 (SAN-371)
+### 2026-05-01 (SAN-371)
 
-### Added
+#### Added
 - **Verifier emits CV9_LEGACY-prefixed warning on cv=9 receipts.** When `verify_receipt(...)` processes a receipt with `checks_version=9`, the warnings list now includes a string starting with `CV9_LEGACY:` indicating partial R6 conformance only (agent_identity is absent at cv<10 per spec Section 2.19). Receipt remains valid; the warning is informational. Existing signed cv=9 receipts continue to verify successfully without re-emission.
 - New test coverage in `tests/test_san371_cv9_legacy.py` validating: cv=9 receipts emit exactly one CV9_LEGACY warning; cv=10 receipts emit no CV9_LEGACY warning; pre-v1.5 archive cv=9 fixtures verify cleanly with the warning.
 
-### Compatibility
+#### Compatibility
 - **No-action-required for existing signed cv=9 receipts.** Pre-v1.5 receipts remain cryptographically valid; their 20-field fingerprints continue to verify. Verification output now includes the CV9_LEGACY informational warning.
 - **Warning format:** flat string with `CV9_LEGACY:` prefix in `VerificationResult.warnings`. Pattern matches existing pre-v1.3 legacy warnings at `verify.py:1093-1103`.
 
-### Tickets
+#### Tickets
 - SAN-371 (this entry; sanna-repo Python portion)
 - Predecessor: SAN-371 sanna-protocol portion (migration memo at `docs/migration/cv9-to-cv10.md`, MERGED at sanna-protocol a684a33)
 - Companion: sanna-ts SAN-371 portion (TS verifier parity, separate PR)
 
-## [Unreleased] -- 2026-05-01 (SAN-392)
+### 2026-05-01 (SAN-392)
 
-### Changed
+#### Changed
 - **Bumped `spec/` submodule pin** from 9ee7527 (pre-SAN-389) to e58ed3e (post-SAN-389 sanna-protocol self-consistency fix). Brings sanna-repo's bundled keypair (`fixtures/keypairs/test-author.pub` key_id = 6edb993...) into lockstep with sanna-ts at the same pin.
 - **Synced operational schema copies** (`src/sanna/spec/receipt.schema.json`, `src/sanna/spec/constitution.schema.json`) from the new submodule snapshot per SAN-374 drift gate. Schema content unchanged (no v1.5 schema edits between 9ee7527 and e58ed3e); files refreshed for byte-identical match with submodule.
 
-### Compatibility
+#### Compatibility
 - **Cross-SDK keypair lockstep restored.** Pre-SAN-392, sanna-repo and sanna-ts at v1.5 bundled different keypairs; cross-SDK signature verification failed for receipts crossing the SDK boundary. Post-SAN-392, both repos pin spec/ at e58ed3e; bundled keypairs match.
 - **Receipt fingerprints unchanged** (formula uses pipe-joined receipt fields, not signing key). Existing tests pass without modification.
 - **Receipt signatures from cv=10 fixtures** in the new submodule snapshot were rotated by SAN-389 (re-signed with the bundled keypair). cv=9 archive signatures unchanged.
 - **No code changes.** Pure submodule + operational schema sync.
 
-### Tickets
+#### Tickets
 - SAN-392 (this entry)
 - Predecessor: SAN-389 (sanna-protocol e58ed3e + sanna-ts 8e769ec, MERGED) -- only bumped sanna-protocol + sanna-ts; missed sanna-repo
 - Unblocks: SAN-386 (v1.5 release-gate verification matrix)
 - Cross-SDK contract: SAN-355
 
-## [Unreleased] -- 2026-04-30 (SAN-385)
+### 2026-04-30 (SAN-385)
 
-### Fixed
+#### Fixed
 - **Wire-format regression (SAN-370 Prompt B fallout):** cv=9 legacy receipts emitted via the Python SDK now correctly OMIT the `agent_identity` field instead of emitting `agent_identity: null`. Per spec Section 2.19 line 780, `agent_identity` MUST be absent at cv<=9; the schema (per SAN-204) defines the field as `type: "object"` (non-nullable). SAN-370 Prompt B's `asdict(SannaReceipt)` produced `null` due to the new `Optional[dict] = None` field default. Fix: introduced `receipt_to_dict()` helper that strips `agent_identity` when None; replaced 3 production `asdict(receipt)` callers (cli.py, subprocess_interceptor.py, http_interceptor.py) plus test sites in test_pem_bytes_api, test_constitution, test_halt_event, test_constitution_lifecycle, test_v15_integrity.
 - **Verifier returned to strict schema validation:** SAN-370 Prompt B added a `None`-stripping pre-pass in `verify_schema` (verify.py:250-253) to mask the wire-format regression. SAN-385 reverts this to plain `validate(receipt, schema)`. Per CLAUDE.md governance principle, verifier-side enforcement is non-negotiable; the verifier should reject what the schema rejects.
 
-### Added
+#### Added
 - `src/sanna/receipt.py:receipt_to_dict(receipt)` -- convert `SannaReceipt` to wire dict, omitting `agent_identity` when None. Exported from `sanna` package (`sanna.__all__` grows from 21 to 22). Used at all 3 production emit sites (sanna-generate CLI, subprocess interceptor, http interceptor).
 - `tests/test_wire_format_no_nulls.py` -- asserts cv=9 wire JSON has no `agent_identity` key; cv=10 has the dict; both pass strict schema validation; cv=9 wire shape matches `spec/fixtures/receipts/archive/v1.4/`.
 
-### Compatibility
+#### Compatibility
 - **Wire format alignment with TS Prompt C:** Python now emits `agent_identity` ABSENT for cv=9 (matching TS's natural `JSON.stringify` behavior for unset optional fields). Cross-SDK byte-equal contract for wire JSON restored ahead of SAN-370 Prompt C.
 - **Pre-Prompt-B receipts (deployed pre-2026-04-30):** unaffected. They never had `agent_identity` field at all (cv=9 archive shape).
 - **Receipt fingerprints unchanged:** the cv-dispatch fingerprint formula (SAN-370 Prompt B) computes from pipe-joined fields, not from canonical JSON of the receipt body. Wire-format change does not affect fingerprint values; existing signed receipts continue to verify their fingerprints.
 
-### Tickets
+#### Tickets
 - SAN-385 (this entry)
 - Predecessor: SAN-370 Prompt B (sanna-repo a0ee706, MERGED) -- introduced the regression
 - Unblocks: SAN-370 Prompt C (sanna-ts) -- TS Prompt C will mirror Python's now-correct wire shape
 - Cross-SDK contract: SAN-355 G1
 
-## [Unreleased] -- 2026-04-30 (SAN-370 Prompt B)
+### 2026-04-30 (SAN-370 Prompt B)
 
-### Changed
+#### Changed
 - `src/sanna/version.py`: `__version__` 1.4.0 -> 1.5.0 (TOOL_VERSION; v1.5 SHIPPED moment for Python SDK runtime).
 - `src/sanna/receipt.py`: SPEC_VERSION 1.4 -> 1.5; CHECKS_VERSION 9 -> 10. Added `agent_identity` field to `SannaReceipt` dataclass. `generate_receipt()` adds `agent_identity` keyword argument with cv-dispatch: when present (and non-empty `agent_session_id`), emits cv=10 with 21-field fingerprint formula adding `agent_identity_hash` at field 21 = `hash_obj(agent_identity)`; when None (library middleware path), emits cv=9 legacy with 20-field formula and hardcoded "1.4"/"9" overrides for byte-equal compatibility with archive fixtures.
 - `src/sanna/middleware.py`: same cv-dispatch in `_generate_constitution_receipt()` and `_generate_no_invariants_receipt()`. Both paths take `agent_identity` keyword.
@@ -1126,40 +1132,40 @@ surface at zero crypto cost. Cross-SDK contract preserved.
 - `ARCHITECTURE.md`: v1.4 -> v1.5 references; cv=10 / 21-field row added to formula table; SannaReceipt field count 28 -> 29.
 - Tests: SDK constant assertions flipped to '10'/'1.5.0'; receipt-field assertions case-by-case per emission path; new `tests/test_v15_integrity.py` for cv=10 emission + verification + agent_identity round-trip; new `tests/test_cross_language_fixture_parity.py` validates Python recomputes spec/fixtures cv=10 fingerprint byte-equal.
 
-### Per-emission-site cv discipline (SAN-370 Issue Y)
+#### Per-emission-site cv discipline (SAN-370 Issue Y)
 - gateway / cli_interceptor / http_interceptor surfaces emit cv=10 with populated agent_identity.
 - middleware surface (sanna-generate CLI, sanna_generate_receipt MCP tool, @sanna_observe decorator path) emits cv=9 legacy with no agent_identity, per spec Section 2.19 line 781-782.
 
-### Compatibility
+#### Compatibility
 - **Receipt fingerprint compatibility:** Existing signed cv=9 receipts continue to verify via the 20-field formula; the verifier dispatches on `checks_version`. Re-emission post-upgrade from gateway/interceptor surfaces produces cv=10 receipts with new field 21; library middleware re-emission preserves cv=9 byte-equal output.
 - **TOOL_VERSION bumps to 1.5.0 globally** (no per-callsite override). All Python SDK emissions report tool_version=1.5.0 even when emitting cv=9 legacy receipts. The receipt's spec_version/checks_version reflect the per-emission cv decision; tool_version reflects the SDK runtime.
 - **pyproject.toml stays at 1.3.0** (PyPI publication is gated by a separate release ticket; pre-existing convention per CHANGELOG history).
 
-### Tickets
+#### Tickets
 - SAN-370 Prompt B (this entry)
 - Predecessor: SAN-370 Prompt A (sanna-protocol 9ee7527; v1.5 fixtures + schema $id flip).
 - Successor: SAN-370 Prompt C (sanna-ts mirror).
 - Forward-pointers: SAN-383 (cv<10 -> agent_identity-absent negative schema rule, Backlog), SAN-384 (apply content_mode redaction to agent_identity sub-fields, Backlog).
 - Out-of-scope: SAN-368 (AARM verifier R6 PASS/PARTIAL), SAN-369 (MODIFY parameter recording), SAN-371 (cv=10 cascade legacy warnings + customer notification).
 
-## [Unreleased] -- 2026-04-30 (SAN-378 Prompt B)
+### 2026-04-30 (SAN-378 Prompt B)
 
-### Changed
+#### Changed
 - `src/sanna/manifest.py`: `_generate_cli_surface` and `_generate_http_surface` now emit `suppression_reasons: dict[str, str]` per v1.5 spec Section 2.20.2. Empty dict when no suppressions; populated when the constitution's commands/endpoints declare `cannot_execute` or `must_escalate` with `escalation_visibility=suppressed`. Mirrors the mcp surface's existing `suppression_reasons` algorithm.
 - `spec/` submodule pin bumped from sanna-protocol `f89c8c9` to `03160f1` (SAN-378 Prompt A merge: MC-006 + MC-007 fixture vectors updated to include `suppression_reasons`).
 - Existing tests updated where they asserted cli/http surface output shape (Issue 14-equivalent for SAN-378). Each updated assertion now includes the new `suppression_reasons` field.
 
-### Compatibility
+#### Compatibility
 - **Receipt fingerprint compatibility:** post-SAN-378 receipts include `suppression_reasons` in cli/http surfaces (per v1.5 Section 2.20.2). This changes the canonical JSON shape and therefore the receipt fingerprint when cli/http surfaces have suppressed entries. Existing signed receipts remain valid (signature is over what was emitted). Re-emission of the same input post-upgrade produces a different fingerprint than pre-upgrade. Verifiers should accept receipts as-emitted; cross-version fingerprint replay is not a conformance test.
 - **Cross-SDK lockstep:** sanna-ts SDK is updated in SAN-378 Prompt C (in flight). Until Prompt C merges, sanna-ts emits cli/http surfaces WITHOUT `suppression_reasons` while sanna-repo emits them WITH the field. Cross-SDK divergence during this window is bounded; no fingerprint compatibility implication beyond the per-SDK note above.
 
-### Tickets
+#### Tickets
 - SAN-378 Prompt B (this entry)
 - Companion: SAN-378 Prompt A (sanna-protocol fixture update, MERGED at 03160f1), SAN-378 Prompt C (sanna-ts mirror, in flight). SAN-376 (cross-SDK fixture origin), SAN-202 (Python manifest origin, will be annotated post-done on full SAN-378 close), SAN-377 (spec clarification, MERGED), SAN-382 (R1 schema-rule enforcement gap, deferred Backlog).
 
-## [Unreleased] -- 2026-04-30 (SAN-206)
+### 2026-04-30 (SAN-206)
 
-### Added
+#### Added
 - `manifest.py`: `generate_manifest` gains `surfaces` and `content_mode` params. Surfaces filter restricts the returned `surfaces` dict to listed surfaces. content_mode applies v1.5 Section 2.14 (post-SAN-377) redaction.
 - Gateway `_emit_session_manifest`: passes `surfaces=['mcp']` + `content_mode=self._content_mode or None`. Sets receipt content_mode + content_mode_source. Captures `_manifest_full_fingerprint` BEFORE persistence.
 - Gateway `_suppressed_tool_names: set[str]` populated by `_build_tool_list`.
@@ -1167,81 +1173,79 @@ surface at zero crypto cost. Cross-SDK contract preserved.
 - CLI + HTTP interceptors emit per-surface session_manifest at patch time. Mode-aware fail-closed/fail-open.
 - New tests: content vectors, content_mode redaction shapes with schema validation, parent-chain integrity.
 
-### Changed
+#### Changed
 - `spec/` submodule pin bumped from `5bfee54` to `f89c8c9` (post-SAN-376 + SAN-377).
 
-### Compatibility
+#### Compatibility
 - `generate_manifest` signature backwards-compatible.
 - Gateway session_manifest receipts now include only `surfaces.mcp` (resolves SAN-202/203 multi-surface defect).
 - Gateway session_manifest receipts under `content_mode=redacted/hashes_only` apply spec-conformant redaction (resolves SAN-202/203 content_mode defect).
 - New invocation_anomaly receipts on calls to suppressed tools.
 - Interceptors emit session_manifest at patch time; enforce mode raises if sink rejects manifest.
 
-### Out of scope (follow-ups)
+#### Out of scope (follow-ups)
 - TS mirror: SAN-209.
 - Existing CLI/HTTP interceptor enforcement_mode schema bug: SAN-379.
 - Cross-SDK redacted/hashes_only fixtures: SAN-380 post-SAN-209.
 
-### Tickets
+#### Tickets
 - SAN-206 (this entry)
 - Companion: SAN-209, SAN-202 (annotated x2), SAN-203 (annotated x2), SAN-204, SAN-205, SAN-376, SAN-377 (merged), SAN-378/379/380 (deferred).
 
-## [Unreleased] -- 2026-04-30 (SAN-202)
+### 2026-04-30 (SAN-202)
 
-### Added
+#### Added
 - New module `src/sanna/manifest.py` with `generate_manifest(constitution, mcp_tools=None) -> dict`. Reads the constitution's `authority_boundaries`, `cli_permissions`, and `api_permissions` and produces the `com.sanna.manifest` extension dict per v1.5 spec Section 2.20. snake_case keys; deterministic sorted lists; stable suppression_reason enum (Section 2.21).
 - Gateway `_build_tool_list()` applies authority filtering: suppress `cannot_execute` tools; suppress `must_escalate` tools when `constitution.authority_boundaries.escalation_visibility == 'suppressed'`; deliver `can_execute` and (default) `must_escalate` tools. Suppressed tools are absent from `tools/list` (anti-enumeration).
 - Gateway `handle_list_tools` emits a `session_manifest` receipt on the FIRST tools/list call per gateway lifecycle. State-tracked via `self._manifest_emitted: bool`. Subsequent calls return the filtered list without emitting another manifest. Receipt has `event_type="session_manifest"`, `invariants_scope="none"`, `enforcement` absent (per v1.5 Section 2.16.3).
 
-### Compatibility
+#### Compatibility
 - Pre-Manifest gateway behavior preserved when no constitution is loaded: tools pass through unfiltered, no manifest receipt emitted.
 - v1.4-era constitutions (no `escalation_visibility`) default to `"visible"` per SAN-205. must_escalate tools remain in tools/list as before.
 
-### Tickets
+#### Tickets
 - SAN-202 (this entry)
 - Companion: SAN-203 (TS gateway filtering, mirror of this), SAN-206 (Python interceptor manifest emission), SAN-209 (TS interceptor manifest emission), SAN-205 (constitution authority enum support, already merged), SAN-374 (sanna-repo schema sync, already merged), SAN-204 (v1.5 protocol schema, already merged).
 
-## [Unreleased] -- 2026-04-30 (SAN-205)
+### 2026-04-30 (SAN-205)
 
-### Added
+#### Added
 - `AuthorityBoundaries.escalation_visibility` field (v1.5+, default `"visible"`). Backward-compatible: pre-v1.5 constitutions without the field validate cleanly with the default.
 - `Composition` dataclass + optional `Constitution.composition` field. Phase 1 contains only `escalation_visibility`. Phase 2 will add a composition rule engine. Optional; absent in pre-v1.5 constitutions.
 - `AuthorityDecision.decision` legal values extended with `modify` and `defer` (v1.5+). Reserved for future runtime evaluators (SAN-369 emits MODIFY first). evaluate_authority does not return either value in v1.5.
 - `AuthorityDecision.boundary_type` legal values extended with `modify_with_constraints` and `defer_for_context` (v1.5+, reserved).
 
-### Compatibility
+#### Compatibility
 - v1.4-era constitutions WITHOUT escalation_visibility or composition validate cleanly; defaults applied. No migration needed for existing customers.
 - AuthorityDecision shape unchanged at the field level; only the documented legal values for `decision` and `boundary_type` expanded.
 
-### Tickets
+#### Tickets
 - SAN-205 Python half (this entry; companion TS PR also incoming under same ticket).
 - Companion: SAN-202 (Python manifest.py + gateway filtering, depends on this), SAN-204 (v1.5 protocol schema), SAN-374 (sanna-repo schema sync, already merged).
 
-## [Unreleased] -- 2026-04-30
+### 2026-04-30
 
-### Changed
+#### Changed
 - Submodule `spec/` bumped from sanna-protocol commit `72097f2` to `5bfee54` (post-SAN-204; sanna-protocol v1.5 release). v1.5 introduces 10 new event_type values, the `mixed` enforcement_surface, agent_identity field (required at cv=10), the com.sanna.manifest extension namespace, the suppression_reason enum, and the modify_with_constraints + defer_for_context authority decisions.
 - Operational schema copies `src/sanna/spec/receipt.schema.json` and `src/sanna/spec/constitution.schema.json` synchronized to match the bumped submodule's contents.
 
-### Added (governance)
+#### Added (governance)
 - CI drift gate in `.github/workflows/ci.yml`: every push and pull request runs `diff -q spec/schemas/<file>.json src/sanna/spec/<file>.json` for both schemas. Fails CI if the operational copy ever drifts from the submodule. Prevents silent re-drift on future protocol updates.
 - CONTRIBUTING.md: dual-location pattern documented; sync recipe included for future protocol bumps.
 
-### Compatibility
+#### Compatibility
 - cv=9 receipts continue to validate against the new schema (SAN-204 used CONDITIONAL cv=10 rules so the new requirements are no-ops at cv<10). All existing golden receipts pass.
 - This bump alone does NOT activate cv=10 in the SDK. SDK code flips CHECKS_VERSION 9 -> 10 in SAN-370.
 
-### Tickets
+#### Tickets
 - SAN-374 (this entry)
 - Companion: SAN-375 (sanna-ts schema sync), SAN-205 (constitution authority enum + escalation_visibility), SAN-202/203/209/370/371 (SDK feature work that depends on this sync).
 
-# Changelog
 
-**Note:** v0.13.x is the first public release series. Earlier version entries document internal pre-release development.
 
-## [Unreleased] - SAN-215
+### SAN-215
 
-### Added — SAN-215
+#### Added — SAN-215
 
 - `sanna.cloud.load_constitution_from_cloud(...)` — fetches a Cloud-managed
   constitution, verifies its Ed25519 signature, and returns a `Constitution`
@@ -1255,7 +1259,7 @@ surface at zero crypto cost. Cross-SDK contract preserved.
   factored out of `load_constitution(path)`. Public API of `load_constitution`
   is unchanged.
 
-### Notes
+#### Notes
 
 - TS SDK equivalent (`packages/core/src/cloud/constitution.ts`) is deferred to
   Sprint 16 per Gate 1 status. Python and TS Cloud fetch will be at parity
