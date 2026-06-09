@@ -113,7 +113,7 @@
 
 **Spec text must match code behavior exactly:** When editing spec text, read the implementation first. Third-party Go/Rust implementers will build to the spec text, not the Python source.
 
-**`SPEC_VERSION` field:** `receipt.py` constant is now `SPEC_VERSION = "1.4"`. Receipt JSON uses `spec_version` field, not `schema_version`. See `sanna-protocol/VERSIONING.md` for skip-version policy.
+**`SPEC_VERSION` field:** `receipt.py` constants are `SPEC_VERSION = "1.5"` and `CHECKS_VERSION = "10"`. Receipt JSON uses `spec_version` field, not `schema_version`. See `sanna-protocol/VERSIONING.md` for skip-version policy.
 
 **CloudHTTPSink retry semantics:** 400/401/403 are never retried (client errors). 409 is treated as success (duplicate). 429/503/5xx are retried with exponential backoff.
 
