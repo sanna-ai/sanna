@@ -63,3 +63,18 @@ class TestVersionConsistency:
         from sanna.version import __version__
         assert __version__ == sanna.__version__
         assert __version__ == TOOL_VERSION
+
+    def test_pyproject_version_matches_package(self):
+        import pathlib
+        path = pathlib.Path(__file__).parents[1] / "pyproject.toml"
+        try:
+            import tomllib
+            pyproject_version = tomllib.loads(path.read_text())["project"]["version"]
+        except ModuleNotFoundError:  # Python 3.10 has no tomllib
+            import re
+            m = re.search(r'(?ms)^\[project\].*?^version\s*=\s*"([^"]+)"', path.read_text())
+            assert m, "pyproject [project].version not found"
+            pyproject_version = m.group(1)
+        assert pyproject_version == sanna.__version__, (
+            f"pyproject {pyproject_version} != __version__ {sanna.__version__}"
+        )

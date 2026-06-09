@@ -1,3 +1,16 @@
+## [Unreleased] -- 2026-06-08 (SAN-795)
+
+### Added
+- Python SDK reference (docs/python-sdk-reference.md) and cookbook (docs/cookbook.md).
+- Version-consistency test: pyproject.toml [project].version must equal sanna.__version__.
+
+### Fixed
+- Corrected pyproject.toml package version 1.3.0 -> 1.5.0 (it lagged the 1.4.0/1.5.0 bumps; version.py, receipt emission, and tests were already 1.5.0).
+- README API Reference export count (17 -> 23) and missing names; version notes (1.3.0 -> 1.5.0); broken spec links (parent path / v1.0 -> sanna-protocol / v1.5).
+- docs/conventions.md stale SPEC_VERSION/CHECKS_VERSION note (1.4/9 -> 1.5/10).
+
+---
+
 ## [Unreleased] -- 2026-06-03 (SAN-765, Phase C3)
 
 ### Changed

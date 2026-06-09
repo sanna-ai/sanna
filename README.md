@@ -5,7 +5,7 @@
 
 Sanna generates portable cryptographic receipts attesting to governance outcomes. The `@sanna_observe` decorator is post-execution detection and attestation -- the wrapped function executes before output checks run, so its side effects are not prevented; the gateway and interceptor surfaces enforce governance pre-execution and block disallowed actions before they occur. An opt-in pre-execution reasoning gate in `@sanna_observe` activates when a constitution defines reasoning checks and `_justification` is supplied. Constitution-as-code: your governance rules live in version-controlled YAML, not in a vendor dashboard.
 
-## What's New in v1.3.0
+## What's New in v1.5.0
 
 - **`enforcement_surface` field** — Receipts now record which SDK component generated them (`middleware`, `gateway`, `cli_interceptor`, `http_interceptor`).
 - **`invariants_scope` field** — Receipts record which invariants were evaluated (`full`, `authority_only`, `limited`, `none`).
@@ -145,14 +145,14 @@ This generates keys, creates a constitution, simulates a governed tool call, gen
 
 ## Receipt Format
 
-Every governed action produces a reasoning receipt — a JSON artifact that cryptographically binds inputs, outputs, check results, and constitution provenance. See [spec/sanna-specification-v1.0.md](https://github.com/sanna-ai/sanna/blob/main/spec/spec/sanna-specification-v1.0.md) for the full specification.
+Every governed action produces a reasoning receipt — a JSON artifact that cryptographically binds inputs, outputs, check results, and constitution provenance. See [spec/sanna-specification-v1.5.md](https://github.com/sanna-ai/sanna-protocol/blob/main/spec/sanna-specification-v1.5.md) for the full specification.
 
 **Identification**
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `spec_version` | string | Schema version, `"1.5"` |
-| `tool_version` | string | Package version, e.g. `"1.3.0"` |
+| `tool_version` | string | Package version, e.g. `"1.5.0"` |
 | `checks_version` | string | Check algorithm version, e.g. `"10"` |
 | `receipt_id` | string | UUID v4 unique identifier |
 | `correlation_id` | string | Path-prefixed identifier for grouping related receipts |
@@ -217,14 +217,14 @@ Every governed action produces a reasoning receipt — a JSON artifact that cryp
 | `content_mode` | string or null | `"full"` or `"hash_only"` — whether inputs/outputs are stored or only hashed |
 | `content_mode_source` | string or null | Where the content_mode setting originated |
 
-This section provides a high-level overview. For a complete field reference and normative format details, see [spec/sanna-specification-v1.0.md](https://github.com/sanna-ai/sanna/blob/main/spec/spec/sanna-specification-v1.0.md).
+This section provides a high-level overview. For a complete field reference and normative format details, see [spec/sanna-specification-v1.5.md](https://github.com/sanna-ai/sanna-protocol/blob/main/spec/sanna-specification-v1.5.md).
 
 Minimal example receipt (abbreviated -- production receipts typically contain 3-7 checks):
 
 ```json
 {
   "spec_version": "1.5",
-  "tool_version": "1.3.0",
+  "tool_version": "1.5.0",
   "checks_version": "10",
   "receipt_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
   "receipt_fingerprint": "7b4d06e836514eef",
@@ -432,9 +432,14 @@ All commands are available as `sanna <command>` or `sanna-<command>`:
 | `sanna bundle-verify` | Verify evidence bundle (7-step) |
 | `sanna generate` | Generate receipt from trace-data JSON |
 
+## Documentation
+
+- [Python SDK Reference](https://github.com/sanna-ai/sanna/blob/main/docs/python-sdk-reference.md) — full API surface: signatures, parameters, examples for every domain.
+- [Cookbook](https://github.com/sanna-ai/sanna/blob/main/docs/cookbook.md) — recipes for interceptors, custom evaluators, drift reports, and evidence bundles.
+
 ## API Reference
 
-The top-level `sanna` package exports 17 names:
+The top-level `sanna` package exports 23 names:
 
 ```python
 from sanna import (
@@ -443,6 +448,7 @@ from sanna import (
     SannaResult,          # Return type from @sanna_observe-wrapped functions
     SannaHaltError,       # Raised when a halt-enforcement invariant fails
     generate_receipt,     # Generate a receipt from trace data
+    receipt_to_dict,      # Serialize SannaReceipt dataclass to plain dict
     SannaReceipt,         # Receipt dataclass
     verify_receipt,       # Offline receipt verification
     VerificationResult,   # Verification result dataclass
@@ -454,12 +460,19 @@ from sanna import (
     LocalSQLiteSink,      # SQLite-backed local persistence
     CloudHTTPSink,        # HTTP endpoint with retry and buffer-on-failure
     CompositeSink,        # Fan-out to multiple sinks
-    SinkResult,           # Result from a sink.send() call
-    FailurePolicy,        # Enum: LOG, BUFFER, RAISE
+    SinkResult,           # Result from a sink.store() call
+    FailurePolicy,        # Enum: LOG_AND_CONTINUE, RAISE, BUFFER_AND_RETRY
+    # Interceptors
+    patch_subprocess,     # Patch subprocess module for governance enforcement
+    unpatch_subprocess,   # Restore original subprocess functions
+    patch_http,           # Patch HTTP libraries for governance enforcement
+    unpatch_http,         # Restore original HTTP functions
+    # Redaction
+    RedactionConfig,      # PII redaction controls for receipt content
 )
 ```
 
-Everything else imports from submodules: `sanna.constitution`, `sanna.crypto`, `sanna.enforcement`, `sanna.evaluators`, `sanna.verify`, `sanna.bundle`, `sanna.hashing`, `sanna.drift`, `sanna.sinks`.
+Everything else imports from submodules: `sanna.constitution`, `sanna.crypto`, `sanna.enforcement`, `sanna.evaluators`, `sanna.verify`, `sanna.bundle`, `sanna.hashing`, `sanna.drift`, `sanna.sinks`, `sanna.constitution_diff`.
 
 ## Verification
 
@@ -522,7 +535,7 @@ No network. No API keys. No vendor dependency.
 - **Canonicalization**: Sorted keys, NFC Unicode normalization, integer-only numerics (no floats in signed content)
 - **Fingerprinting**: 14 pipe-delimited fields hashed with SHA-256; 16-hex truncation for display, 64-hex for full fingerprint
 
-See the [specification](https://github.com/sanna-ai/sanna/blob/main/spec/spec/sanna-specification-v1.0.md) for full cryptographic construction details.
+See the [specification](https://github.com/sanna-ai/sanna-protocol/blob/main/spec/sanna-specification-v1.5.md) for full cryptographic construction details.
 
 ## Threat Model
 
