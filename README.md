@@ -323,7 +323,7 @@ from sanna.evaluators import register_invariant_evaluator
 from sanna.receipt import CheckResult
 
 @register_invariant_evaluator("INV_PII_CHECK")
-def pii_check(query, context, output, **kwargs):
+def pii_check(context, output, constitution, check_config):
     """Flag outputs containing email addresses."""
     import re
     has_pii = bool(re.search(r'\b[\w.+-]+@[\w-]+\.[\w.]+\b', output))
@@ -386,7 +386,7 @@ gateway:
     path: .sanna/receipts.db
 ```
 
-Available sink types: `null` (no-op), `local_sqlite`, `cloud_http`, `composite`. The `FailurePolicy` enum controls behavior on sink errors: `LOG` (default), `BUFFER` (retry later), `RAISE` (fail the operation).
+Available sink types: `null` (no-op), `local_sqlite`, `cloud_http`, `composite`. The `FailurePolicy` enum controls behavior on sink errors: `LOG_AND_CONTINUE` (default -- log and proceed), `RAISE` (propagate the error), `BUFFER_AND_RETRY` (buffer to disk and retry later).
 
 ## Constitution Templates
 

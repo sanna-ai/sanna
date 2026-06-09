@@ -8,6 +8,7 @@
 - Corrected pyproject.toml package version 1.3.0 -> 1.5.0 (it lagged the 1.4.0/1.5.0 bumps; version.py, receipt emission, and tests were already 1.5.0).
 - README API Reference export count (17 -> 23) and missing names; version notes (1.3.0 -> 1.5.0); broken spec links (parent path / v1.0 -> sanna-protocol / v1.5).
 - docs/conventions.md stale SPEC_VERSION/CHECKS_VERSION note (1.4/9 -> 1.5/10).
+- README + cookbook accuracy: FailurePolicy enum values (LOG/BUFFER/RAISE -> LOG_AND_CONTINUE/RAISE/BUFFER_AND_RETRY); custom-evaluator callback signature corrected to (context, output, constitution, check_config); interceptor enforcement-mode exception semantics (audit emits a receipt without raising; escalate raises PermissionError in enforce mode).
 
 ---
 

@@ -34,9 +34,9 @@ finally:
 ```
 
 **Enforcement modes:**
-- `"enforce"` — violations raise `FileNotFoundError` (subprocess) or `ConnectionError` (HTTP) and halt the call.
-- `"audit"` — violations raise `PermissionError` but generate a receipt and continue.
-- `"passthrough"` — generates receipts, never blocks.
+- `"enforce"` — a denied call raises `FileNotFoundError` (subprocess) or `ConnectionError` (HTTP); an escalation-required call raises `PermissionError` (both surfaces). The call is blocked.
+- `"audit"` — a receipt is emitted for denied or escalation-required calls, but the call is **not** blocked (no exception raised).
+- `"passthrough"` — receipts are emitted; calls are never blocked.
 
 **Important:** The interceptors use in-process monkeypatching (cooperative code only). For untrusted or adversarial code, use the gateway (out-of-process MCP proxy). See [docs/deployment-tiers.md](https://github.com/sanna-ai/sanna/blob/main/docs/deployment-tiers.md).
 
