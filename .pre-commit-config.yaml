@@ -4,3 +4,11 @@ repos:
     hooks:
       - id: detect-private-key
         name: Block PEM private keys
+  - repo: local
+    hooks:
+      - id: state-doc
+        name: Regenerate docs/state.md (fails if it was stale)
+        entry: python3 tools/generate_state_doc.py
+        language: system
+        pass_filenames: false
+        always_run: true

@@ -224,11 +224,16 @@ def main() -> None:
         timestamp = datetime.datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         content = generate_full(root, timestamp)
         (root / "docs").mkdir(exist_ok=True)
-        state_path.write_text(content)
-        print(
-            f"Generated docs/state.md "
-            f"(version={get_version(root)}, tests={count_test_files(root)})"
-        )
+        if state_path.exists() and _comparable(state_path.read_text()) == _comparable(content):
+            # Idempotent: only the volatile timestamp would change. Skip the write so
+            # the auto-regen pre-commit hook does not churn docs/state.md every commit.
+            print("docs/state.md is already up to date (timestamp-only change skipped).")
+        else:
+            state_path.write_text(content)
+            print(
+                f"Generated docs/state.md "
+                f"(version={get_version(root)}, tests={count_test_files(root)})"
+            )
 
 
 if __name__ == "__main__":
