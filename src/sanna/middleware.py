@@ -369,6 +369,89 @@ def _build_source_trust_evaluations(
 
 
 # =============================================================================
+# INVARIANTS SCOPE DERIVATION (SAN-863)
+# =============================================================================
+
+# Statuses that mean "did not execute" for coverage purposes (spec 2.16.2).
+# Matches the exclusion set already used for pass/fail counting below —
+# reused here rather than redefined so the two derivations cannot drift.
+_NON_EVALUATED_STATUSES = ("NOT_CHECKED", "ERRORED")
+
+
+def _derive_invariants_scope(
+    requested_scope: Optional[str],
+    check_results: List[dict],
+    declared_invariant_ids: Optional[Sequence[str]] = None,
+) -> tuple[str, Optional[dict]]:
+    """Derive invariants_scope and, when limited, a coverage extension.
+
+    Assurance metadata must be DERIVED from observed execution, never
+    supplied by the party being assured (spec 2.16.2). A caller-declared
+    scope may only LOWER the claim, never raise it:
+
+    - Any explicit value other than "full" (i.e. "authority_only", "none",
+      or defensively anything else) is a caller-asserted floor describing
+      a receipt where invariant evaluation does not occur by design.
+      Honored unchanged -- never upgraded, never re-derived.
+    - "full" or omitted (None) is derived from observed execution: every
+      invariant DECLARED in the constitution must have produced an
+      executed check entry (status not in NOT_CHECKED/ERRORED), or the
+      claim is downgraded to "limited".
+
+    ``declared_invariant_ids`` should be the invariant IDs from the loaded
+    constitution -- the actual source of truth for what was declared, not
+    whatever happened to land in check_results. When omitted, falls back
+    to the invariant IDs that appear anywhere in check_results (via
+    ``triggered_by``); this is equivalent to the true declared set for
+    every caller today, since configure_checks() currently places every
+    declared invariant into either an executed check or a NOT_CHECKED
+    custom record. Passing declared_invariant_ids explicitly keeps the
+    derivation correct even if a future bug drops an invariant before it
+    ever reaches check_results.
+
+    Returns (resolved_scope, coverage_extension_or_None).
+    """
+    if requested_scope not in (None, "full"):
+        return requested_scope, None
+
+    ids_in_results = {
+        c.get("triggered_by") for c in check_results
+        if c.get("triggered_by") is not None
+    }
+    declared_ids = set(declared_invariant_ids) if declared_invariant_ids else ids_in_results
+
+    executed_ids = {
+        c.get("triggered_by") for c in check_results
+        if c.get("triggered_by") is not None
+        and c.get("status") not in _NON_EVALUATED_STATUSES
+    }
+
+    missing = declared_ids - executed_ids
+    if not missing:
+        return "full", None
+
+    status_by_id = {
+        c.get("triggered_by"): c.get("status")
+        for c in check_results
+        if c.get("triggered_by") is not None
+    }
+    skipped = [
+        {"id": inv_id, "reason": status_by_id.get(inv_id, "DROPPED")}
+        for inv_id in missing
+    ]
+    skipped.sort(key=lambda entry: entry["id"])
+
+    coverage_extension = {
+        "com.sanna.coverage": {
+            "invariants_declared": len(declared_ids),
+            "invariants_executed": len(executed_ids),
+            "skipped": skipped,
+        }
+    }
+    return "limited", coverage_extension
+
+
+# =============================================================================
 # CONSTITUTION-DRIVEN RECEIPT GENERATION
 # =============================================================================
 
@@ -390,13 +473,23 @@ def _generate_constitution_receipt(
     content_mode: Optional[str] = None,
     content_mode_source: Optional[str] = None,
     enforcement_surface: str = "middleware",
-    invariants_scope: str = "full",
+    invariants_scope: Optional[str] = None,
     agent_identity: Optional[dict] = None,
+    declared_invariant_ids: Optional[Sequence[str]] = None,
 ) -> dict:
     """Generate a receipt using constitution-driven check configs.
 
     Runs only the checks specified by check_configs, at their enforcement
     levels, and includes custom invariant records as NOT_CHECKED.
+
+    invariants_scope: Caller-declared scope, or None/"full" to derive it
+        from observed execution (SAN-863; see _derive_invariants_scope).
+        A caller-declared "full" is downgraded to "limited" if execution
+        did not actually cover every declared invariant -- it is never
+        honored as-is.
+    declared_invariant_ids: Invariant IDs from the loaded constitution,
+        used as the source of truth for derivation. See
+        _derive_invariants_scope for the fallback when omitted.
     """
     final_answer, answer_provenance = select_final_answer(trace_data)
     context = extract_context(trace_data)
@@ -485,8 +578,16 @@ def _generate_constitution_receipt(
             "replayable": False,
         })
 
+    # Derive invariants_scope from observed execution (SAN-863) — must run
+    # after check_results is final and before extensions/fingerprint are
+    # built, so the resolved scope and coverage extension are covered by
+    # the signature (both participate in the fingerprint: fields 12 & 16).
+    resolved_invariants_scope, _coverage_extension = _derive_invariants_scope(
+        invariants_scope, check_results, declared_invariant_ids,
+    )
+
     # Count pass/fail (NOT_CHECKED and ERRORED don't count as failures)
-    _NON_EVALUATED = ("NOT_CHECKED", "ERRORED")
+    _NON_EVALUATED = _NON_EVALUATED_STATUSES
     standard_checks = [c for c in check_results if c.get("status") not in _NON_EVALUATED]
     not_evaluated = [c for c in check_results if c.get("status") in _NON_EVALUATED]
     passed = sum(1 for c in standard_checks if c["passed"])
@@ -591,6 +692,9 @@ def _generate_constitution_receipt(
 
     # Namespace extensions for v0.13.0+
     namespaced_ext = _namespace_extensions(extensions) if extensions else {}
+    if _coverage_extension:
+        # Merge, don't clobber — preserve any other extensions the caller set.
+        namespaced_ext.update(_coverage_extension)
 
     # SAN-370: cv-dispatch on agent_identity presence (Issue Y design lock)
     if agent_identity is not None:
@@ -621,7 +725,7 @@ def _generate_constitution_receipt(
         "parent_receipts": parent_receipts,
         "workflow_id": workflow_id,
         "enforcement_surface": enforcement_surface,
-        "invariants_scope": invariants_scope,
+        "invariants_scope": resolved_invariants_scope,
         "tool_name": TOOL_NAME,
         "agent_identity": agent_identity,
     })
@@ -650,7 +754,7 @@ def _generate_constitution_receipt(
         "checks_failed": failed,
         "status": status,
         "enforcement_surface": enforcement_surface,
-        "invariants_scope": invariants_scope,
+        "invariants_scope": resolved_invariants_scope,
         "tool_name": TOOL_NAME,
         "evaluation_coverage": evaluation_coverage,
         "constitution_ref": constitution_ref,
@@ -695,13 +799,19 @@ def _generate_no_invariants_receipt(
     content_mode: Optional[str] = None,
     content_mode_source: Optional[str] = None,
     enforcement_surface: str = "middleware",
-    invariants_scope: str = "full",
+    invariants_scope: Optional[str] = None,
     agent_identity: Optional[dict] = None,
+    declared_invariant_ids: Optional[Sequence[str]] = None,
 ) -> dict:
     """Generate a receipt for a constitution with no invariants.
 
     No checks run. The receipt documents that no invariants were defined.
     Uses the unified fingerprint formula (v1.3, 16 fields).
+
+    invariants_scope / declared_invariant_ids: see _generate_constitution_
+    receipt. With no checks run, declared_invariant_ids is normally empty
+    (a constitution with zero declared invariants) so derivation naturally
+    resolves to "full" — this path's semantics are unchanged by SAN-863.
     """
     final_answer, _answer_provenance = select_final_answer(trace_data)
     context = extract_context(trace_data)
@@ -722,8 +832,18 @@ def _generate_no_invariants_receipt(
 
     correlation_id = trace_data.get("correlation_id", "")
 
+    # Derive invariants_scope from observed execution (SAN-863). No checks
+    # run on this path, so this resolves to "full" unless the caller passes
+    # declared_invariant_ids that are non-empty (which should not happen
+    # for a genuine zero-invariant constitution) — see docstring.
+    resolved_invariants_scope, _coverage_extension = _derive_invariants_scope(
+        invariants_scope, [], declared_invariant_ids,
+    )
+
     # Namespace extensions for v0.13.0+
     namespaced_ext = _namespace_extensions(extensions) if extensions else {}
+    if _coverage_extension:
+        namespaced_ext.update(_coverage_extension)
 
     # SAN-370: cv-dispatch on agent_identity presence (Issue Y design lock)
     if agent_identity is not None:
@@ -749,7 +869,7 @@ def _generate_no_invariants_receipt(
         "parent_receipts": parent_receipts,
         "workflow_id": workflow_id,
         "enforcement_surface": enforcement_surface,
-        "invariants_scope": invariants_scope,
+        "invariants_scope": resolved_invariants_scope,
         "tool_name": TOOL_NAME,
         "agent_identity": agent_identity,
     })
@@ -778,7 +898,7 @@ def _generate_no_invariants_receipt(
         "checks_failed": 0,
         "status": "PASS",
         "enforcement_surface": enforcement_surface,
-        "invariants_scope": invariants_scope,
+        "invariants_scope": resolved_invariants_scope,
         "tool_name": TOOL_NAME,
         "constitution_ref": constitution_ref,
     }
@@ -1255,6 +1375,13 @@ def sanna_observe(
         if check_configs is not None:
             constitution_version = loaded_constitution.schema_version if loaded_constitution else ""
 
+            # SAN-863: derive invariants_scope against what the constitution
+            # actually declared, not against whatever landed in check_results.
+            _declared_invariant_ids = (
+                [inv.id for inv in loaded_constitution.invariants]
+                if loaded_constitution else None
+            )
+
             if not check_configs and not custom_records:
                 receipt = _generate_no_invariants_receipt(
                     trace_data,
@@ -1262,6 +1389,7 @@ def sanna_observe(
                     extensions=extensions,
                     parent_receipts=parent_receipts,
                     workflow_id=workflow_id,
+                    declared_invariant_ids=_declared_invariant_ids,
                 )
             else:
                 receipt = _generate_constitution_receipt(
@@ -1276,6 +1404,7 @@ def sanna_observe(
                     error_policy=error_policy,
                     parent_receipts=parent_receipts,
                     workflow_id=workflow_id,
+                    declared_invariant_ids=_declared_invariant_ids,
                 )
 
                 halt_checks = []
@@ -1330,6 +1459,7 @@ def sanna_observe(
                         error_policy=error_policy,
                         parent_receipts=parent_receipts,
                         workflow_id=workflow_id,
+                        declared_invariant_ids=_declared_invariant_ids,
                     )
 
         else:
